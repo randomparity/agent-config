@@ -102,6 +102,8 @@ The portable schema is deliberately smaller than any client's extensions:
 - bundled resources are addressed relative to the skill directory;
 - installed config roots for Claude, Codex, and Bob are never named by shared
   workflow execution; target-repository paths remain repository-relative;
+- canonical skill packages contain regular files and directories only, with no
+  symlinks; executable mode is part of a file's identity;
 - behavior cannot depend on vendor-specific frontmatter; and
 - a product-specific capability is permitted only when it is the workflow's
   declared subject and its absence produces an actionable stop.
@@ -247,13 +249,15 @@ Add `scripts/check-skill-layout.sh` and a `skills-check` recipe. The guard:
 4. rejects every `SKILL.md` and every command-directory file under `agents/`;
 5. rejects behavior-bearing vendor frontmatter in canonical `SKILL.md` files;
 6. verifies bundled Markdown links resolve within the canonical package; and
-7. rejects absolute supported-agent config-root references in canonical skills.
+7. rejects symlinks and absolute supported-agent config-root references in
+   canonical skills.
 
 `just verify` invokes `skills-check`, making it part of both hooks and CI. The
 guard uses existing shell tools only.
 
 `install-test.sh` compares every canonical skill directory against its matching
-directory in all three temporary destinations with `diff -qr`. It also seeds an
+directory in all three temporary destinations for path, file type, bytes, and
+executable mode. It also seeds an
 unrelated user skill and stale managed Claude commands before install, then
 verifies the user skill and unrelated runtime state survive while managed
 commands are pruned. Representative assertions remain for discoverable skill
@@ -334,6 +338,7 @@ and unchanged workflow guardrails on each available client.
 | SKILL-16 | Terminate after commit but during cleanup | Recovery completes cleanup and preserves the new revision | Erroneous post-commit rollback | block |
 | SKILL-17 | Start a second installer while the lock owner is active | Second run exits before staging and names the owner | Overwritten journal or concurrent promotion | block |
 | SKILL-18 | Inject a permission failure during rollback | Record and lock remain `needs-repair`; output names uncertain paths; next run changes nothing | False success or overwritten recovery state | block |
+| SKILL-19 | Canonical package contains a symlink or executable helper | Guard rejects the symlink; installed helper preserves executable mode on every destination | Content-only false positive | block |
 
 Static shell checks decide filesystem, metadata, and safety boundaries in CI.
 Client behavior is smoke-tested with installed CLIs available on the host; an

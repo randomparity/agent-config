@@ -25,8 +25,9 @@ settings, instructions, modes, MCP files, and other agent-specific formats.
 ## Decision
 
 Own every reusable workflow skill once under `content/skills/`. Install every
-canonical directory byte-for-byte under `skills/` for Claude, Codex, and Bob.
-Remove per-agent skill trees and Claude custom-command copies.
+canonical directory under `skills/` for Claude, Codex, and Bob with identical
+file content, file type, and executable mode. Canonical skills contain no
+symlinks. Remove per-agent skill trees and Claude custom-command copies.
 
 The portable contract is the required open Agent Skills subset: a directory
 whose `SKILL.md` has matching `name` and non-empty `description` fields, uses
@@ -46,7 +47,8 @@ directory. Native instruction and mode files may reference skills or define
 durable client policy, but they are not alternate implementations of a named
 workflow. Add a repository guard that rejects any invocable workflow artifact
 under `agents/`. Installation tests compare every deployed skill tree with the
-canonical source, so a missing, extra, or changed file fails verification.
+canonical source, so missing or extra files and content, type, link, or
+executable-mode changes fail verification.
 
 Exact-copy tests prove source and inventory coordination, not identical model
 behavior. Verification also validates the portable subset and smoke-tests skill
