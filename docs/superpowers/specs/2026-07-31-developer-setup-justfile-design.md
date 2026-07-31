@@ -90,11 +90,12 @@ final command list after attempting package installs. Fallbacks are:
 - `shfmt`: `go install mvdan.cc/sh/v3/cmd/shfmt@v3.13.1`
 - `actionlint`: `go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12`
 - `just`: `cargo install --locked just --version 1.57.0`
-- `prek`: prefer `cargo install --locked prek --version 0.4.11`; otherwise
-  `uv tool install prek==0.4.11`; otherwise `pipx install prek==0.4.11`
-- `zizmor`: prefer `cargo install --locked zizmor --version 1.28.0`;
-  otherwise `uv tool install zizmor==1.28.0`; otherwise
-  `pipx install zizmor==1.28.0`
+- `prek`: prefer `uv tool install prek==0.4.11`; otherwise
+  `pipx install prek==0.4.11`; otherwise
+  `cargo install --locked prek --version 0.4.11`
+- `zizmor`: prefer `uv tool install zizmor==1.28.0`; otherwise
+  `pipx install zizmor==1.28.0`; otherwise
+  `cargo install --locked zizmor --version 1.28.0`
 
 If no supported package manager or fallback runtime is available, the script
 must fail with the missing command and a suggested installation path. It must

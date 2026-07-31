@@ -181,12 +181,12 @@ Add fallbacks only for tools still missing after package-manager installation:
 go install mvdan.cc/sh/v3/cmd/shfmt@v3.13.1
 go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
 cargo install --locked just --version 1.57.0
-cargo install --locked prek --version 0.4.11
 uv tool install prek==0.4.11
 pipx install prek==0.4.11
-cargo install --locked zizmor --version 1.28.0
+cargo install --locked prek --version 0.4.11
 uv tool install zizmor==1.28.0
 pipx install zizmor==1.28.0
+cargo install --locked zizmor --version 1.28.0
 ```
 
 Fail clearly when no supported fallback runtime is available.
