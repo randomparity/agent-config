@@ -16,7 +16,7 @@
 - Required commands are `just`, `jq`, `rg`, `shellcheck`, `shfmt`, `gh`, `prek`, `actionlint`, and `zizmor`.
 - Hook config invokes `just verify`; `just verify` must not invoke `prek`.
 - CI checkout uses `actions/checkout` tag `v7.0.1` pinned to `3d3c42e5aac5ba805825da76410c181273ba90b1`, with `persist-credentials: false`.
-- Guardrails are `shellcheck install.sh install-tools.sh install-test.sh install-tools-test.sh scripts/*.sh`, `shfmt -d install.sh install-tools.sh install-test.sh install-tools-test.sh scripts/*.sh`, `./install-test.sh`, `./install-tools-test.sh`, `./scripts/check-public-safety.sh`, `actionlint`, `zizmor .github/workflows/`, `just verify`, and `prek run --all-files`.
+- Guardrails are `shellcheck install.sh install-tools.sh install-test.sh install-tools-test.sh scripts/*.sh`, `shfmt -d install.sh install-tools.sh install-test.sh install-tools-test.sh scripts/*.sh`, `./install-test.sh`, `./install-tools-test.sh`, `./scripts/check-public-safety.sh`, `actionlint`, `zizmor --offline .github/workflows/`, `just verify`, and `prek run --all-files`.
 
 ---
 
@@ -219,7 +219,7 @@ git commit -m "feat: support cross-platform tool setup"
 - Consumes: working `install-tools.sh`.
 - Produces: `just setup`, `just verify`, and `just ci`.
 
-- [ ] **Step 1: Add Justfile recipes**
+- [x] **Step 1: Add Justfile recipes**
 
 Create recipes:
 
@@ -254,7 +254,7 @@ public-safety:
 
 actions-check:
   actionlint
-  zizmor .github/workflows/
+  zizmor --offline .github/workflows/
 
 verify: tools-check lint format-check test public-safety actions-check
 
@@ -262,7 +262,7 @@ ci: verify
   prek run --all-files
 ```
 
-- [ ] **Step 2: Add prek hook config**
+- [x] **Step 2: Add prek hook config**
 
 Create `.pre-commit-config.yaml` with a single local hook:
 
@@ -277,7 +277,7 @@ repos:
         pass_filenames: false
 ```
 
-- [ ] **Step 3: Add GitHub Actions workflow**
+- [x] **Step 3: Add GitHub Actions workflow**
 
 Create `.github/workflows/verify.yml` with read-only permissions, pinned
 checkout, setup, and CI:
@@ -308,7 +308,7 @@ jobs:
         run: just ci
 ```
 
-- [ ] **Step 4: Run checks and commit**
+- [x] **Step 4: Run checks and commit**
 
 Run:
 

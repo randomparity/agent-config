@@ -221,7 +221,7 @@ shfmt -d install.sh install-tools.sh install-test.sh install-tools-test.sh scrip
 ./install-tools-test.sh
 ./scripts/check-public-safety.sh
 actionlint
-zizmor .github/workflows/
+zizmor --offline .github/workflows/
 just verify
 prek run --all-files
 ```
