@@ -1,8 +1,8 @@
-# 0002. Developer Setup Entrypoint and Hooks
+# 0002 — Developer Setup Entrypoint and Hooks
 
 ## Status
 
-Accepted
+Accepted (2026-07-31)
 
 ## Context
 
@@ -44,7 +44,7 @@ both the recipe and the hook configuration work.
 - Unsupported systems or missing fallback runtimes fail early with exact next
   steps instead of silently skipping tools.
 
-## Considered & Rejected
+## Considered & rejected
 
 - Keep raw shell commands in README and hooks. Rejected because duplicated
   guardrail text drifts across docs, hooks, and CI.
