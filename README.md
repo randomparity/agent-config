@@ -176,11 +176,11 @@ new decision is accepted. Resolve debt in place when its stated condition is
 met.
 
 If a numbering collision or mistake requires renumbering a merged record, move it
-to the next free number and update the H1 number in the same change. Do not alter
-substantive text. The gate accepts the move only when the destination did not
-exist at the base commit and canonicalized content is identical; marker-only
-normalization may accompany it. Future records still increment the highest
-number in their own directory.
+to an unused four-digit number and update the H1 number in the same change. Do
+not alter substantive text. The gate accepts the move only when the destination
+did not exist at the base commit and canonicalized content is identical;
+marker-only normalization may accompany it. New records still increment the
+highest current number in their own directory.
 
 For legacy records, preview marker-only migrations before writing them:
 
@@ -189,9 +189,21 @@ RECORD_PROFILES="adr debt" ./.github/scripts/migrate-records.sh
 RECORD_PROFILES="adr debt" ./.github/scripts/migrate-records.sh --write
 ```
 
-Commit only the reported marker changes and include each printed
-`Migrated-markers:` trailer. Run `just verify` after creating, superseding,
-resolving, or migrating a record.
+Review every item the dry run leaves for a human. For a missing lifecycle date,
+inspect repository history:
+
+```sh
+git log --follow --format=%cs -- <record>
+```
+
+Add the date of the commit that established the lifecycle state; do not invent
+the current date. Apply the marker rewrites with `--write`, then make the
+evidenced Status or required-section completion in the same dedicated migration
+commit without rewriting existing prose.
+
+Include every printed `Migrated-markers:` trailer; those trailers enumerate the
+automatic marker rewrites, not the required human completions. Run `just verify`
+after creating, superseding, resolving, or migrating a record.
 
 The root package under `.github/scripts/` owns the repository gate. Its checker,
 suite, migrator, and `adr` and `debt` profiles must remain byte-identical to both
