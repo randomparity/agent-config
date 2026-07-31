@@ -46,6 +46,8 @@ required local guardrail is meaningful during issue 17 work.
   installation with the collision name and a recovery action.
 - `--agent all` cannot leave the managed skill inventory at different revisions
   after a reported installation failure.
+- A process interruption after promotion is detected and rolled back before the
+  next installer run changes any destination.
 - Shared skills do not depend on an installed agent's private config-root name.
 - Agent-specific configuration that does not use Agent Skills remains native.
 - The installer adds no new dependency or network operation.
@@ -151,11 +153,40 @@ atomic. After promotion, compare every selected client's managed names with the
 source. Only then mark the transaction committed and let normal timestamped
 drift backups retain replaced content.
 
+Reconcile removals from the old per-skill manifest before promotion. A managed
+name absent from the new canonical inventory is moved to a transaction backup
+and omitted from the new manifest. It participates in the same reverse-order
+rollback as additions and updates. A rename is represented as one removal plus
+one addition; there is no alias or compatibility shim.
+
 On any promotion or final-validation failure, restore all promoted names in
 reverse order and remove names that were absent before the run. Preserve the
 stage and transaction backups until rollback succeeds. If rollback itself fails,
 exit non-zero and name every destination/name whose state is uncertain; never
 print an ordinary install summary for a partially rolled-back run.
+
+### Interrupted-process recovery
+
+Use a single JSON transaction record under:
+
+```text
+${AGENT_CONFIG_PRIVATE_DIR:-$HOME/.config/agent-config}/transactions/skills.json
+```
+
+Create the parent directory with mode `0700` and the record with mode `0600`.
+The record contains a format version, transaction id, selected destinations,
+and for each managed name its stage path, transaction-backup path, prior state,
+and promotion/removal state. It contains no skill body, overlay, credential, or
+other configuration value.
+
+Write the record through a same-directory temporary file and rename it after
+staging and after each live rename. At the beginning of every installer run,
+before reading new overlays or changing destinations, detect the record and
+restore the recorded pre-install state in reverse promotion order. Recovery is
+rollback-only; it never guesses that a partially promoted inventory should be
+finished. Validate every restored name, retain recovery material on failure,
+and name uncertain paths. Clear the record only after final validation succeeds
+and transaction backups have moved into the normal timestamped backup tree.
 
 ## Compatibility Pass
 
@@ -215,6 +246,8 @@ before the per-skill comparisons provide exhaustive coverage.
   the operator to remove, rename, or migrate it before retrying.
 - Transaction failure: every promoted managed skill is restored; rollback
   failure names the exact inconsistent destination and leaves recovery backups.
+- Interrupted transaction: the next installer run rolls back the durable record
+  before evaluating a new install request.
 
 ## AI Surface and Eval Plan
 
@@ -242,6 +275,7 @@ and unchanged workflow guardrails on each available client.
 | A client lacks a tool and the skill proceeds as if it ran | 4 | Compatibility audit and missing-capability cases |
 | Optional vendor metadata changes another client's workflow | 3 | Filesystem comparison plus client smoke tests where available |
 | Installer removes unmanaged user state | 5 | Stale-manifest and runtime-state regression test |
+| Interrupted install leaves clients on different revisions | 5 | Durable recovery-record regression test |
 | Large skill inventory crowds discovery metadata | 3 | Inventory count reported; activation quality remains a runtime observation |
 
 ### Eval cases
@@ -260,6 +294,8 @@ and unchanged workflow guardrails on each available client.
 | SKILL-10 | Unmanaged Claude command has a canonical skill name | Install fails before replacement and names the collision | Silent deletion or ambiguous invocation | block |
 | SKILL-11 | Unrelated user skill exists beside canonical names | Install preserves it while managed names update | Whole-tree replacement | block |
 | SKILL-12 | Inject failure during the second client's skill promotion | First client rolls back to its original skills; all selected clients retain one revision | Cross-client partial update | block |
+| SKILL-13 | Remove a previously managed canonical name | All selected clients back it up and prune it; injected later failure restores it | Obsolete workflow remains on one client | block |
+| SKILL-14 | Terminate after the first client's promotion, then rerun | Rerun detects the transaction record and restores all pre-install states before new work | Persistent partial revision | block |
 
 Static shell checks decide filesystem, metadata, and safety boundaries in CI.
 Client behavior is smoke-tested with installed CLIs available on the host; an
@@ -278,6 +314,8 @@ its own output.
   discoverable skills, and Bob receives the complete workflow inventory.
 - Existing filesystem boundary: the installer replaces managed destination
   skill directories and prunes managed names absent from the new manifest.
+- New recovery-record boundary: transaction metadata stores local config paths
+  under the private agent-config root.
 - Existing external-action boundary: some workflows use `gh`, git, package
   managers, or configured agent/subagent tools.
 
@@ -301,6 +339,8 @@ its own output.
   manifest-only pruning controls remain, with staged same-filesystem promotion
   and reverse-order rollback added for managed skills; regression tests cover
   unrelated user skills and the removed Claude command path.
+- Recovery record: the private directory and record use owner-only modes,
+  contain paths and state rather than config bodies, and are atomically replaced.
 - External actions: each workflow's current authorization and verification
   gates remain part of the compatibility review. Canonicalization does not
   widen GitHub token scopes or shell permissions.

@@ -65,6 +65,11 @@ commands are backed up and pruned. Project, enterprise, plugin, and other
 higher- or lower-precedence skill scopes remain outside this user-level
 installer.
 
+Names owned by the previous manifest but absent from the canonical inventory
+remain managed removals. The installer backs them up, prunes them from every
+selected client in the same transaction as additions and updates, and restores
+them if that transaction rolls back.
+
 Shared-skill installation is a transaction across the selected clients. The
 installer validates and stages every canonical skill before changing a live
 destination, promotes staged directories atomically within each destination,
@@ -72,6 +77,14 @@ then validates all selected clients. A promotion or validation failure restores
 every changed skill directory; a rollback failure reports the inconsistent
 destinations explicitly. This transaction applies to `--agent all` and to a
 single selected client.
+
+Before the first promotion, the installer writes a mode-`0600` transaction
+record under the private agent-config root, outside this repository. The record
+identifies selected destinations plus stage, backup, promotion, and removal
+state without storing configuration content. It is updated atomically after
+each promotion. Every install first detects an incomplete record and restores
+the recorded pre-install state before starting new work. The record is cleared
+only after final validation and transaction-backup cleanup succeed.
 
 ## Consequences
 
@@ -93,6 +106,9 @@ single selected client.
 - Existing manifests prune removed Claude commands during reinstall and replace
   each previously managed per-agent skill with its canonical directory while
   preserving unrelated user skills.
+- Removing or renaming a canonical skill removes the old managed name from all
+  selected clients transactionally; its backup remains available under the
+  installer's timestamped backup tree.
 
 ## Considered & Rejected
 
