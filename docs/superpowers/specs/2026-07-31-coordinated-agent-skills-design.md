@@ -96,13 +96,18 @@ optional resources. The initial inventory comes from the current Codex superset
 because it contains every existing workflow, then receives a compatibility pass
 before becoming canonical.
 
-The portable schema is deliberately smaller than any client's extensions:
+The portable schema is deliberately smaller than any client's extensions and
+is pinned to the Agent Skills specification retrieved on 2026-07-31:
 
-- `SKILL.md` requires open-standard `name` and `description` frontmatter;
+- `SKILL.md` frontmatter contains exactly the open-standard `name` and
+  `description` fields;
 - `name` must equal the skill directory name, contain 1–64 lowercase ASCII
-  letters, digits, or hyphens, and neither begin nor end with a hyphen;
-- names must be unique under ASCII case folding; the installer assumes no
-  additional reserved names beyond this common grammar;
+  letters, digits, or hyphens, neither begin nor end with a hyphen, and contain
+  no consecutive hyphens;
+- `description` contains 1–1024 characters;
+- names must be unique under ASCII case folding and must not match the
+  checked-in union of documented built-in, bundled, and mode-command names for
+  Claude, Codex, or Bob;
 - bundled resources are addressed relative to the skill directory;
 - installed config roots for Claude, Codex, and Bob are never named by shared
   workflow execution; target-repository paths remain repository-relative;
@@ -113,7 +118,8 @@ The portable schema is deliberately smaller than any client's extensions:
   declared subject and its absence produces an actionable stop.
 
 Optional metadata such as `agents/openai.yaml` may improve one client's UI, but
-must not change the workflow instructions or be required for execution.
+must live outside `SKILL.md` frontmatter, must not change the workflow
+instructions, and must not be required for execution.
 
 `install_common_content` installs three canonical paths into each selected
 config root:
@@ -304,14 +310,16 @@ Add `scripts/check-skill-layout.sh` and a `skills-check` recipe. The guard:
 
 1. requires `content/skills/` to exist;
 2. requires every immediate skill directory to contain `SKILL.md`;
-3. verifies each frontmatter `name` matches its directory name, follows the
-   1–64 character grammar, is case-fold unique, and has a non-empty
-   description;
+3. verifies frontmatter contains only `name` and `description`, the name matches
+   its directory and follows the complete pinned grammar, and description is
+   1–1024 characters;
 4. rejects every `SKILL.md` and every command-directory file under `agents/`;
 5. rejects behavior-bearing vendor frontmatter in canonical `SKILL.md` files;
 6. verifies bundled Markdown links resolve within the canonical package; and
 7. rejects symlinks and absolute supported-agent config-root references in
-   canonical skills.
+   canonical skills; and
+8. rejects names in `scripts/reserved-skill-names.txt`, whose comments identify
+   the supported-client documentation source and retrieval date for each group.
 
 `just verify` invokes `skills-check`, making it part of both hooks and CI. The
 guard uses existing shell tools only.
@@ -406,6 +414,7 @@ and unchanged workflow guardrails on each available client.
 | SKILL-21 | Seed unknown-version, invalid-transition, duplicate-name, path-escape, symlink-swap, and stale-destination journals | Each run leaves live paths byte-identical and enters/names `needs-repair` | Executing any recorded live rename | block |
 | SKILL-22 | Legacy whole-tree manifests contain managed drift plus unrelated skill/command children; inject termination at each snapshot, promotion, manifest, and cleanup boundary across three clients | Recovery restores every managed byte/mode and preserves unrelated children, or names an injected rollback failure as `needs-repair` | Enclosing-tree replacement or user-child loss | block |
 | SKILL-23 | Fail native/common installation before and after each client boundary | No shared-skill stage begins; output identifies the non-atomic native phase and completed paths | Claiming all-agent rollback or skill commit | block |
+| SKILL-24 | Add empty/1025-character descriptions, consecutive-hyphen names, unknown frontmatter, and every reserved-name fixture | `skills-check` rejects each exact rule and path | Canonical package accepted by only a subset of clients | block |
 
 Static shell checks decide filesystem, metadata, and safety boundaries in CI.
 `scripts/skill-smoke-eval.sh` provides the behavioral harness. It creates a

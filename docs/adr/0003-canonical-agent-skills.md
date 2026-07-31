@@ -29,17 +29,24 @@ canonical directory under `skills/` for Claude, Codex, and Bob with identical
 file content, file type, and executable mode. Canonical skills contain no
 symlinks. Remove per-agent skill trees and Claude custom-command copies.
 
-The portable contract is the required open Agent Skills subset: a directory
-whose `SKILL.md` has matching `name` and non-empty `description` fields, uses
-relative bundled-resource paths, never names a supported client's installed
-config root, and does not require behavior-bearing vendor frontmatter. Target
-repository paths remain repository-relative. A skill may require an external
-product or capability only when it names that requirement and stops actionably
-when the host cannot provide it.
+The portable contract is a strict subset of the Agent Skills specification as
+retrieved from `https://agentskills.io/specification` on 2026-07-31: a directory
+whose `SKILL.md` frontmatter contains exactly `name` and `description`. The
+description contains 1–1024 characters. The package uses relative
+bundled-resource paths, never names a supported client's installed config root,
+and contains no behavior-bearing vendor frontmatter. Target repository paths
+remain repository-relative. A skill may require an external product or
+capability only when it names that requirement and stops actionably when the
+host cannot provide it.
 
 Canonical names are 1–64 lowercase ASCII letters, digits, or hyphens; they do
-not begin or end with a hyphen and are unique under ASCII case folding. The
-installer defines no additional reserved names beyond this shared grammar.
+not begin or end with a hyphen, contain consecutive hyphens, collide under ASCII
+case folding, or match the checked-in union of documented built-in, bundled,
+and mode-command names for supported clients. The repository guard owns that
+reserved-name inventory and its source/retrieval annotations. Every available
+client's discovery smoke test checks the same names. A vendor-added collision
+is a compatibility failure until the inventory and canonical name are updated,
+not a passing runtime variant.
 
 Keep agent-specific settings, instruction roots, modes, MCP configuration, and
 other formats under `agents/<agent>/shared/`. A canonical skill may contain an
