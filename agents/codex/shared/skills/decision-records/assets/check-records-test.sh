@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Regression tests for check-records.sh.
 #
-# The checker is the only mechanically enforced constraint behind ADR 0007, so its
+# The checker is the only mechanically enforced constraint behind the record convention, so its
 # failure mode is the dangerous one: reporting a clean run over nothing. Every rule it
 # claims has a case here, and every case asserts the exit status rather than the output,
 # because a green exit is exactly what an erasure attempt is trying to obtain.
@@ -43,7 +43,7 @@ if [ "$#" -ge 1 ]; then
   SCRATCH=$1
   SCRATCH_OWNED=no
 else
-  SCRATCH=${TMPDIR:-/tmp}/check-records-test.$$
+  SCRATCH=$(mktemp -d "${TMPDIR:-/tmp}/check-records-test.XXXXXX")
   SCRATCH_OWNED=yes
 fi
 
@@ -130,8 +130,8 @@ find_template() {
 #
 # Without this, an incomplete install reported as a handful of `cp: No such file or directory`
 # lines on stderr, four derived case failures, and then an abort under set -e at the one fixture
-# that copies outside a command substitution — none of which names the install. Issue #118 was
-# that shape for every repo that followed a table listing five of the six files.
+# that copies outside a command substitution — none of which names the install. That was the
+# failure shape for every repo that followed a table listing five of the six files.
 #
 # Two shipped files are deliberately absent from the list. records.yml, because find_template
 # resolves it from either layout and already fails with a message at its use site, so naming it
@@ -1736,7 +1736,8 @@ SH
   run_case "marker fix plus a reworded heading" 1 E-HEADING-REWRITTEN "$d" BASE_SHA="$b"
 
   printf -- '-- the ADR profile --\n'
-  # The five status words ADR 0003 names, all in one fixture: the vocabulary is the rule, and a
+  # The five status words the ADR profile names, all in one fixture: the vocabulary is the
+  # rule, and a
   # word two governing artifacts prescribe must not be an error.
   d=$(adr_dir adr_status_forms)
   write_adr "$d" "0002-proposed.md" "Proposed"
@@ -1757,7 +1758,7 @@ SH
   run_case "invalid ADR status word" 1 E-STATUS "$d" BASE_SHA="$b" RECORD_PROFILES=adr
 
   # An ADR banner accompanies `Accepted (date)` rather than replacing it, per
-  # BANNER_REPLACES_STATUS=no — and this is the one edit ADR 0006 lets a merged ADR take.
+  # BANNER_REPLACES_STATUS=no — and this is the one status edit a merged ADR may take.
   d=$(adr_dir adr_banner "Accepted (2026-01-01)" \
     "> **Superseded by [0002](0002-later.md)** (2026-01-02)")
   write_adr "$d" "0002-later.md" "Accepted (2026-01-02)"
@@ -1844,7 +1845,7 @@ SH
   run_case "exempt name in a subdirectory still fails" 1 E-NOT-RECORD "$d" BASE_SHA="$b" \
     RECORD_PROFILES=adr
 
-  # W-INDEX-TABLE makes ADR 0006 self-policing. Heuristic, so it warns and never fails, and it
+  # W-INDEX-TABLE makes the directory-listing policy self-policing. It is a heuristic, so it
   # runs from profile_check_directory because its subject is not a record.
   d=$(adr_dir adr_index_table)
   cat >>"$d/docs/adr/README.md" <<'MD'
@@ -2142,6 +2143,15 @@ SH
   MIGRATE_PROFILES='' run_migrator "no profile named" 1 E-PROFILE-NONE "$d" --write
 
   printf -- '-- the suite cleans up after itself --\n'
+  printf '  %-4s %-44s ' "" "owned scratch path is freshly allocated"
+  if [ "$SCRATCH_OWNED" = yes ] && [ "$SCRATCH" = "${TMPDIR:-/tmp}/check-records-test.$$" ]; then
+    failed=$((failed + 1))
+    printf 'FAIL predictable PID path can pre-exist\n'
+  else
+    passed=$((passed + 1))
+    printf 'ok   caller-owned or unique path\n'
+  fi
+
   # Proven end to end by running a copy of this script with no checker beside it, which aborts
   # at the first case. Its scratch tree must survive: an aborted or failing run's fixtures are
   # the whole reason to keep them. The nested run's own default scratch is redirected under

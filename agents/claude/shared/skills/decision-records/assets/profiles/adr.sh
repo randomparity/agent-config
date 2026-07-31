@@ -47,9 +47,8 @@ BANNER_HINT="> **Superseded by [NNNN](NNNN-slug.md)** (YYYY-MM-DD)"
 BANNER_REPLACES_STATUS=no
 
 # `Superseded` is accepted as a status word even though the banner is how a supersession is
-# recorded: ADR 0003 names five status words including it, and the deployed reviewer prompt
-# repeats that list verbatim, so an author following the instructions this repo ships would
-# write it.
+# recorded: the profile names five status words including it, and the deployed reviewer prompt
+# repeats that list verbatim, so an author following the instructions this repo ships writes it.
 profile_check_status() {
   local file=$1 label=$2 body
   body=$(section_body "$file" "## Status" | grep -v '^>' | grep . | head -1)
@@ -122,6 +121,6 @@ profile_check_directory() {
   local readme="$RECORD_DIR/README.md"
   [ -f "$readme" ] || return 0
   if grep -qE '^\|[[:space:]]*\[?[0-9]{4}' "$readme"; then
-    warn_full "W-INDEX-TABLE: $readme has table rows numbered like records — the directory listing is the index; see ADR 0006"
+    warn_full "W-INDEX-TABLE: $readme: numbered record rows duplicate the directory index"
   fi
 }

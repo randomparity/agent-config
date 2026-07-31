@@ -175,6 +175,13 @@ ADR instead of rewriting an accepted decision; supersede the old one when the
 new decision is accepted. Resolve debt in place when its stated condition is
 met.
 
+If a numbering collision or mistake requires renumbering a merged record, move it
+to the next free number and update the H1 number in the same change. Do not alter
+substantive text. The gate accepts the move only when the destination did not
+exist at the base commit and canonicalized content is identical; marker-only
+normalization may accompany it. Future records still increment the highest
+number in their own directory.
+
 For legacy records, preview marker-only migrations before writing them:
 
 ```sh

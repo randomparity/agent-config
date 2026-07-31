@@ -31,9 +31,9 @@
 # promising markers-only cannot add content to announce itself. The summary prints the
 # `Migrated-markers:` trailer lines to put on the commit instead.
 #
-# One of the six gate assets an adopting repo copies (ADR 0020). It never runs in CI, but
-# check-records-test.sh — which the workflow runs first — resolves it beside itself, because
-# these self-check cases are how the suite exercises the checker's allowance function.
+# One of the six gate assets an adopting repo copies. It never runs in CI, but
+# check-records-test.sh — which the workflow runs first — resolves it beside itself because the
+# self-check cases exercise the checker's allowance function.
 
 set -euo pipefail
 
