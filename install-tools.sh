@@ -381,8 +381,7 @@ check_mode() {
 	missing="$(missing_commands)"
 	if [[ -z "$missing" ]]; then
 		printf 'install-tools: all required tools are available\n'
-		setup_hooks
-		return "$?"
+		return 0
 	fi
 
 	printf 'install-tools: missing required tools:\n' >&2

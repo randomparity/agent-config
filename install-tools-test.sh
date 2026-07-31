@@ -321,4 +321,13 @@ existing_setup_output="$(
 assert_contains "$existing_setup_output" "all required tools are available"
 assert_contains "$existing_setup_output" "existing prek install"
 
+check_readonly_output="$(
+	PATH="$existing_bin:/usr/bin:/bin" \
+		HOME="$existing_home" \
+		AGENT_CONFIG_SETUP_HOOKS=1 \
+		./install-tools.sh --check 2>&1
+)"
+assert_contains "$check_readonly_output" "all required tools are available"
+assert_not_contains "$check_readonly_output" "existing prek install"
+
 printf 'install-tools-test: ok\n'
