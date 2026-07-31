@@ -85,6 +85,11 @@ The `records` recipe in `Justfile` performs three checks in order:
 The workflow templates inside each agent skill are native adapters, so they are excluded
 from byte equality. They do not define parsing, migration, or record semantics.
 
+The existing `lint` and `format-check` recipes add the three executable root scripts and
+both sourced profiles to their explicit ShellCheck and shfmt paths. The profiles remain
+non-executable and shebang-free, but they are shell source and receive the same static
+analysis as the engine that loads them.
+
 ## Record model
 
 ADRs and debt records use independent four-digit sequences because they answer different
@@ -107,8 +112,10 @@ to the exempt Status sections.
 - An unset `RECORD_PROFILES` is fatal; the recipe always sets both profiles.
 - Local verification without `BASE_SHA` validates current record shape and reports that
   immutable-history comparison was skipped.
-- CI always supplies a reachable base commit and therefore checks shape plus deletion,
-  rewrite, renumbering, and gate self-protection.
+- On pull requests, CI sets `BASE_SHA` from `github.event.pull_request.base.sha`; on
+  pushes to `main`, it uses `github.event.before`. Checkout uses `fetch-depth: 0`, making
+  either event's commit reachable before `just ci` checks shape plus deletion, rewrite,
+  renumbering, and gate self-protection.
 - A projection mismatch fails with the root and deployed paths that differ.
 - A first-run finding is fixed in this branch when it concerns migrated records or gate
   installation. A finding outside repository control is captured in a debt record and a
@@ -139,8 +146,8 @@ only affect their local result.
   history so the base SHA is reachable.
 - The regression suite runs before record validation and tests the checker plus migrator.
 - Byte comparison prevents a projection from silently changing deployed gate behavior.
-- The existing public-safety, ShellCheck, shfmt, actionlint, and zizmor gates cover the new
-  root paths through `just verify`.
+- The updated public-safety, ShellCheck, shfmt, actionlint, and zizmor recipes cover the
+  new root paths through `just verify`.
 
 ### Out of scope
 
@@ -161,12 +168,17 @@ not predecessor-local ADR numbers.
 - The root regression suite reports its full successful case count.
 - The root checker validates `docs/adr/` and `docs/debt/` with both profiles.
 - Mutating one projected checker asset makes `just verify` fail; restoring it passes.
-- CI linting proves the workflow still invokes only `just ci` for repository checks and
-  supplies a reachable base SHA.
+- ShellCheck and shfmt run explicitly against all five authoritative shell assets.
+- The root checker passes with `BASE_SHA=HEAD^` as a push-style reachable commit and with
+  the feature branch's merge base against `origin/main` as a pull-request-style commit.
+- Actionlint and zizmor prove the workflow still invokes only `just ci` for repository
+  checks; the two concrete base-ref runs prove the selected history paths are usable.
 - `just verify` passes from the feature branch after legacy-record migration.
 
 ## Rollback
 
-Reverting the feature commit removes the root package, recipe, migration, and documentation
-together. It does not rewrite historical records back to the legacy markers; those changes
-are canonical marker/status updates and remain valid without the gate.
+Rollback is a forward change, not a literal revert that deletes immutable records. Preserve
+ADR 0003, the branch-protection debt record, and every marker/status migration. If root gate
+ownership changes, add a superseding ADR and its banner; resolve or carry the debt according
+to the replacement's enforcement. Only the executable gate package, active recipe wiring,
+projection equality check, workflow environment, and contributor instructions may be removed.
