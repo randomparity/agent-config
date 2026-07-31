@@ -36,8 +36,8 @@ required local guardrail is meaningful during issue 17 work.
 
 - One canonical directory owns the complete reusable workflow inventory.
 - Claude, Codex, and Bob installs receive byte-identical skill trees.
-- A contributor cannot add a per-agent skill or legacy Claude workflow command
-  without failing repository verification.
+- A contributor cannot add any invocable workflow artifact under an agent-native
+  tree without failing repository verification.
 - Existing installs remove manifest-managed command copies and replace their
   managed skill tree on reinstall without touching unmanaged runtime state.
 - Shared skills do not depend on an installed agent's private config-root name.
@@ -86,6 +86,18 @@ optional resources. The initial inventory comes from the current Codex superset
 because it contains every existing workflow, then receives a compatibility pass
 before becoming canonical.
 
+The portable schema is deliberately smaller than any client's extensions:
+
+- `SKILL.md` requires open-standard `name` and `description` frontmatter;
+- `name` must equal the skill directory name;
+- bundled resources are addressed relative to the skill directory;
+- behavior cannot depend on vendor-specific frontmatter; and
+- a product-specific capability is permitted only when it is the workflow's
+  declared subject and its absence produces an actionable stop.
+
+Optional metadata such as `agents/openai.yaml` may improve one client's UI, but
+must not change the workflow instructions or be required for execution.
+
 `install_common_content` installs three canonical paths into each selected
 config root:
 
@@ -130,8 +142,10 @@ Add `scripts/check-skill-layout.sh` and a `skills-check` recipe. The guard:
 2. requires every immediate skill directory to contain `SKILL.md`;
 3. verifies each frontmatter `name` matches its directory name and each
    description is non-empty;
-4. rejects `agents/*/shared/skills/` and `agents/claude/shared/commands/`; and
-5. rejects absolute supported-agent config-root references in canonical skills.
+4. rejects every `SKILL.md` and every command-directory file under `agents/`;
+5. rejects behavior-bearing vendor frontmatter in canonical `SKILL.md` files;
+6. verifies bundled Markdown links resolve within the canonical package; and
+7. rejects absolute supported-agent config-root references in canonical skills.
 
 `just verify` invokes `skills-check`, making it part of both hooks and CI. The
 guard uses existing shell tools only.
@@ -202,7 +216,9 @@ guardrails on each available client.
 Static shell checks decide filesystem, metadata, and safety boundaries in CI.
 Client behavior is smoke-tested with installed CLIs available on the host; an
 unavailable proprietary client is reported as an unrun arm, never represented
-as passing. No LLM grades its own output.
+as passing. The smoke records the client version but does not impose a version
+floor: this repository installs configuration, not the clients. No LLM grades
+its own output.
 
 ## Threat Model
 

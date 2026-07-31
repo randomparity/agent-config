@@ -4,6 +4,9 @@
 
 Accepted
 
+> **Agent Skills ownership superseded by [0003](0003-canonical-agent-skills.md)**
+> (2026-07-31)
+
 ## Context
 
 The unified config repository must serve Claude Code, Codex, and IBM Bob while
