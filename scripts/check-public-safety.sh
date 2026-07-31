@@ -32,7 +32,7 @@ denied_patterns=(
 
 status=0
 for pattern in "${denied_patterns[@]}"; do
-	if rg -n --hidden --glob '!.git/**' "$pattern" "${scan_paths[@]}"; then
+	if rg -n --hidden --glob '!.git' --glob '!.git/**' "$pattern" "${scan_paths[@]}"; then
 		printf 'public-safety: denied pattern matched: %s\n' "$pattern" >&2
 		status=1
 	fi
