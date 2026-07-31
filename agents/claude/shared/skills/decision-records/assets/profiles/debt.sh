@@ -83,9 +83,9 @@ check_targets() {
   fi
 }
 
-# Both rules are blob-local — the date comes from the record, not the worktree — so both run in
-# either pass. W-REVIEWBY-STALE reports through `warn`, which is what keeps a passed review date
-# from making a record non-conforming.
+# All three rules are blob-local — the date comes from the record, not the worktree — so they run
+# in either pass. An open concern needs a date that bounds its re-evaluation. W-REVIEWBY-STALE
+# reports through `warn`, which keeps a passed review date from making a record non-conforming.
 #
 # `resolved` is check_status's verdict on this same file, handed down by the engine. Only the
 # staleness rule consults it: a re-evaluation date is a question about a live concern, and a
@@ -96,7 +96,11 @@ check_targets() {
 check_review_by() {
   local file=$1 label=$2 resolved=$3 review_by today review_int today_int
   review_by=$(section_body "$file" "## Status" | sed -n 's/^review-by:[[:space:]]*//p' | head -1)
-  [ -n "$review_by" ] || return 0
+  if [ -z "$review_by" ]; then
+    [ "$resolved" = yes ] && return 0
+    err "E-REVIEWBY-MISSING: $label: open deferral needs review-by: YYYY-MM-DD in Status"
+    return 0
+  fi
 
   if ! printf '%s' "$review_by" | grep -qE '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'; then
     err "E-REVIEWBY-FORM: $label: review-by '$review_by' is not an ISO-8601 date (YYYY-MM-DD)"
