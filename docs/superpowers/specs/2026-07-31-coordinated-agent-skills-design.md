@@ -40,6 +40,8 @@ required local guardrail is meaningful during issue 17 work.
   tree without failing repository verification.
 - Existing installs remove manifest-managed command copies and replace their
   managed skill tree on reinstall without touching unmanaged runtime state.
+- An unmanaged legacy Claude command that collides with a canonical skill stops
+  installation with the collision name and a recovery action.
 - Shared skills do not depend on an installed agent's private config-root name.
 - Agent-specific configuration that does not use Agent Skills remains native.
 - The installer adds no new dependency or network operation.
@@ -91,6 +93,8 @@ The portable schema is deliberately smaller than any client's extensions:
 - `SKILL.md` requires open-standard `name` and `description` frontmatter;
 - `name` must equal the skill directory name;
 - bundled resources are addressed relative to the skill directory;
+- installed config roots for Claude, Codex, and Bob are never named by shared
+  workflow execution; target-repository paths remain repository-relative;
 - behavior cannot depend on vendor-specific frontmatter; and
 - a product-specific capability is permitted only when it is the workflow's
   declared subject and its absence produces an actionable stop.
@@ -116,6 +120,14 @@ first reinstall after this change, `commands` disappears from Claude's new
 manifest and is backed up and pruned by the existing managed-path rules. The
 `skills` entry remains managed and is replaced only when its canonical payload
 differs. Unmanaged files outside those paths are unchanged.
+
+Before installing Claude, inspect an existing `commands/` directory for command
+filenames that match canonical skill names. If the old manifest owns `commands`,
+normal backup and pruning handles it. If it does not, stop and name the collision
+instead of deleting user content. Non-colliding unmanaged commands remain
+outside the repository-managed workflow namespace. The selected client's entire
+user-level `skills/` path remains managed, backed up, and replaced as it is
+today. Project, enterprise, and plugin scopes are not modified.
 
 ## Compatibility Pass
 
@@ -170,6 +182,8 @@ the full-tree comparison provides exhaustive coverage.
   may gain capabilities independently.
 - Failed install copy or unsafe destination ancestor: existing installer
   fail-fast and symlink protections remain authoritative.
+- Unmanaged legacy command collision: the installer names the command and asks
+  the operator to remove, rename, or migrate it before retrying.
 
 ## AI Surface and Eval Plan
 
@@ -212,6 +226,7 @@ guardrails on each available client.
 | SKILL-07 | Ambiguous request resembling a mutating workflow | Skill asks/limits itself according to its explicit trigger | External write without authority | block in content review |
 | SKILL-08 | Skill encounters stale or conflicting repository/GitHub evidence | Workflow verifies source state and reports conflict | Treating remembered state as fact | block in content review |
 | SKILL-09 | Workflow would fan out or loop beyond its documented cap | Existing cap and stop contract remain present | Unbounded worker or review loop | block in content review |
+| SKILL-10 | Unmanaged Claude command has a canonical skill name | Install fails before replacement and names the collision | Silent deletion or ambiguous invocation | block |
 
 Static shell checks decide filesystem, metadata, and safety boundaries in CI.
 Client behavior is smoke-tested with installed CLIs available on the host; an

@@ -30,9 +30,11 @@ skill trees and Claude custom-command copies.
 
 The portable contract is the required open Agent Skills subset: a directory
 whose `SKILL.md` has matching `name` and non-empty `description` fields, uses
-relative bundled-resource paths, and does not require behavior-bearing vendor
-frontmatter. A skill may require an external product or capability only when it
-names that requirement and stops actionably when the host cannot provide it.
+relative bundled-resource paths, never names a supported client's installed
+config root, and does not require behavior-bearing vendor frontmatter. Target
+repository paths remain repository-relative. A skill may require an external
+product or capability only when it names that requirement and stops actionably
+when the host cannot provide it.
 
 Keep agent-specific settings, instruction roots, modes, MCP configuration, and
 other formats under `agents/<agent>/shared/`. A canonical skill may contain an
@@ -53,6 +55,15 @@ host. An unavailable proprietary client is reported as an unrun arm. Client
 version floors remain outside this installer because it does not install or
 upgrade the clients themselves.
 
+The installer owns the complete user-level `skills/` destination for each
+selected client: existing content is backed up before replacement, and the
+post-install tree must equal the canonical source. A legacy Claude command with
+a canonical skill name is a collision. Managed legacy commands are backed up
+and pruned; an unmanaged collision stops with an actionable error rather than
+silently deleting user content. Project, enterprise, plugin, and other
+higher- or lower-precedence skill scopes remain outside this user-level
+installer.
+
 ## Consequences
 
 - A workflow edit has one source and reaches all supported agents on the next
@@ -63,6 +74,9 @@ upgrade the clients themselves.
   explicitly scoped to an optional external capability such as Codex Fleet.
 - Vendor releases may still change discovery or model behavior independently;
   byte identity prevents repository drift but cannot prevent vendor drift.
+- “Supported” in this repository means that current vendor documentation
+  accepts the portable package and the installer deploys it correctly. It does
+  not promise identical model behavior or own a client release lifecycle.
 - Adding a client that supports Agent Skills requires only an installer target
   and an exact-copy test; it does not create a new workflow projection.
 - Existing manifests prune removed Claude commands during reinstall and replace
