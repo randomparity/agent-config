@@ -75,8 +75,10 @@ installer validates and stages every canonical skill before changing a live
 destination, promotes staged directories atomically within each destination,
 then validates all selected clients. A promotion or validation failure restores
 every changed skill directory; a rollback failure reports the inconsistent
-destinations explicitly. This transaction applies to `--agent all` and to a
-single selected client.
+destinations explicitly and leaves the transaction record and lock in a
+needs-repair state. No later install proceeds until the operator restores the
+named paths or makes rollback possible. This transaction applies to
+`--agent all` and to a single selected client.
 
 Before recovery or staging, the installer acquires one exclusive lock under the
 private agent-config root and holds it through commit, rollback, and cleanup. A
@@ -111,6 +113,10 @@ and the lock released only after cleanup succeeds.
 - “Supported” in this repository means that current vendor documentation
   accepts the portable package and the installer deploys it correctly. It does
   not promise identical model behavior or own a client release lifecycle.
+- Ordinary install errors and process interruption are recoverable from the
+  transaction record. Storage, permission, or backup failures can still prevent
+  rollback and leave live clients inconsistent; the installer detects and names
+  that operator-repair state but cannot make an unwritable filesystem atomic.
 - Adding a client that supports Agent Skills requires an installer target,
   portable-contract validation, an exact-copy test for every managed name, and
   a discovery/safe-invocation smoke-test arm. It does not create a new workflow

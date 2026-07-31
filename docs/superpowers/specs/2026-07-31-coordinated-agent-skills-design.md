@@ -44,8 +44,9 @@ required local guardrail is meaningful during issue 17 work.
   unmanaged runtime state.
 - An unmanaged legacy Claude command that collides with a canonical skill stops
   installation with the collision name and a recovery action.
-- `--agent all` cannot leave the managed skill inventory at different revisions
-  after a reported installation failure.
+- `--agent all` rolls every selected client back after an ordinary reported
+  installation failure; rollback failure becomes a durable, named needs-repair
+  state that blocks later installs.
 - A process interruption after promotion is detected and rolled back before the
   next installer run changes any destination.
 - Shared skills do not depend on an installed agent's private config-root name.
@@ -170,8 +171,10 @@ one addition; there is no alias or compatibility shim.
 On any promotion or final-validation failure, restore all promoted names in
 reverse order and remove names that were absent before the run. Preserve the
 stage and transaction backups until rollback succeeds. If rollback itself fails,
-exit non-zero and name every destination/name whose state is uncertain; never
-print an ordinary install summary for a partially rolled-back run.
+mark the record `needs-repair`, retain the lock metadata and recovery material, exit
+non-zero, and name every destination/name whose state is uncertain. Future runs
+report the same repair requirement without staging or promoting new content.
+Never print an ordinary install summary for a partially rolled-back run.
 
 ### Interrupted-process recovery
 
@@ -273,7 +276,8 @@ before the per-skill comparisons provide exhaustive coverage.
 - Unmanaged legacy command collision: the installer names the command and asks
   the operator to remove, rename, or migrate it before retrying.
 - Transaction failure: every promoted managed skill is restored; rollback
-  failure names the exact inconsistent destination and leaves recovery backups.
+  failure names the exact inconsistent destination, leaves recovery backups,
+  and blocks later installs in `needs-repair`.
 - Interrupted transaction: the next installer run rolls back the durable record
   before evaluating a new install request.
 - Competing transaction: the later installer stops without changing state and
@@ -329,6 +333,7 @@ and unchanged workflow guardrails on each available client.
 | SKILL-15 | Terminate after write-ahead pending but before/after rename | Recovery handles both states idempotently and restores one old revision | Unrecorded promotion window | block |
 | SKILL-16 | Terminate after commit but during cleanup | Recovery completes cleanup and preserves the new revision | Erroneous post-commit rollback | block |
 | SKILL-17 | Start a second installer while the lock owner is active | Second run exits before staging and names the owner | Overwritten journal or concurrent promotion | block |
+| SKILL-18 | Inject a permission failure during rollback | Record and lock remain `needs-repair`; output names uncertain paths; next run changes nothing | False success or overwritten recovery state | block |
 
 Static shell checks decide filesystem, metadata, and safety boundaries in CI.
 Client behavior is smoke-tested with installed CLIs available on the host; an
@@ -389,6 +394,8 @@ its own output.
   changes.
 - Clients may interpret portable prose differently. Static verification proves
   package identity, not identical model behavior.
+- A filesystem or permission failure can prevent rollback and leave live clients
+  on different revisions until the operator repairs the named paths.
 - Vendor-specific discovery limits may omit metadata from a very large skill
   inventory. This change reports the inventory and preserves explicit
   invocation; redesigning client discovery is vendor-owned.
