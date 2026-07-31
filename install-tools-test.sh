@@ -251,6 +251,8 @@ path_fallback_status="$?"
 set -e
 assert_success "$path_fallback_status" "fallback-installed binary path"
 assert_contains "$path_fallback_output" "fake cargo installed just"
+assert_contains "$path_fallback_output" \
+	"install-tools: added fallback tool directory to PATH: $path_home/.cargo/bin"
 assert_contains "$(cat "$github_path")" "$path_home/.cargo/bin"
 
 hook_bin="$tmpdir/hook-bin"

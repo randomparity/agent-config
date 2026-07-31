@@ -101,6 +101,7 @@ refresh_fallback_path() {
 	while IFS= read -r dir; do
 		[[ -n "$dir" && -d "$dir" ]] || continue
 		if ! path_contains_dir "$dir"; then
+			printf 'install-tools: added fallback tool directory to PATH: %s\n' "$dir"
 			export PATH="$dir:$PATH"
 			if [[ -n "${GITHUB_PATH:-}" ]]; then
 				printf '%s\n' "$dir" >>"$GITHUB_PATH"
