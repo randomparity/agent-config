@@ -15,11 +15,11 @@ Keep shared prose in `content/` only when it is agent-neutral. Keep native
 settings, instruction files, commands, skills, modes, and MCP files under
 `agents/<agent>/shared/`.
 
+Run `just setup` before local development to install repo tooling and enable
+git hooks.
+
 Run these guardrails before reporting completion:
 
 ```sh
-shellcheck install.sh install-tools.sh install-test.sh scripts/*.sh
-shfmt -d install.sh install-tools.sh install-test.sh scripts/*.sh
-./install-test.sh
-./scripts/check-public-safety.sh
+just verify
 ```

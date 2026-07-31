@@ -334,7 +334,7 @@ git commit -m "ci: add shared setup guardrails"
 - Consumes: `Justfile`, hook config, and CI workflow.
 - Produces: contributor-facing setup and verification docs.
 
-- [ ] **Step 1: Update README setup docs**
+- [x] **Step 1: Update README setup docs**
 
 Replace the raw install-tool flow with:
 
@@ -346,7 +346,7 @@ just setup
 Document `./install-tools.sh --check`, `just verify`, `just format`, and that
 Linux setup supports Ubuntu/Debian/Fedora/RHEL families through `/etc/os-release`.
 
-- [ ] **Step 2: Update AGENTS guardrails**
+- [x] **Step 2: Update AGENTS guardrails**
 
 Replace the raw guardrail block with:
 
@@ -357,7 +357,7 @@ just verify
 Mention that `just setup` installs tools and enables hooks for local
 development.
 
-- [ ] **Step 3: Run docs checks and commit**
+- [x] **Step 3: Run docs checks and commit**
 
 Run:
 
