@@ -97,14 +97,18 @@ because it contains every existing workflow, then receives a compatibility pass
 before becoming canonical.
 
 The portable schema is deliberately smaller than any client's extensions and
-is pinned to the Agent Skills specification retrieved on 2026-07-31:
+is pinned to upstream Agent Skills commit
+`38a2ff82958afee88dadf4831509e6f7e9d8ef4e`, specification blob
+`20cf9f6b672391e3295733c7863480905de6b887`:
 
-- `SKILL.md` frontmatter contains exactly the open-standard `name` and
-  `description` fields;
+- `scripts/agent-skills-contract.json` records that immutable source identity
+  and is the machine-readable input to the guard;
+- `SKILL.md` is UTF-8, contains a YAML mapping followed by non-empty Markdown,
+  and its mapping has exactly the string fields `name` and `description`;
 - `name` must equal the skill directory name, contain 1–64 lowercase ASCII
   letters, digits, or hyphens, neither begin nor end with a hyphen, and contain
   no consecutive hyphens;
-- `description` contains 1–1024 characters;
+- `description` contains 1–1024 Unicode scalar values;
 - names must be unique under ASCII case folding and must not match the
   checked-in union of documented built-in, bundled, and mode-command names for
   Claude, Codex, or Bob;
@@ -171,15 +175,16 @@ plugin scopes are not modified.
 ## Installation Ordering, Transaction, and Rollback
 
 Resolve and canonicalize every selected config destination, reject duplicates,
-sort by canonical path, then acquire `.agent-config-skills.lock` in each
-destination in that order before recovering an interrupted transaction, reading
-new overlays, or staging. Each lock stores the host, PID, transaction id, private
-root, and absolute journal path. Hold all acquired locks through commit,
-rollback, and cleanup. If any acquisition fails, release locks acquired by the
-current process and exit before reading or writing either transaction's
-journal. This per-destination identity serializes overlapping selections even
-when invocations use different `AGENT_CONFIG_PRIVATE_DIR` values and prevents
-deadlock for selections containing the same roots.
+and sort by canonical path. Atomically create a unique mode-`0600` journal in
+state `locking` before acquiring `.agent-config-skills.lock` in each destination
+in that order. Journal every lock acquisition as `pending` then `held`. Each
+lock stores the host, PID, transaction id, private root, and absolute journal
+path. Hold all acquired locks through commit, rollback, and cleanup. If any
+acquisition fails, journal and release locks acquired by the current process in
+reverse order before exiting. This per-destination identity serializes
+overlapping selections even when invocations use different
+`AGENT_CONFIG_PRIVATE_DIR` values and prevents deadlock for selections
+containing the same roots.
 
 For a same-host owner whose process no longer exists, validate the lock metadata
 and identified journal before taking over all destinations named by that
@@ -224,18 +229,20 @@ Never print an ordinary install summary for a partially rolled-back run.
 
 ### Interrupted-process recovery
 
-Use a single JSON transaction record under:
+Use one unique JSON transaction record per invocation under:
 
 ```text
-${AGENT_CONFIG_PRIVATE_DIR:-$HOME/.config/agent-config}/transactions/skills.json
+${AGENT_CONFIG_PRIVATE_DIR:-$HOME/.config/agent-config}/transactions/skills/<transaction-id>.json
 ```
 
 Create the parent directory with mode `0700` and the record with mode `0600`.
-The version-1 record is a closed schema. Its top-level state is exactly `open`,
-`committed`, or `needs-repair`; it contains a lowercase hexadecimal transaction
-id, creator host/PID/private root, selected destinations in canonical sorted
-order, and one unique operation identity for each destination plus managed
-name. Operation kind is exactly `promote`, `remove`, `legacy-skill`,
+The version-1 record is a closed schema. Its top-level state is exactly
+`locking`, `open`, `committed`, `cleanup-complete`, or `needs-repair`; it
+contains a lowercase hexadecimal transaction id, creator host/PID/private root,
+selected destinations in canonical sorted order, a per-destination lock state,
+and one unique operation identity for each destination plus managed name. Lock
+state is exactly `planned`, `pending`, `held`, `release-pending`, or `released`.
+Operation kind is exactly `promote`, `remove`, `legacy-skill`,
 `legacy-command`, or `manifest`; operation state is exactly `planned`,
 `pending`, `complete`, or `cleaned`. Prior state is exactly `absent`,
 `per-name-backup`, or `legacy-snapshot:<child>`. It also records one optional
@@ -266,11 +273,13 @@ rename, persist the completed operation. A process interruption can therefore
 leave an operation pending but never unrecorded; recovery treats pending as
 possibly applied and restores it idempotently.
 
-At the beginning of every installer run, after acquiring the locks and before
-reading new overlays or changing destinations, inspect the record. If it is
-uncommitted, restore the recorded pre-install state in reverse operation order.
-Validate every restored name, retain recovery material on failure, and name
-uncertain paths.
+When a destination lock already exists, validate its identified record before
+taking over a dead same-host owner. An interrupted `locking` record has not
+entered the live-content phase: release any possibly acquired locks
+idempotently and delete the record after all are absent. For an `open` record,
+first take over all destinations named by that record, then restore the recorded
+pre-install state in reverse operation order. Validate every restored name,
+retain recovery material on failure, and name uncertain paths.
 
 Stage every new manifest and retain every prior manifest before promotion. After
 every live destination validates, publish manifests with the same write-ahead
@@ -278,9 +287,17 @@ pending/completed protocol, then mark the transaction committed. Pre-commit
 recovery restores both managed skill names and prior manifests. A committed
 record is never rolled back. If interruption or error occurs during cleanup,
 the next run finishes moving transaction backups into the normal timestamped
-backup tree, removes stages, clears the record, and releases the lock
-idempotently; cleanup accepts a backup already present at either its transaction
-or final timestamped location.
+backup tree and removes stages; cleanup accepts a backup already present at
+either its transaction or final timestamped location.
+
+After cleanup, mark the record `cleanup-complete`, then release destination
+locks in deterministic reverse order using `release-pending` and `released`
+write-ahead states. Delete the record only after every recorded lock is
+confirmed absent. A crash before the first lock, between lock operations, or
+after cleanup therefore always leaves a journal that proves whether live
+content mutation could have begun. Orphaned `locking` or `cleanup-complete`
+records in the current private root are validated and finished before a new
+transaction is created.
 
 This protocol guarantees process-interruption recovery on a live host. Sudden
 storage loss or filesystem failure before durable metadata reaches the device is
@@ -308,14 +325,15 @@ exact missing capability and stops.
 
 Add `scripts/check-skill-layout.sh` and a `skills-check` recipe. The guard:
 
-1. requires `content/skills/` to exist;
-2. requires every immediate skill directory to contain `SKILL.md`;
-3. verifies frontmatter contains only `name` and `description`, the name matches
+1. validates the pinned source identity and rule keys in
+   `scripts/agent-skills-contract.json` before consuming them;
+2. requires `content/skills/` to exist;
+3. requires every immediate skill directory to contain `SKILL.md`;
+4. verifies frontmatter contains only `name` and `description`, the name matches
    its directory and follows the complete pinned grammar, and description is
-   1–1024 characters;
-4. rejects every `SKILL.md` and every command-directory file under `agents/`;
-5. rejects behavior-bearing vendor frontmatter in canonical `SKILL.md` files;
-6. verifies bundled Markdown links resolve within the canonical package; and
+   1–1024 Unicode scalar values;
+5. rejects every `SKILL.md` and every command-directory file under `agents/`;
+6. verifies bundled Markdown links resolve within the canonical package;
 7. rejects symlinks and absolute supported-agent config-root references in
    canonical skills; and
 8. rejects names in `scripts/reserved-skill-names.txt`, whose comments identify
@@ -414,7 +432,8 @@ and unchanged workflow guardrails on each available client.
 | SKILL-21 | Seed unknown-version, invalid-transition, duplicate-name, path-escape, symlink-swap, and stale-destination journals | Each run leaves live paths byte-identical and enters/names `needs-repair` | Executing any recorded live rename | block |
 | SKILL-22 | Legacy whole-tree manifests contain managed drift plus unrelated skill/command children; inject termination at each snapshot, promotion, manifest, and cleanup boundary across three clients | Recovery restores every managed byte/mode and preserves unrelated children, or names an injected rollback failure as `needs-repair` | Enclosing-tree replacement or user-child loss | block |
 | SKILL-23 | Fail native/common installation before and after each client boundary | No shared-skill stage begins; output identifies the non-atomic native phase and completed paths | Claiming all-agent rollback or skill commit | block |
-| SKILL-24 | Add empty/1025-character descriptions, consecutive-hyphen names, unknown frontmatter, and every reserved-name fixture | `skills-check` rejects each exact rule and path | Canonical package accepted by only a subset of clients | block |
+| SKILL-24 | Add empty/1025-character descriptions, consecutive-hyphen names, non-string/unknown frontmatter, contract-identity drift, and every reserved-name fixture | `skills-check` rejects each exact rule and path | Canonical package accepted by only a subset of clients | block |
+| SKILL-25 | Terminate before the first lock, between every lock acquisition, before the first release, and between every lock release | Rerun removes only dead same-host locks named by the valid journal; no live content changes; every completed run leaves no lock or journal | No-record dead lock or deletion of another transaction's lock | block |
 
 Static shell checks decide filesystem, metadata, and safety boundaries in CI.
 `scripts/skill-smoke-eval.sh` provides the behavioral harness. It creates a

@@ -29,15 +29,19 @@ canonical directory under `skills/` for Claude, Codex, and Bob with identical
 file content, file type, and executable mode. Canonical skills contain no
 symlinks. Remove per-agent skill trees and Claude custom-command copies.
 
-The portable contract is a strict subset of the Agent Skills specification as
-retrieved from `https://agentskills.io/specification` on 2026-07-31: a directory
-whose `SKILL.md` frontmatter contains exactly `name` and `description`. The
-description contains 1–1024 characters. The package uses relative
-bundled-resource paths, never names a supported client's installed config root,
-and contains no behavior-bearing vendor frontmatter. Target repository paths
-remain repository-relative. A skill may require an external product or
-capability only when it names that requirement and stops actionably when the
-host cannot provide it.
+The portable contract is a strict subset of the Agent Skills specification at
+upstream commit `38a2ff82958afee88dadf4831509e6f7e9d8ef4e`, specification
+blob `20cf9f6b672391e3295733c7863480905de6b887`. A checked-in
+`scripts/agent-skills-contract.json` records that identity and the exact rules
+consumed by the repository guard. A skill is a directory whose `SKILL.md`
+contains a YAML mapping followed by non-empty Markdown. The mapping has exactly
+two string fields: `name` and `description`; the name matches the parent
+directory, and the description contains 1–1024 Unicode scalar values. The
+package uses relative bundled-resource paths, never names a supported client's
+installed config root, and contains no behavior-bearing vendor frontmatter.
+Target repository paths remain repository-relative. A skill may require an
+external product or capability only when it names that requirement and stops
+actionably when the host cannot provide it.
 
 Canonical names are 1–64 lowercase ASCII letters, digits, or hyphens; they do
 not begin or end with a hyphen, contain consecutive hyphens, collide under ASCII
@@ -93,22 +97,22 @@ needs-repair state. No later install proceeds until the operator restores the
 named paths or makes rollback possible. This transaction applies to
 `--agent all` and to a single selected client.
 
-Before recovery or staging, the installer acquires an exclusive lock inside
-every resolved destination in deterministic path order and holds all locks
-through commit, rollback, and cleanup. Each lock identifies the transaction
-record and private root that created it, so invocations using different private
+Before acquiring the first destination lock, the installer atomically creates a
+unique mode-`0600` transaction record in state `locking`. It then acquires an
+exclusive lock inside every resolved destination in deterministic path order
+and holds all locks through commit, rollback, and cleanup. Each lock identifies
+that unique record and private root, so invocations using different private
 roots still serialize when they share a destination. A competing installer
 stops actionably. A dead same-host lock may be taken over only after validating
 and consulting its identified transaction record; an owner on another host
 requires operator intervention.
 
-Before the first promotion, the installer writes a mode-`0600` transaction
-record under the private root, outside this repository. The record identifies
-selected destinations plus stage, backup, promotion, removal, manifest, commit,
-and cleanup state without storing configuration content. Each live rename uses
-write-ahead ordering: first persist `promotion-pending` or `removal-pending`,
-then rename, then persist completion. Recovery treats a pending operation as
-possibly applied and restores it idempotently from its recorded backup.
+The record lives under the private root, outside this repository. It identifies
+selected destinations plus lock, stage, backup, promotion, removal, manifest,
+commit, and cleanup state without storing configuration content. Each lock or
+live rename uses write-ahead ordering: first persist the pending state, then
+perform the operation, then persist completion. Recovery treats a pending
+operation as possibly applied and restores it idempotently from recorded state.
 
 Recovery treats the record as untrusted local input. It validates the exact
 format version and state vocabulary, unique destination/name identities,
@@ -120,8 +124,12 @@ rename or removal.
 After all destinations validate, the installer atomically publishes every new
 ownership manifest and marks the transaction committed. Recovery rolls back
 only an uncommitted record. A committed record resumes transaction-backup
-cleanup idempotently and never restores the old revision. The record is cleared
-and the lock released only after cleanup succeeds.
+cleanup idempotently and never restores the old revision. After cleanup, lock
+release is itself journaled in deterministic reverse order. The record is
+deleted only after every destination lock is recorded released and confirmed
+absent. An interrupted `locking` record has made no live content mutation and
+releases any recorded locks idempotently; an interrupted terminal record
+finishes releasing its remaining locks before deletion.
 
 ## Consequences
 
