@@ -190,8 +190,8 @@ Otherwise, decide provenance. A worktree is **ours** when it sits where `using-g
 
 ```bash
 # Resolve BOTH sides with `pwd -P` before comparing. A symlinked checkout
-# (e.g. ~/src -> /Volumes/Source Code Volume/src) makes an unresolved prefix
-# compare report "not ours" and refuse a cleanup we own.
+# can make an unresolved prefix compare report "not ours" and refuse a cleanup
+# we own.
 WORKTREE_PATH=$(cd "$(git rev-parse --show-toplevel)" && pwd -P)
 MAIN_ROOT=$(cd "$(git rev-parse --git-common-dir)/.." && pwd -P)
 SIBLING_ROOT="$(dirname "$MAIN_ROOT")/$(basename "$MAIN_ROOT")-worktrees"

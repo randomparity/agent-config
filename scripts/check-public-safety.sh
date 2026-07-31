@@ -17,6 +17,7 @@ fi
 denied_patterns=(
 	'/Users/[[:alnum:]_][[:alnum:]_.-]+'
 	'/home/[[:alnum:]_][[:alnum:]_.-]+'
+	'/Volumes/[[:alnum:]_][^`)]*'
 	'pdx\.drc'
 	'ts\.drc'
 	'192\.168\.'

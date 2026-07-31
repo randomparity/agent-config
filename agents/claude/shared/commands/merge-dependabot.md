@@ -1,7 +1,7 @@
 # Merge Dependabot PRs
 
 @description Evaluate and merge dependabot PRs with parallel builds, dependency-aware batching, and transitive dep analysis.
-@arguments $REPO: GitHub org/repo (e.g., randomparity/claude-config). $OPTIONS: Optional flags — "--skip-config-audit" skips Phase 0 (use in batch runs where config audit is a separate pass).
+@arguments $REPO: GitHub org/repo (e.g., OWNER/REPO). $OPTIONS: Optional flags — "--skip-config-audit" skips Phase 0 (use in batch runs where config audit is a separate pass).
 
 Clone $REPO if not already available locally:
 
