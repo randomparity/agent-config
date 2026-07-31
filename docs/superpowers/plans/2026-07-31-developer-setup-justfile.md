@@ -39,7 +39,7 @@
 - Consumes: existing `install-tools.sh`.
 - Produces: executable shell test that fails until `install-tools.sh` supports dry-run distro detection and the expanded tool list.
 
-- [ ] **Step 1: Add the test harness**
+- [x] **Step 1: Add the test harness**
 
 Create `install-tools-test.sh` with helpers:
 
@@ -64,7 +64,7 @@ specific assertion that needs that command. Assert dry-run output contains
 family and contains package names for `just`, `ripgrep`, `ShellCheck`, `prek`,
 `actionlint`, and `zizmor` as appropriate.
 
-- [ ] **Step 2: Add fallback and check-mode assertions**
+- [x] **Step 2: Add fallback and check-mode assertions**
 
 In the same file, assert:
 
@@ -82,7 +82,7 @@ AGENT_CONFIG_FAKE_MISSING="just" ./install-tools.sh --check
 
 fails with `missing required tools`.
 
-- [ ] **Step 3: Run the red test**
+- [x] **Step 3: Run the red test**
 
 Run:
 
@@ -104,7 +104,7 @@ or install the expanded tool list.
 - Consumes: test-only env vars from the spec.
 - Produces: `./install-tools.sh`, `./install-tools.sh --install`, and `./install-tools.sh --check`.
 
-- [ ] **Step 1: Expand the required tool list**
+- [x] **Step 1: Expand the required tool list**
 
 Replace the fixed command loop with a function that emits:
 
@@ -123,7 +123,7 @@ zizmor
 Use Bash arrays only in ways compatible with macOS Bash 3.2; do not use
 associative arrays.
 
-- [ ] **Step 2: Add platform and distro-family detection**
+- [x] **Step 2: Add platform and distro-family detection**
 
 Add functions equivalent to:
 
@@ -144,10 +144,10 @@ linux_family() {
 
   case " $values " in
   *" ubuntu "* | *" debian "*) printf 'debian\n' ;;
-  *" fedora "*) printf 'fedora\n' ;;
   *" rhel "* | *" centos "* | *" rocky "* | *" almalinux "* | *" ol "*)
     printf 'rhel\n'
     ;;
+  *" fedora "*) printf 'fedora\n' ;;
   *) return 1 ;;
   esac
 }
@@ -157,7 +157,7 @@ linux_family() {
 returns `debian`, `fedora`, `rhel`, or a non-zero status for unsupported Linux.
 RHEL matches `rhel`, `centos`, `rocky`, `almalinux`, and `ol`.
 
-- [ ] **Step 3: Add package-manager installers**
+- [x] **Step 3: Add package-manager installers**
 
 Implement package maps for Homebrew, apt, dnf, and yum. Dry-run mode prints the
 exact command prefixed by `install-tools: would run:`. Real install mode runs:
@@ -173,7 +173,7 @@ sudo yum install -y <packages>
 Use `sudo` only when `id -u` is not zero, and fail with an actionable message if
 `sudo` is required but absent.
 
-- [ ] **Step 4: Add pinned fallbacks**
+- [x] **Step 4: Add pinned fallbacks**
 
 Add fallbacks only for tools still missing after package-manager installation:
 
@@ -191,7 +191,7 @@ pipx install zizmor==1.28.0
 
 Fail clearly when no supported fallback runtime is available.
 
-- [ ] **Step 5: Run tests and commit**
+- [x] **Step 5: Run tests and commit**
 
 Run:
 
