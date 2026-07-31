@@ -217,6 +217,9 @@ path_bin="$tmpdir/path-bin"
 path_home="$tmpdir/path-home"
 github_path="$tmpdir/github-path"
 mkdir -p "$path_bin" "$path_home"
+for utility in bash mkdir chmod; do
+	ln -s "$(command -v "$utility")" "$path_bin/$utility"
+done
 for command_name in jq rg shellcheck shfmt gh prek actionlint zizmor; do
 	cat >"$path_bin/$command_name" <<'EOF'
 #!/usr/bin/env bash
@@ -238,7 +241,7 @@ chmod +x "$path_bin/cargo"
 
 set +e
 path_fallback_output="$(
-	PATH="$path_bin:/usr/bin:/bin" \
+	PATH="$path_bin" \
 		HOME="$path_home" \
 		GITHUB_PATH="$github_path" \
 		AGENT_CONFIG_SKIP_PACKAGE_MANAGER=1 \
