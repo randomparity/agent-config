@@ -20,16 +20,40 @@ committing host-specific configuration.
 
 ## Install
 
-Check local tooling:
+Bootstrap local tooling:
+
+```sh
+./install-tools.sh
+just setup
+```
+
+`./install-tools.sh` is the first-run path for clones that do not have `just`
+yet. It checks and installs `just`, `jq`, `rg`, `shellcheck`, `shfmt`, `gh`,
+`prek`, `actionlint`, and `zizmor`.
+
+If a fallback installer places tools in a directory that was not already on your
+shell `PATH`, start a new shell or add the printed tool directory before running
+`just`. To install tools and enable hooks in one bootstrap step, run:
+
+```sh
+AGENT_CONFIG_SETUP_HOOKS=1 ./install-tools.sh
+```
+
+Check local tooling without installing anything:
 
 ```sh
 ./install-tools.sh --check
 ```
 
-Install missing tools when Homebrew or Go fallbacks are available:
+The tool installer supports macOS with Homebrew and Linux via `/etc/os-release`
+family detection for Ubuntu/Debian, Fedora, and RHEL-family systems. It uses
+package managers first, then pinned fallbacks only when the required runtime is
+already installed.
+
+Set up or refresh local git hooks:
 
 ```sh
-./install-tools.sh
+just hooks
 ```
 
 Install one agent:
@@ -104,11 +128,11 @@ Bob project-local examples live under `examples/bob-project/.bob/`.
 Run the full local guardrail suite:
 
 ```sh
-shellcheck install.sh install-tools.sh install-test.sh scripts/*.sh
-shfmt -d install.sh install-tools.sh install-test.sh scripts/*.sh
-./install-test.sh
-./scripts/check-public-safety.sh
+just verify
 ```
+
+Run `just format` to apply shell formatting. CI runs `just ci`, which runs
+`just verify` and then `prek run --all-files` to prove the hook configuration.
 
 `./install-test.sh` installs every agent into temporary directories, applies
 private overlay fixtures, checks generated files, verifies manifest pruning, and
