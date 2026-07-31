@@ -250,4 +250,49 @@ assert_success "$path_fallback_status" "fallback-installed binary path"
 assert_contains "$path_fallback_output" "fake cargo installed just"
 assert_contains "$(cat "$github_path")" "$path_home/.cargo/bin"
 
+hook_bin="$tmpdir/hook-bin"
+hook_home="$tmpdir/hook-home"
+mkdir -p "$hook_bin"
+for command_name in jq rg shellcheck shfmt gh actionlint zizmor; do
+	cat >"$hook_bin/$command_name" <<'EOF'
+#!/usr/bin/env bash
+exit 0
+EOF
+	chmod +x "$hook_bin/$command_name"
+done
+cat >"$hook_bin/cargo" <<'EOF'
+#!/usr/bin/env bash
+install_dir="$HOME/.cargo/bin"
+mkdir -p "$install_dir"
+case "$*" in
+*"--version 1.57.0"*)
+  printf '#!/usr/bin/env bash\nexit 0\n' >"$install_dir/just"
+  chmod +x "$install_dir/just"
+  ;;
+*"--version 0.4.11"*)
+  cat >"$install_dir/prek" <<'INNER'
+#!/usr/bin/env bash
+printf 'fake prek %s\n' "$*"
+exit 0
+INNER
+  chmod +x "$install_dir/prek"
+  ;;
+esac
+exit 0
+EOF
+chmod +x "$hook_bin/cargo"
+
+set +e
+hook_setup_output="$(
+	PATH="$hook_bin:/usr/bin:/bin" \
+		HOME="$hook_home" \
+		AGENT_CONFIG_SKIP_PACKAGE_MANAGER=1 \
+		AGENT_CONFIG_SETUP_HOOKS=1 \
+		./install-tools.sh 2>&1
+)"
+hook_setup_status="$?"
+set -e
+assert_success "$hook_setup_status" "fallback hook setup"
+assert_contains "$hook_setup_output" "fake prek install"
+
 printf 'install-tools-test: ok\n'

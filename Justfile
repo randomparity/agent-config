@@ -4,8 +4,7 @@ default:
   just --list
 
 setup:
-  ./install-tools.sh
-  prek install
+  AGENT_CONFIG_SETUP_HOOKS=1 ./install-tools.sh
 
 hooks:
   prek install

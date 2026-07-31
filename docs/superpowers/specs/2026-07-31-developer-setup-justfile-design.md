@@ -51,6 +51,7 @@ support these modes:
 ./install-tools.sh
 ./install-tools.sh --install
 ./install-tools.sh --check
+AGENT_CONFIG_SETUP_HOOKS=1 ./install-tools.sh
 ```
 
 The install mode detects missing commands, installs what it can through the
@@ -124,6 +125,8 @@ ci
 `tools-check`, `lint`, `format-check`, `test`, `public-safety`, and
 `actionlint`/`zizmor` when workflows are present. `ci` runs `verify` and
 `prek run --all-files` so CI proves both the guardrail recipe and hook config.
+`just setup` should call the hook-enabled bootstrap path so fallback-installed
+`prek` can be used before the parent shell learns any new fallback directory.
 
 ## Hook and CI Configuration
 
@@ -161,6 +164,7 @@ overrides:
   of executing them.
 - `AGENT_CONFIG_SKIP_PACKAGE_MANAGER=1` skips package-manager installation so
   fallback paths can be tested deterministically.
+- `AGENT_CONFIG_SETUP_HOOKS=1` runs `prek install` after tools are present.
 
 The test covers:
 

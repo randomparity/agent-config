@@ -31,6 +31,14 @@ just setup
 yet. It checks and installs `just`, `jq`, `rg`, `shellcheck`, `shfmt`, `gh`,
 `prek`, `actionlint`, and `zizmor`.
 
+If a fallback installer places tools in a directory that was not already on your
+shell `PATH`, start a new shell or add the printed tool directory before running
+`just`. To install tools and enable hooks in one bootstrap step, run:
+
+```sh
+AGENT_CONFIG_SETUP_HOOKS=1 ./install-tools.sh
+```
+
 Check local tooling without installing anything:
 
 ```sh

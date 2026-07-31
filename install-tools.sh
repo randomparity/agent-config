@@ -14,6 +14,8 @@ Usage: ./install-tools.sh [--install|--check]
 
 Checks or installs local tools used by this repository:
   just, jq, rg, shellcheck, shfmt, gh, prek, actionlint, zizmor
+
+Set AGENT_CONFIG_SETUP_HOOKS=1 to run `prek install` after tools are present.
 EOF
 }
 
@@ -387,6 +389,23 @@ check_mode() {
 	return 1
 }
 
+hooks_requested() {
+	[[ "${AGENT_CONFIG_SETUP_HOOKS:-0}" == "1" ]]
+}
+
+setup_hooks() {
+	if ! hooks_requested; then
+		return 0
+	fi
+
+	if ! command_exists prek; then
+		printf 'install-tools: cannot set up hooks because prek is unavailable\n' >&2
+		return 1
+	fi
+
+	prek install
+}
+
 install_mode() {
 	local missing
 	local package_manager
@@ -441,6 +460,7 @@ install_mode() {
 	fi
 
 	check_mode
+	setup_hooks
 }
 
 case "$MODE" in
