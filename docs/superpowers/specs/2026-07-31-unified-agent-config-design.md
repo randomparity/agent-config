@@ -123,6 +123,9 @@ would either add a new dependency or invite brittle text manipulation, and
 custom modes are especially sensitive because they grant tool groups. Host-only
 Bob modes therefore stay in Bob's own private global or project configuration
 outside this repo until a later issue adds a validated merge strategy.
+The public Bob custom-mode file is copied to both global paths documented by
+Bob: `~/.bob/settings/custom_modes.yaml` for the IDE and
+`~/.bob/custom_modes.yaml` for the Shell.
 
 For each agent, the installer:
 
