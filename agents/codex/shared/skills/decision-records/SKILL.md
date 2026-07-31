@@ -94,7 +94,8 @@ Which run found it, and when. Optionally `tracker: #12` as a pointer.
 ```
 
 `target:` and `review-by:` are **bare line-start literals** — column one, no bullet, no
-indentation, no emphasis. An idiomatic `- target: x` does not match. Resolve a record by
+indentation, no emphasis. Open records require `review-by:`; an idiomatic `- target: x`
+does not match. Resolve a record by
 replacing `Open` with `> **Resolved by <what>** (YYYY-MM-DD)` in its `## Status` in place,
 and drop the `review-by:` line with it: the date asks when to re-evaluate a live concern,
 and a resolved one has answered that. A line left behind does not go stale — the banner
@@ -268,8 +269,9 @@ Check before installing:
 
 It fails a PR on a malformed or empty record, an unreadable `## Status`, a resolution or
 supersession banner that names nothing, is malformed, or is dated in the future, an ADR
-whose H1 number does not match its filename, a missing `target:` line, a bad
-`review-by:`, a duplicate number the change introduced, a stray file in the directory, and
+whose H1 number does not match its filename, a missing `target:` line, a missing or bad
+`review-by:` on an open record, a duplicate number the change introduced, a stray file in
+the directory, and
 — the rules that matter — a record that stopped being a record: deleted, moved into a
 subdirectory, replaced by a symlink, removed from git while left on disk, or **gutted in
 place**. That last one is the cheapest erasure and the one every other rule misses, since

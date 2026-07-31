@@ -491,6 +491,17 @@ target: docs/debt|' "$d/docs/debt/0001-valid.md" >"$d/.tmp" && mv "$d/.tmp" "$d/
   write_record "$d" "0001-valid.md" Open docs/debt "July 2026"
   run_case "malformed review-by" 1 E-REVIEWBY-FORM "$d" BASE_SHA="$(base_of "$d")"
 
+  d=$(case_dir missing_reviewby)
+  sed '/^review-by: /d' "$d/docs/debt/0001-valid.md" >"$d/.tmp" &&
+    mv "$d/.tmp" "$d/docs/debt/0001-valid.md"
+  run_case "missing review-by on open record" 1 E-REVIEWBY-MISSING "$d" \
+    BASE_SHA="$(base_of "$d")"
+
+  d=$(case_dir resolved_without_reviewby "> **Resolved by PR #12** (2026-01-01)")
+  sed '/^review-by: /d' "$d/docs/debt/0001-valid.md" >"$d/.tmp" &&
+    mv "$d/.tmp" "$d/docs/debt/0001-valid.md"
+  run_case "resolved record without review-by" 0 - "$d" BASE_SHA="$(base_of "$d")"
+
   d=$(case_dir stale_reviewby Open docs/debt "2020-01-01")
   run_case "stale review-by warns only" 0 W-REVIEWBY-STALE "$d" BASE_SHA="$(base_of "$d")"
 

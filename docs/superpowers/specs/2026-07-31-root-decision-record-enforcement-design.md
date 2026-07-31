@@ -10,10 +10,11 @@ repository-owned regression suite, migration of current records, and contributor
 documentation. This is a dispatched design: the issue body and acceptance criteria are
 the approved requirement.
 
-The design assumes the existing decision-record assets in the Claude and Codex
-projections are the behavior to preserve. It does not redesign the checker. It also
-assumes agent-native workflow templates may retain native invocation prose and action
-pins, while shared checker behavior must not drift.
+The design preserves the existing decision-record behavior in the Claude and Codex
+projections except where it conflicts with the accepted root convention: open debt must
+carry `review-by:`. It does not otherwise redesign the checker. Agent-native workflow
+templates may retain native invocation prose and action pins, while shared checker
+behavior must not drift.
 
 ## Goals
 
@@ -21,14 +22,15 @@ pins, while shared checker behavior must not drift.
   gate ownership in ADR 0003.
 - Validate every root ADR and debt record through `just verify`.
 - Make `.github/scripts/` authoritative for the gate engine, suite, migrator, and
-  profiles without changing their current behavior.
+  profiles, with the one root-policy correction for required open-debt review dates.
 - Fail verification when Claude or Codex deployable gate logic differs from root.
 - Keep CI on the same `just ci` to `just verify` path used by contributors.
 - Report and resolve or track every finding from the first real root-owned run.
 
 ## Non-goals
 
-- Redesigning decision-record parsing or changing existing rule semantics.
+- Redesigning decision-record parsing or changing rule semantics beyond the required
+  open-debt review date.
 - Generating native skill trees during installation.
 - Making GitHub branch-protection changes from repository code.
 - Adding a hand-maintained ADR or debt index.
@@ -40,7 +42,8 @@ pins, while shared checker behavior must not drift.
 
 Copy the current checker package to `.github/scripts/`, run it from the root recipe, and
 compare its shared assets byte-for-byte with both native projections. This names a neutral
-owner, preserves existing behavior, and catches drift without changing installation.
+owner, preserves existing behavior apart from the accepted review-date correction, and
+catches drift without changing installation.
 
 ### One agent projection owns root enforcement
 
@@ -149,7 +152,7 @@ only affect their local result.
 
 ### Controls
 
-- The preserved checker quotes paths, rejects symlinks and malformed base refs, and fails
+- The adopted checker quotes paths, rejects symlinks and malformed base refs, and fails
   degraded paths instead of reporting success over no records.
 - CI uses a read-only token, disables checkout credential persistence, and fetches full
   history so the base SHA is reachable.

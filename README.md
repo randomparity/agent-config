@@ -163,7 +163,8 @@ A debt record uses the same file and title convention. It has non-empty
 `## Status`, `## Concern`, `## Why deferred`, `## Non-regression boundary`,
 `## What would resolve it`, and `## Provenance` sections. Open records use an
 `Open` status followed by `review-by: YYYY-MM-DD`. Provenance includes at least
-one `target: path` line. Resolve a record in place by replacing `Open` with:
+one `target: path` line. Resolve a record in place by removing `review-by:` and
+replacing `Open` with:
 
 ```markdown
 > **Resolved by <what>** (YYYY-MM-DD)
