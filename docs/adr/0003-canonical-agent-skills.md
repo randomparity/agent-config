@@ -37,6 +37,10 @@ repository paths remain repository-relative. A skill may require an external
 product or capability only when it names that requirement and stops actionably
 when the host cannot provide it.
 
+Canonical names are 1–64 lowercase ASCII letters, digits, or hyphens; they do
+not begin or end with a hyphen and are unique under ASCII case folding. The
+installer defines no additional reserved names beyond this shared grammar.
+
 Keep agent-specific settings, instruction roots, modes, MCP configuration, and
 other formats under `agents/<agent>/shared/`. A canonical skill may contain an
 optional vendor metadata file when it does not change the shared workflow;
@@ -82,11 +86,14 @@ needs-repair state. No later install proceeds until the operator restores the
 named paths or makes rollback possible. This transaction applies to
 `--agent all` and to a single selected client.
 
-Before recovery or staging, the installer acquires one exclusive lock under the
-private agent-config root and holds it through commit, rollback, and cleanup. A
-competing installer stops actionably. A dead same-host lock may be taken over
-only after consulting the transaction record; an owner on another host requires
-operator intervention.
+Before recovery or staging, the installer acquires an exclusive lock inside
+every resolved destination in deterministic path order and holds all locks
+through commit, rollback, and cleanup. Each lock identifies the transaction
+record and private root that created it, so invocations using different private
+roots still serialize when they share a destination. A competing installer
+stops actionably. A dead same-host lock may be taken over only after validating
+and consulting its identified transaction record; an owner on another host
+requires operator intervention.
 
 Before the first promotion, the installer writes a mode-`0600` transaction
 record under the private root, outside this repository. The record identifies
@@ -95,6 +102,13 @@ and cleanup state without storing configuration content. Each live rename uses
 write-ahead ordering: first persist `promotion-pending` or `removal-pending`,
 then rename, then persist completion. Recovery treats a pending operation as
 possibly applied and restores it idempotently from its recorded backup.
+
+Recovery treats the record as untrusted local input. It validates the exact
+format version and state vocabulary, unique destination/name identities,
+transaction-derived stage and backup locations, destination containment, and
+non-symlink ancestors before any live mutation. A malformed, stale, or
+path-escaping record becomes `needs-repair` without executing a recorded
+rename or removal.
 
 After all destinations validate, the installer atomically publishes every new
 ownership manifest and marks the transaction committed. Recovery rolls back
