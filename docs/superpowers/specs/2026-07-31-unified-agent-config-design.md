@@ -69,15 +69,18 @@ install-test.sh
 
 `content/` contains material that is deliberately agent-neutral: global
 development standards, language references, and orchestration references.
-Installers deploy it into each agent's native config tree.
+Installers deploy it into each agent's native config tree only for neutral
+subtrees whose destination is not agent-specific. Agent-native payloads own root
+instruction files, settings, command metadata, skills, modes, MCP files, and any
+path whose meaning differs by agent.
 
 `agents/<agent>/shared/` contains deployable native payloads:
 
 - Claude: `CLAUDE.md`, `settings.base.json`, `statusline.sh`, slash commands,
   Claude agents, and Claude-compatible skills.
 - Codex: `AGENTS.md`, `config.base.toml`, and Codex skills.
-- Bob: `AGENTS.md`, `settings.base.json`, `.bob/custom_modes.yaml`,
-  `.bob/mcp.json`, `.bob/rules/`, and `.bob/skills/`.
+- Bob: `AGENTS.md`, `settings.base.json`, `custom_modes.yaml`, `mcp.json`,
+  `rules/`, and `skills/`.
 
 The native payloads are allowed to differ where the tools differ. For example,
 Claude command front matter has `allowed-tools`, Codex workflows are skills with
@@ -109,11 +112,17 @@ Per-agent private overlay files:
 
 - Claude: `settings.overlay.json`
 - Codex: `config.overlay.toml`
-- Bob: `settings.overlay.json`, `mcp.overlay.json`, `custom_modes.overlay.yaml`
+- Bob: `settings.overlay.json`, `mcp.overlay.json`
 
 If an overlay is absent, the installer uses the public base only and reports
 that no private overlay was applied. Secrets stay in environment variables or in
 private files outside this repo.
+
+Bob custom-mode YAML is not merged in the initial installer. YAML list merging
+would either add a new dependency or invite brittle text manipulation, and
+custom modes are especially sensitive because they grant tool groups. Host-only
+Bob modes therefore stay in Bob's own private global or project configuration
+outside this repo until a later issue adds a validated merge strategy.
 
 For each agent, the installer:
 
@@ -130,13 +139,19 @@ For each agent, the installer:
 
 Claude MCP registration remains a Claude-only optional adapter because Claude
 Code uses the `claude mcp` CLI for user-scope MCP registration. Bob MCP stays
-file-based through `.bob/mcp.json`. Codex MCP configuration is left out until
-the Codex config surface for this installation is intentionally added.
+file-based. The installer writes Bob global MCP config to the IDE path
+`~/.bob/mcp.json` and the Shell path `~/.bob/mcp_settings.json`, because public
+Bob docs describe both locations for different surfaces. Codex MCP configuration
+is left out until the Codex config surface for this installation is
+intentionally added.
 
 ## Public Examples
 
-`examples/hosts/` shows overlay shapes with placeholder values only. Example
-files may use paths like `/path/to/project` and environment placeholders such as
+`examples/hosts/` shows private overlay shapes with placeholder values only.
+`examples/bob-project/` shows Bob project-local conventions (`AGENTS.md`,
+`.bob/custom_modes.yaml`, `.bob/mcp.json`, `.bob/rules/`, and `.bob/skills/`)
+without implying those paths are the global install destination. Example files
+may use paths like `/path/to/project` and environment placeholders such as
 `${EXA_API_KEY}`, but must not include real user names, host names, local IPs,
 tokens, Basic Auth headers, trusted-project inventories, or workstation app
 paths.

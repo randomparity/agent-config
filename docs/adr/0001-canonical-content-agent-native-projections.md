@@ -24,8 +24,15 @@ syntax, config paths, metadata, permissions, or tool groups.
 Keep agent-neutral content under `content/`, and keep deployable native payloads
 under `agents/<agent>/shared/`.
 
-The installer deploys canonical content into each target where it is genuinely
-shared, and deploys agent-native payloads where the tools require different
+Canonical content owns neutral subtrees such as language and orchestration
+references. Agent-native payloads own root instruction files, settings, command
+metadata, skill adapters, modes, MCP files, and any path whose meaning differs by
+agent. If both areas could plausibly provide the same deployed path, the native
+payload owns it until a later ADR introduces a renderer with an explicit
+precedence rule.
+
+The installer deploys canonical content into each target only for those neutral
+subtrees, and deploys agent-native payloads where the tools require different
 formats or semantics. Host overlays are not stored in this public repository;
 the installer reads optional private overlays from a local directory outside the
 repo.
@@ -33,7 +40,8 @@ repo.
 ## Consequences
 
 - The repo avoids pretending that incompatible agent formats are one artifact.
-- Shared standards and references have one canonical home.
+- Shared standards and references have one canonical home where their deployed
+  path is not agent-specific.
 - Agent-native payloads can still be reviewed and installed without a build step
   that rewrites every command or skill.
 - Some duplication remains where behavior is shared but invocation syntax is
