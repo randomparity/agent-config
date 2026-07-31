@@ -80,6 +80,7 @@ export CLAUDE_CONFIG_DIR="$tmpdir/home/.claude"
 export CODEX_CONFIG_DIR="$tmpdir/home/.codex"
 export BOB_CONFIG_DIR="$tmpdir/home/.bob"
 export AGENT_CONFIG_PRIVATE_DIR="$tmpdir/private"
+export AGENT_CONFIG_REGISTER_CLAUDE_MCP=0
 
 mkdir -p "$HOME"
 seed_stale_manifest "$CLAUDE_CONFIG_DIR"
