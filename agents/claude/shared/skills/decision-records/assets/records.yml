@@ -2,8 +2,8 @@
 #
 # Copy this file to .github/workflows/records.yml; check-records.sh, check-records-test.sh and
 # migrate-records.sh beside it to .github/scripts/; and both profiles/*.sh beside them to
-# .github/scripts/profiles/. Six files, and the migrator is one of them (ADR 0020) even though
-# it never runs here: the suite the first step runs resolves it beside itself, and stops with
+# .github/scripts/profiles/. Six files, including the migrator even though it never runs here:
+# the suite the first step runs resolves it beside itself and stops with
 # an incomplete-install error if it is missing. The `decision-records` skill does that for you;
 # nothing here depends on the skill afterwards, so an adopting repo owns its copy outright.
 #

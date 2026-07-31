@@ -23,6 +23,13 @@ lives at `docs/debt/NNNN-slug.md`. Each directory has its own monotonically incr
 four-digit number sequence. The sorted directory listing is the index, so no
 hand-maintained table is added.
 
+When a numbering collision or mistake must be repaired, a merged record may move to the
+next free number only when the gate proves its canonical content is identical at a path
+that did not exist at the base commit. The filename and H1 number move together;
+marker-only normalization may accompany the move, but substantive text may not. This is a
+renumber, not a new decision, and future numbers still advance from the highest file in
+that record directory.
+
 Every ADR contains `Status`, `Context`, `Decision`, `Consequences`, and
 `Considered & rejected`. ADR status is `Proposed`, `Deferred`, or dated `Accepted`,
 `Rejected`, or `Superseded`. Every debt record contains `Status`, `Concern`,
@@ -33,7 +40,8 @@ column-one `target:` line in its provenance.
 Merged substantive sections are append-only. A later ADR supersedes an earlier one by
 adding a dated `Superseded by` banner beneath the old record's status. Completed debt
 replaces `Open` with a dated `Resolved by` banner and removes its retired `review-by:`
-line. Records are never deleted.
+line. Records are never deleted; the content-preserving renumber above is the only allowed
+path move.
 
 The repository-owned gate package lives under `.github/scripts/`: one checker, its
 regression suite, the marker-only migrator, both record profiles, and the workflow

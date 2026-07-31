@@ -104,6 +104,9 @@ Merged record substance is append-only. Status is the controlled lifecycle surfa
 accepted ADRs gain a dated supersession banner. Resolving debt replaces `Open` with a
 dated `Resolved by` banner and removes `review-by:` while leaving substantive sections
 intact. Files are never removed, moved, replaced by symlinks, or rewritten in place.
+The one path-move exception is a renumber to a path absent from the base commit when
+canonicalized content is identical; it updates the filename and H1 number without changing
+record substance.
 
 The existing ADRs migrate only their canonical markers and status dates. Their original
 commit date, 2026-07-31, supplies the missing accepted date. The root migrator must first

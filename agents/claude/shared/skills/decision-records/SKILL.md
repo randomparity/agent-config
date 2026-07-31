@@ -127,8 +127,8 @@ deleting, moving, or replacing a record with a symlink is not, and the gate fail
 three. There is no legitimate removal, so there is no "deleted with a banner" case.
 
 **Grandfathering.** A record non-conforming at the base ref reports `W-LEGACY-SHAPE`
-instead of an error for its structural findings — this repo's own ADR 0001 predates the
-template and is the motivating case. Conformance is recomputed from the base ref on every
+instead of an error for its structural findings — pre-template records are the motivating
+case. Conformance is recomputed from the base ref on every
 run, not stored: a record migrated into conformance is checked at full severity starting
 the next run, with no flag or registry to curate. Anti-erasure findings and the rules that
 are not decidable from one file's bytes alone (a supersession link, the index-table
@@ -200,8 +200,8 @@ copying rather than assuming either:
 | `profiles/debt.sh` | `.github/scripts/profiles/debt.sh` |
 | `records.yml` | `.github/workflows/records.yml` |
 
-**The migrator is not optional, even though it never runs in CI** (ADR 0020). The suite the
-workflow runs *first* resolves it beside itself — in an adopting repo, `.github/scripts/` —
+**The migrator is not optional, even though it never runs in CI.** The suite the workflow
+runs *first* resolves it beside itself — in an adopting repo, `.github/scripts/` —
 because the migrator's self-check is the checker's own allowance function and the suite
 exercises exactly that. Omit it and the suite reports the install as incomplete and stops, so
 the `records` job never passes once, from the installing commit onward.

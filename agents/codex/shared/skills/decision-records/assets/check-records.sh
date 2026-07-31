@@ -24,8 +24,8 @@
 #
 # What it cannot do: this gate lives inside the tree it gates. It detects its own
 # *deletion* (see gate_paths and GATE_PREDECESSORS), but a PR may still edit this file, and
-# a PR that removes the workflow removes the job rather than failing it. Only a required
-# status check plus human review closes that. See ADR 0007 and docs/debt/0003.
+# a PR that removes the workflow removes the job rather than failing it. Only repository
+# settings that require the status check plus human review close that boundary.
 #
 # Dates are compared as integers with the dashes stripped, so no `date -d` and no locale
 # collation is involved. There are no arrays and no associative arrays either: bash 3.2 is
@@ -577,10 +577,10 @@ check_no_disappearances() {
 # renamed_moved_dir and renamed_gate_workflow_collision, all four of which go red if this
 # string is emptied.
 #
-# That is the shape docs/debt/0006's non-regression boundary forbids making more reachable:
-# both witnesses depend on the gate having been named something this registry knows, and a
-# prune removes the only name it knows besides the running script's own. Prune an individual
-# entry only with the suite green afterwards.
+# The registry's non-regression boundary forbids making that shape more reachable: both
+# witnesses depend on the gate having been named something this registry knows, and a prune
+# removes the only name it knows besides the running script's own. Prune an individual entry
+# only with the suite green afterwards.
 #
 # A predecessor is by definition present at the base ref and absent from the tree, which is the
 # E-GATE-GONE condition — so a bare list would trade one red for another. Exemption is granted
