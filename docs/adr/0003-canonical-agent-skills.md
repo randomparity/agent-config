@@ -24,9 +24,9 @@ settings, instructions, modes, MCP files, and other agent-specific formats.
 
 ## Decision
 
-Own every reusable workflow skill once under `content/skills/`. Install that
-tree byte-for-byte as `skills/` for Claude, Codex, and Bob. Remove per-agent
-skill trees and Claude custom-command copies.
+Own every reusable workflow skill once under `content/skills/`. Install every
+canonical directory byte-for-byte under `skills/` for Claude, Codex, and Bob.
+Remove per-agent skill trees and Claude custom-command copies.
 
 The portable contract is the required open Agent Skills subset: a directory
 whose `SKILL.md` has matching `name` and non-empty `description` fields, uses
@@ -55,14 +55,23 @@ host. An unavailable proprietary client is reported as an unrun arm. Client
 version floors remain outside this installer because it does not install or
 upgrade the clients themselves.
 
-The installer owns the complete user-level `skills/` destination for each
-selected client: existing content is backed up before replacement, and the
-post-install tree must equal the canonical source. A legacy Claude command with
-a canonical skill name is a collision. Managed legacy commands are backed up
-and pruned; an unmanaged collision stops with an actionable error rather than
-silently deleting user content. Project, enterprise, plugin, and other
+The installer owns each canonical skill name, not the complete user-level
+`skills/` destination. It preserves unrelated user-installed skill directories,
+backs up managed-name drift before replacement, and verifies every managed
+directory against the canonical source. A same-name skill or legacy Claude
+command that is not in the old manifest is a collision and stops with an
+actionable error rather than silently deleting user content. Managed legacy
+commands are backed up and pruned. Project, enterprise, plugin, and other
 higher- or lower-precedence skill scopes remain outside this user-level
 installer.
+
+Shared-skill installation is a transaction across the selected clients. The
+installer validates and stages every canonical skill before changing a live
+destination, promotes staged directories atomically within each destination,
+then validates all selected clients. A promotion or validation failure restores
+every changed skill directory; a rollback failure reports the inconsistent
+destinations explicitly. This transaction applies to `--agent all` and to a
+single selected client.
 
 ## Consequences
 
@@ -77,10 +86,13 @@ installer.
 - “Supported” in this repository means that current vendor documentation
   accepts the portable package and the installer deploys it correctly. It does
   not promise identical model behavior or own a client release lifecycle.
-- Adding a client that supports Agent Skills requires only an installer target
-  and an exact-copy test; it does not create a new workflow projection.
+- Adding a client that supports Agent Skills requires an installer target,
+  portable-contract validation, an exact-copy test for every managed name, and
+  a discovery/safe-invocation smoke-test arm. It does not create a new workflow
+  projection.
 - Existing manifests prune removed Claude commands during reinstall and replace
-  each previously managed per-agent skill tree with the canonical tree.
+  each previously managed per-agent skill with its canonical directory while
+  preserving unrelated user skills.
 
 ## Considered & Rejected
 

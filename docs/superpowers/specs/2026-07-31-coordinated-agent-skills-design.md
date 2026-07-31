@@ -35,13 +35,17 @@ required local guardrail is meaningful during issue 17 work.
 ## Requirements
 
 - One canonical directory owns the complete reusable workflow inventory.
-- Claude, Codex, and Bob installs receive byte-identical skill trees.
+- Claude, Codex, and Bob installs receive every canonical skill directory
+  byte-identically while preserving unrelated user skill names.
 - A contributor cannot add any invocable workflow artifact under an agent-native
   tree without failing repository verification.
 - Existing installs remove manifest-managed command copies and replace their
-  managed skill tree on reinstall without touching unmanaged runtime state.
+  managed skill directories on reinstall without touching unrelated skills or
+  unmanaged runtime state.
 - An unmanaged legacy Claude command that collides with a canonical skill stops
   installation with the collision name and a recovery action.
+- `--agent all` cannot leave the managed skill inventory at different revisions
+  after a reported installation failure.
 - Shared skills do not depend on an installed agent's private config-root name.
 - Agent-specific configuration that does not use Agent Skills remains native.
 - The installer adds no new dependency or network operation.
@@ -115,19 +119,43 @@ Root instructions remain agent-native. Per-agent installers no longer install
 any `agents/*/shared/skills` path, and Claude no longer installs
 `agents/claude/shared/commands`.
 
-The existing manifest mechanism already owns destination-relative paths. On the
-first reinstall after this change, `commands` disappears from Claude's new
-manifest and is backed up and pruned by the existing managed-path rules. The
-`skills` entry remains managed and is replaced only when its canonical payload
-differs. Unmanaged files outside those paths are unchanged.
+The manifest records one `skills/<name>` entry per canonical skill. The
+installer iterates canonical skill directories in sorted order and preserves
+non-canonical user skill directories. On the first reinstall after this change,
+it consumes the legacy whole-tree `skills` manifest entry, backs up the prior
+tree once, migrates its canonical names to per-skill ownership, and leaves
+unrelated directories in place. Later removals are pruned per managed skill
+name. `commands` disappears from Claude's new manifest and is backed up and
+pruned by the existing managed-path rules. Unmanaged files outside managed
+names are unchanged.
 
-Before installing Claude, inspect an existing `commands/` directory for command
-filenames that match canonical skill names. If the old manifest owns `commands`,
-normal backup and pruning handles it. If it does not, stop and name the collision
-instead of deleting user content. Non-colliding unmanaged commands remain
-outside the repository-managed workflow namespace. The selected client's entire
-user-level `skills/` path remains managed, backed up, and replaced as it is
-today. Project, enterprise, and plugin scopes are not modified.
+Before installing any client, inspect existing skill names against the old
+manifest. A same-name directory that is neither a legacy managed tree nor a
+per-skill managed entry is an unmanaged collision and stops installation.
+Before installing Claude, apply the same rule to command filenames that match
+canonical skill names. Non-colliding unmanaged skills and commands remain
+outside the repository-managed workflow namespace. Project, enterprise, and
+plugin scopes are not modified.
+
+## Transaction and Rollback
+
+Resolve every selected destination and validate overlays and source files before
+changing a live skill directory. Under each destination, create a temporary
+stage on the same filesystem, copy every canonical skill into it, and compare the
+stage to the source. Record the pre-install state of every managed name: absent,
+managed directory, or legacy managed tree.
+
+Promotion renames each old managed directory to a transaction backup and each
+staged directory into place. Same-filesystem rename makes each individual name
+atomic. After promotion, compare every selected client's managed names with the
+source. Only then mark the transaction committed and let normal timestamped
+drift backups retain replaced content.
+
+On any promotion or final-validation failure, restore all promoted names in
+reverse order and remove names that were absent before the run. Preserve the
+stage and transaction backups until rollback succeeds. If rollback itself fails,
+exit non-zero and name every destination/name whose state is uncertain; never
+print an ordinary install summary for a partially rolled-back run.
 
 ## Compatibility Pass
 
@@ -162,12 +190,13 @@ Add `scripts/check-skill-layout.sh` and a `skills-check` recipe. The guard:
 `just verify` invokes `skills-check`, making it part of both hooks and CI. The
 guard uses existing shell tools only.
 
-`install-test.sh` compares the complete canonical tree against all three
-temporary destination trees with `diff -qr`. It also seeds stale managed Claude
-commands before install and verifies they are pruned while unrelated runtime
-state survives. Representative assertions remain for discoverable skill names,
-including `work-issue` in Bob, so failures point to user-visible behavior before
-the full-tree comparison provides exhaustive coverage.
+`install-test.sh` compares every canonical skill directory against its matching
+directory in all three temporary destinations with `diff -qr`. It also seeds an
+unrelated user skill and stale managed Claude commands before install, then
+verifies the user skill and unrelated runtime state survive while managed
+commands are pruned. Representative assertions remain for discoverable skill
+names, including `work-issue` in Bob, so failures point to user-visible behavior
+before the per-skill comparisons provide exhaustive coverage.
 
 ## Failure Handling
 
@@ -184,6 +213,8 @@ the full-tree comparison provides exhaustive coverage.
   fail-fast and symlink protections remain authoritative.
 - Unmanaged legacy command collision: the installer names the command and asks
   the operator to remove, rename, or migrate it before retrying.
+- Transaction failure: every promoted managed skill is restored; rollback
+  failure names the exact inconsistent destination and leaves recovery backups.
 
 ## AI Surface and Eval Plan
 
@@ -196,9 +227,9 @@ instructions, local files, configured tools, and sources explicitly authorized
 by the user. Skills must not invent client capabilities, bypass approvals, or
 silently downgrade a required gate. When a capability is absent, the fallback
 is an actionable stop. This migration adds no latency or model-cost budget
-beyond loading the same skill content. Success is byte-identical installation,
-correct discovery metadata, preserved direct invocation, and unchanged workflow
-guardrails on each available client.
+beyond loading the same skill content. Success is byte-identical installation
+of every managed name, correct discovery metadata, preserved direct invocation,
+and unchanged workflow guardrails on each available client.
 
 ### Failure-mode map
 
@@ -217,7 +248,7 @@ guardrails on each available client.
 
 | ID | Input and setup | Observable pass traits | Forbidden traits | Gate |
 |---|---|---|---|---|
-| SKILL-01 | Install all agents into empty temp roots | Every root equals `content/skills/`; Bob contains `work-issue` | Missing or extra workflow | block |
+| SKILL-01 | Install all agents into empty temp roots | Every managed name equals `content/skills/`; Bob contains `work-issue` | Missing or changed workflow | block |
 | SKILL-02 | Seed managed Claude `commands/` and unrelated runtime state, then reinstall | Commands are backed up/pruned; runtime state remains | Unmanaged deletion | block |
 | SKILL-03 | Add a native skill fixture or malformed canonical frontmatter | `skills-check` fails and names the path | Silent acceptance | block |
 | SKILL-04 | Canonical skill references `~/.codex` as its installed root | `skills-check` fails | Client-root coupling | block |
@@ -227,6 +258,8 @@ guardrails on each available client.
 | SKILL-08 | Skill encounters stale or conflicting repository/GitHub evidence | Workflow verifies source state and reports conflict | Treating remembered state as fact | block in content review |
 | SKILL-09 | Workflow would fan out or loop beyond its documented cap | Existing cap and stop contract remain present | Unbounded worker or review loop | block in content review |
 | SKILL-10 | Unmanaged Claude command has a canonical skill name | Install fails before replacement and names the collision | Silent deletion or ambiguous invocation | block |
+| SKILL-11 | Unrelated user skill exists beside canonical names | Install preserves it while managed names update | Whole-tree replacement | block |
+| SKILL-12 | Inject failure during the second client's skill promotion | First client rolls back to its original skills; all selected clients retain one revision | Cross-client partial update | block |
 
 Static shell checks decide filesystem, metadata, and safety boundaries in CI.
 Client behavior is smoke-tested with installed CLIs available on the host; an
@@ -244,7 +277,7 @@ its own output.
 - Widened invocation boundary: Claude receives former command workflows as
   discoverable skills, and Bob receives the complete workflow inventory.
 - Existing filesystem boundary: the installer replaces managed destination
-  trees and prunes paths absent from the new manifest.
+  skill directories and prunes managed names absent from the new manifest.
 - Existing external-action boundary: some workflows use `gh`, git, package
   managers, or configured agent/subagent tools.
 
@@ -265,8 +298,9 @@ its own output.
 - Invocation: mutating workflows retain explicit authority checks and fail when
   required tools are absent. Client approval systems remain in force.
 - Filesystem: existing safe-relative-path, symlink-ancestor, drift-backup, and
-  manifest-only pruning controls remain unchanged; regression tests cover the
-  removed Claude command path.
+  manifest-only pruning controls remain, with staged same-filesystem promotion
+  and reverse-order rollback added for managed skills; regression tests cover
+  unrelated user skills and the removed Claude command path.
 - External actions: each workflow's current authorization and verification
   gates remain part of the compatibility review. Canonicalization does not
   widen GitHub token scopes or shell permissions.
@@ -285,6 +319,8 @@ its own output.
 ## Rollback
 
 Reverting the change restores native source trees and installer entries. The
-next install uses the existing drift-backup mechanism before replacing managed
-paths. No persisted application data, schema, credential, or remote service is
-migrated.
+next install uses timestamped backups before replacing managed paths. Migration
+from the legacy whole-tree manifest is one-way, so a reverted installer treats
+the per-skill entries as an older manifest shape and backs up before restoring
+its whole-tree payload. No persisted application data, schema, credential, or
+remote service is migrated.
