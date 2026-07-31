@@ -37,13 +37,18 @@ done < <(git rev-parse --local-env-vars)
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 CHECKER="$SCRIPT_DIR/check-records.sh"
+
+allocate_owned_scratch() {
+  mktemp -d "${TMPDIR:-/tmp}/check-records-test.XXXXXX"
+}
+
 # Whether the scratch tree is this script's to delete. A caller who names one owns it, and
 # gets it back either way; the default one is ours and is cleaned up on a green run.
 if [ "$#" -ge 1 ]; then
   SCRATCH=$1
   SCRATCH_OWNED=no
 else
-  SCRATCH=$(mktemp -d "${TMPDIR:-/tmp}/check-records-test.XXXXXX")
+  SCRATCH=$(allocate_owned_scratch)
   SCRATCH_OWNED=yes
 fi
 
@@ -1232,6 +1237,15 @@ YAML
   printf '\nedited after the move\n' >>"$d/docs/debt/0003-b.md"
   run_case "renumber with content changed" 1 E-GONE "$d" BASE_SHA="$b"
 
+  d=$(case_dir two_renumbers_one_destination)
+  write_record "$d" "0002-b.md"
+  git -C "$d" add -A
+  git -C "$d" commit -qm "two canonical look-alikes"
+  b=$(base_of "$d")
+  git -C "$d" rm -q docs/debt/0001-valid.md
+  git -C "$d" mv docs/debt/0002-b.md docs/debt/0003-b.md
+  run_case "two records cannot share one renumber target" 1 E-GONE "$d" BASE_SHA="$b"
+
   d=$(case_dir dup_introduced)
   b=$(base_of "$d")
   write_record "$d" "0001-second.md"
@@ -2143,13 +2157,29 @@ SH
   MIGRATE_PROFILES='' run_migrator "no profile named" 1 E-PROFILE-NONE "$d" --write
 
   printf -- '-- the suite cleans up after itself --\n'
-  printf '  %-4s %-44s ' "" "owned scratch path is freshly allocated"
-  if [ "$SCRATCH_OWNED" = yes ] && [ "$SCRATCH" = "${TMPDIR:-/tmp}/check-records-test.$$" ]; then
-    failed=$((failed + 1))
-    printf 'FAIL predictable PID path can pre-exist\n'
-  else
+  d="$SCRATCH/scratch_allocator"
+  mkdir -p "$d"
+  allocation=""
+  if allocation=$(
+    mktemp() {
+      [ "$#" -eq 2 ] && [ "$1" = -d ] &&
+        [ "$2" = "$d/check-records-test.XXXXXX" ] || return 1
+      : >"$d/mktemp-called"
+      mkdir "$d/allocated"
+      printf '%s\n' "$d/allocated"
+    }
+    TMPDIR="$d" allocate_owned_scratch
+  ); then
+    :
+  fi
+  printf '  %-4s %-44s ' "" "owned scratch uses atomic allocator"
+  if [ "$allocation" = "$d/allocated" ] && [ -d "$allocation" ] &&
+    [ -f "$d/mktemp-called" ]; then
     passed=$((passed + 1))
-    printf 'ok   caller-owned or unique path\n'
+    printf 'ok   mktemp -d created the returned path\n'
+  else
+    failed=$((failed + 1))
+    printf 'FAIL allocator did not use mktemp -d\n'
   fi
 
   # Proven end to end by running a copy of this script with no checker beside it, which aborts

@@ -377,8 +377,9 @@ still_a_record() {
 # deletion is excused by a look-alike sibling that was already a record — nothing renumbered, a
 # record gone, exit 0. A genuine renumber lands at a path that did not exist.
 #
-# Called in a command substitution, so it must not report: a temp-file failure returns 1 and
-# lets E-GONE speak instead.
+# Assigns `renumbered_to` and reserves that destination in `used_renumber_targets`. Both come
+# from check_no_disappearances through bash's dynamic scoping, so a candidate can excuse only
+# one vanished base path. A temp-file failure returns 1 and lets E-GONE speak instead.
 #
 # Candidates come from `records`, which collect_records builds only after reporting
 # E-RECORD-SYMLINK and skipping every symlink, so no candidate can be a link. A `[ ! -L ]` test
@@ -400,8 +401,17 @@ renumbered_elsewhere() {
     [ -f "$candidate" ] || continue
     tracked_in_index "$candidate" || continue
     git cat-file -e "${base}:${candidate}" 2>/dev/null && continue
+    if printf '%s\n' "$used_renumber_targets" | grep -qxF "$candidate"; then
+      continue
+    fi
     if [ "$blob_canon" = "$(canonicalise "$candidate")" ]; then
-      printf '%s' "$candidate"
+      renumbered_to=$candidate
+      if [ -n "$used_renumber_targets" ]; then
+        used_renumber_targets="$used_renumber_targets
+$candidate"
+      else
+        used_renumber_targets=$candidate
+      fi
       return 0
     fi
   done <<<"$records"
@@ -537,7 +547,7 @@ evaluate_base_conformance() {
 }
 
 check_no_disappearances() {
-  local base=$1 tree record renamed_to
+  local base=$1 tree record renumbered_to="" used_renumber_targets=""
   if ! tree=$(records_in_ref "$base"); then
     err "E-BASE-TREE: could not read $RECORD_DIR at $base — cannot check for removed records"
     return 0
@@ -550,9 +560,9 @@ check_no_disappearances() {
     elif present_as_real_file "$record" && tracked_in_index "$record"; then
       check_not_rewritten "$base" "$record"
     elif ! still_a_record "$record"; then
-      renamed_to=$(renumbered_elsewhere "$base" "$record") || renamed_to=""
-      if [ -n "$renamed_to" ]; then
-        info "note: $record was renumbered to $renamed_to (content unchanged)"
+      renumbered_to=""
+      if renumbered_elsewhere "$base" "$record"; then
+        info "note: $record was renumbered to $renumbered_to (content unchanged)"
       else
         err "E-GONE: $record is no longer a record at that path (deleted, moved, untracked, or renamed with its content changed) — resolve records in place with a '> **Resolved by ...**' banner"
       fi
