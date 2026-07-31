@@ -19,16 +19,16 @@ protection is external state that repository files cannot require by themselves.
 ## Decision
 
 Root architecture decisions live at `docs/adr/NNNN-slug.md`; deferred-review work
-lives at `docs/debt/NNNN-slug.md`. Each directory has its own monotonically increasing,
-four-digit number sequence. The sorted directory listing is the index, so no
-hand-maintained table is added.
+lives at `docs/debt/NNNN-slug.md`. Each directory has its own four-digit number sequence;
+a new record uses one above the highest existing number in that directory. The sorted
+directory listing is the index, so no hand-maintained table is added.
 
 When a numbering collision or mistake must be repaired, a merged record may move to the
-next free number only when the gate proves its canonical content is identical at a path
-that did not exist at the base commit. The filename and H1 number move together;
+an unused four-digit number only when the gate proves its canonical content is identical
+at a path that did not exist at the base commit. The filename and H1 number move together;
 marker-only normalization may accompany the move, but substantive text may not. This is a
-renumber, not a new decision, and future numbers still advance from the highest file in
-that record directory.
+renumber, not a new decision. New records continue to advance from the directory's highest
+current number.
 
 Every ADR contains `Status`, `Context`, `Decision`, `Consequences`, and
 `Considered & rejected`. ADR status is `Proposed`, `Deferred`, or dated `Accepted`,
