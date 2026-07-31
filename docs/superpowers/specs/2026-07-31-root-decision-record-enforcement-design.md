@@ -98,8 +98,9 @@ sections in ADR 0003. Root debt records require the six sections in ADR 0003 plu
 `target:` provenance and, while open, a bare ISO-8601 `review-by:` date.
 
 Merged record substance is append-only. Status is the controlled lifecycle surface:
-accepted ADRs gain a dated supersession banner, and open debt gains a dated resolution
-banner. Files are never removed, moved, replaced by symlinks, or rewritten in place.
+accepted ADRs gain a dated supersession banner. Resolving debt replaces `Open` with a
+dated `Resolved by` banner and removes `review-by:` while leaving substantive sections
+intact. Files are never removed, moved, replaced by symlinks, or rewritten in place.
 
 The existing ADRs migrate only their canonical markers and status dates. Their original
 commit date, 2026-07-31, supplies the missing accepted date. The root migrator must first
@@ -120,6 +121,14 @@ to the exempt Status sections.
 - A first-run finding is fixed in this branch when it concerns migrated records or gate
   installation. A finding outside repository control is captured in a debt record and a
   linked tracker issue.
+
+## First-run report
+
+The PR body is the delivery artifact for the first root-owned regression and record-gate
+run. It names the exact commands and regression case count, lists every initial finding,
+and links each one to its fixing commit or to both its debt record and tracker issue. The
+final green run stays separate from this history so remediation cannot erase evidence of
+what the adopted gate found.
 
 ## Threat model
 
@@ -173,6 +182,7 @@ not predecessor-local ADR numbers.
   the feature branch's merge base against `origin/main` as a pull-request-style commit.
 - Actionlint and zizmor prove the workflow still invokes only `just ci` for repository
   checks; the two concrete base-ref runs prove the selected history paths are usable.
+- The PR body records the first-run command, case count, findings, and resolution links.
 - `just verify` passes from the feature branch after legacy-record migration.
 
 ## Rollback
