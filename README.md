@@ -141,6 +141,57 @@ verifies managed-file drift backup.
 `./scripts/check-public-safety.sh` scans for denied host-specific paths, local
 network addresses, auth headers, and common secret token shapes.
 
+## Decision Records
+
+Architecture decisions live in `docs/adr/`; explicitly deferred work lives in
+`docs/debt/`. Number the two directories independently: list the numbered files
+in the relevant directory and increment its highest four-digit prefix. Do not
+maintain a hand-written index.
+
+An ADR is named `NNNN-slug.md`, starts with `# NNNN — Title`, and has non-empty
+`## Status`, `## Context`, `## Decision`, `## Consequences`, and
+`## Considered & rejected` sections. Its status is `Proposed`, `Deferred`, or
+`Accepted`, `Rejected`, or `Superseded` followed by an ISO date in parentheses.
+Record supersession in the old ADR with this status banner, pointing to the new
+ADR:
+
+```markdown
+> **Superseded by [NNNN](NNNN-slug.md)** (YYYY-MM-DD)
+```
+
+A debt record uses the same file and title convention. It has non-empty
+`## Status`, `## Concern`, `## Why deferred`, `## Non-regression boundary`,
+`## What would resolve it`, and `## Provenance` sections. Open records use an
+`Open` status followed by `review-by: YYYY-MM-DD`. Provenance includes at least
+one `target: path` line. Resolve a record in place by replacing `Open` with:
+
+```markdown
+> **Resolved by <what>** (YYYY-MM-DD)
+```
+
+Merged records are append-only except for their lifecycle markers. Create a new
+ADR instead of rewriting an accepted decision; supersede the old one when the
+new decision is accepted. Resolve debt in place when its stated condition is
+met.
+
+For legacy records, preview marker-only migrations before writing them:
+
+```sh
+RECORD_PROFILES="adr debt" ./.github/scripts/migrate-records.sh
+RECORD_PROFILES="adr debt" ./.github/scripts/migrate-records.sh --write
+```
+
+Commit only the reported marker changes and include each printed
+`Migrated-markers:` trailer. Run `just verify` after creating, superseding,
+resolving, or migrating a record.
+
+The root package under `.github/scripts/` owns the repository gate. Its checker,
+suite, migrator, and `adr` and `debt` profiles must remain byte-identical to both
+agent projections under `agents/claude/shared/skills/decision-records/assets/`
+and `agents/codex/shared/skills/decision-records/assets/`; `just records` checks
+that invariant. CI runs the gate, but it remains advisory until branch
+protection requires the `Verify` check; issue #16 tracks that repository setting.
+
 ## Source Material
 
 This repo was designed from the existing local Claude Code and Codex config
