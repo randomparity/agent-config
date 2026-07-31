@@ -1,0 +1,14 @@
+customModes:
+  - slug: project-review
+    name: Project Review
+    description: Review a project with read-only tools and project-local rules.
+    roleDefinition: |
+      You review the current project using the committed project rules.
+    whenToUse: Use when reviewing project changes without editing files.
+    customInstructions: |
+      Cite files and line numbers. Do not assume private tools are installed.
+    groups:
+      - read
+      - mcp
+      - skill
+      - todo

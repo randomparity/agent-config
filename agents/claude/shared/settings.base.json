@@ -1,0 +1,81 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "cleanupPeriodDays": 365,
+  "enableAllProjectMcpServers": false,
+  "env": {
+    "DISABLE_TELEMETRY": "1",
+    "DISABLE_ERROR_REPORTING": "1",
+    "CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY": "1",
+    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
+  },
+  "permissions": {
+    "deny": [
+      "Bash(rm -rf *)",
+      "Bash(rm -fr *)",
+      "Bash(sudo *)",
+      "Bash(mkfs *)",
+      "Bash(dd *)",
+      "Bash(wget *|bash*)",
+      "Bash(wget *| bash*)",
+      "Bash(git push --force*)",
+      "Bash(git push *--force*)",
+      "Bash(git reset --hard*)",
+      "Edit(~/.bashrc)",
+      "Edit(~/.zshrc)",
+      "Edit(~/.ssh/**)",
+      "Read(~/.ssh/**)",
+      "Read(~/.gnupg/**)",
+      "Read(~/.aws/**)",
+      "Read(~/.azure/**)",
+      "Read(~/.config/gh/**)",
+      "Read(~/.git-credentials)",
+      "Read(~/.docker/config.json)",
+      "Read(~/.kube/**)",
+      "Read(~/.npmrc)",
+      "Read(~/.npm/**)",
+      "Read(~/.pypirc)",
+      "Read(~/.gem/credentials)",
+      "Read(~/Library/Keychains/**)",
+      "Read(~/Library/Application Support/**/metamask*/**)",
+      "Read(~/Library/Application Support/**/electrum*/**)",
+      "Read(~/Library/Application Support/**/exodus*/**)",
+      "Read(~/Library/Application Support/**/phantom*/**)",
+      "Read(~/Library/Application Support/**/solflare*/**)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "CMD=$(jq -r '.tool_input.command'); if echo \"$CMD\" | grep -qiE '(^|;[[:space:]]*|&&[[:space:]]*|[|][|][[:space:]]*|[|][[:space:]]*)rm[[:space:]]' && echo \"$CMD\" | grep -qiE '(^|[[:space:]])-[a-zA-Z]*[rR]|--recursive' && echo \"$CMD\" | grep -qiE '(^|[[:space:]])-[a-zA-Z]*[fF]|--force'; then echo 'BLOCKED: Use trash instead of rm -rf' >&2; exit 2; fi"
+          },
+          {
+            "type": "command",
+            "command": "CMD=$(jq -r '.tool_input.command'); if [ \"$GT_REFINERY\" = \"1\" ]; then exit 0; fi; if echo \"$CMD\" | grep -qE 'git[[:space:]]+push[^&;|]*[[:space:]:/](main|master)([[:space:]&;|]|$)'; then echo 'BLOCKED: Use feature branches, not direct push to main' >&2; exit 2; fi"
+          },
+          {
+            "type": "command",
+            "command": "CMD=$(jq -r '.tool_input.command'); if echo \"$CMD\" | grep -qE \"(^|[[:space:]])rg[[:space:]]([^|&;<>'\\\"]*[[:space:]])?-[abcFHhIiLlNnoPpqSsUuVvwxz0.]*r\"; then echo 'BLOCKED: ripgrep is recursive by default; -r is --replace, which silently rewrites match output. Use rg -n / rg -ln; for real replacement write --replace= explicitly.' >&2; exit 2; fi"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "prompt",
+            "prompt": "You are a JSON-only evaluator. You MUST respond with a single JSON object and NOTHING else. No markdown, no code fences, no explanation, no preamble. Just the raw JSON object.\n\nReview the assistant's final response. Your job is to catch the assistant giving up on or excusing away work it could do RIGHT NOW. Reject (ok:false) only if the assistant is rationalizing incomplete work, e.g.: claiming issues are 'pre-existing' or 'out of scope' to avoid doing them, saying there are 'too many' to fix, listing problems without fixing them, skipping test/lint/CI failures with excuses, or punting work it was asked to do now into vague 'follow-ups'.\n\nDo NOT reject when the assistant has legitimately reached a stopping point. This includes when it has: dispatched background or async work (background agents, subagents, scheduled tasks) that will automatically resume it via a completion notification; is waiting on an external event outside its control (a CI run, a long build, a remote job); is blocked awaiting a required user decision/approval or a denied permission; or has genuinely finished and verified the requested work. Yielding the turn to wait on an asynchronous result or a human is CORRECT, not deferral - never push the assistant to invent busywork (e.g. sleep/poll loops) to appear busy.\n\nDecide by one test: does real work remain that the assistant could do NOW without waiting on an async result or another party? If yes and it is dodging that work, reject. If the only thing left is to wait, or the work is done, return ok:true.\n\nIf the assistant is rationalizing, respond:\n{\"ok\": false, \"reason\": \"You are rationalizing incomplete work. [specific issue]. Go back and finish.\"}\n\nOtherwise respond:\n{\"ok\": true}"
+          }
+        ]
+      }
+    ]
+  },
+  "statusLine": {
+    "type": "command",
+    "command": "~/.claude/statusline.sh"
+  }
+}

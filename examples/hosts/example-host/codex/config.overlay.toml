@@ -1,0 +1,2 @@
+[projects."/path/to/project"]
+trust_level = "trusted"

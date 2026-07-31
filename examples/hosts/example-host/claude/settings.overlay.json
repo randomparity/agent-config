@@ -1,0 +1,10 @@
+{
+  "env": {
+    "EXA_API_KEY": "${EXA_API_KEY}"
+  },
+  "permissions": {
+    "allow": [
+      "Read(/path/to/project/**)"
+    ]
+  }
+}
