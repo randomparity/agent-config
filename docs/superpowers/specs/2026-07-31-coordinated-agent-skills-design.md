@@ -141,6 +141,14 @@ plugin scopes are not modified.
 
 ## Transaction and Rollback
 
+Acquire an exclusive installer lock under the private agent-config root before
+recovering an interrupted transaction, reading new overlays, or staging. Hold
+the lock through commit, rollback, and cleanup. A competing invocation exits
+with the lock owner and recovery state. For a same-host owner whose process no
+longer exists, atomically move the stale lock aside, acquire a new lock, and
+recover the transaction record. Never take over a lock owned by another host;
+name the lock and require operator intervention.
+
 Resolve every selected destination and validate overlays and source files before
 changing a live skill directory. Under each destination, create a temporary
 stage on the same filesystem, copy every canonical skill into it, and compare the
@@ -176,17 +184,37 @@ ${AGENT_CONFIG_PRIVATE_DIR:-$HOME/.config/agent-config}/transactions/skills.json
 Create the parent directory with mode `0700` and the record with mode `0600`.
 The record contains a format version, transaction id, selected destinations,
 and for each managed name its stage path, transaction-backup path, prior state,
-and promotion/removal state. It contains no skill body, overlay, credential, or
-other configuration value.
+and promotion/removal state. It also records staged and prior manifest paths,
+the transaction commit state, and cleanup progress. It contains no skill body,
+overlay, credential, or other configuration value.
 
-Write the record through a same-directory temporary file and rename it after
-staging and after each live rename. At the beginning of every installer run,
-before reading new overlays or changing destinations, detect the record and
-restore the recorded pre-install state in reverse promotion order. Recovery is
-rollback-only; it never guesses that a partially promoted inventory should be
-finished. Validate every restored name, retain recovery material on failure,
-and name uncertain paths. Clear the record only after final validation succeeds
-and transaction backups have moved into the normal timestamped backup tree.
+Write the record through a same-directory temporary file and rename it. Before
+each live rename, persist a write-ahead `promotion-pending` or
+`removal-pending` state that already names the prior-state backup. After the
+rename, persist the completed operation. A process interruption can therefore
+leave an operation pending but never unrecorded; recovery treats pending as
+possibly applied and restores it idempotently.
+
+At the beginning of every installer run, after acquiring the lock and before
+reading new overlays or changing destinations, inspect the record. If it is
+uncommitted, restore the recorded pre-install state in reverse operation order.
+Validate every restored name, retain recovery material on failure, and name
+uncertain paths.
+
+Stage every new manifest and retain every prior manifest before promotion. After
+every live destination validates, publish manifests with the same write-ahead
+pending/completed protocol, then mark the transaction committed. Pre-commit
+recovery restores both managed skill names and prior manifests. A committed
+record is never rolled back. If interruption or error occurs during cleanup,
+the next run finishes moving transaction backups into the normal timestamped
+backup tree, removes stages, clears the record, and releases the lock
+idempotently; cleanup accepts a backup already present at either its transaction
+or final timestamped location.
+
+This protocol guarantees process-interruption recovery on a live host. Sudden
+storage loss or filesystem failure before durable metadata reaches the device is
+outside the installer guarantee and is reported as an uncertain state if later
+validation detects it.
 
 ## Compatibility Pass
 
@@ -248,6 +276,8 @@ before the per-skill comparisons provide exhaustive coverage.
   failure names the exact inconsistent destination and leaves recovery backups.
 - Interrupted transaction: the next installer run rolls back the durable record
   before evaluating a new install request.
+- Competing transaction: the later installer stops without changing state and
+  reports the current lock owner.
 
 ## AI Surface and Eval Plan
 
@@ -296,6 +326,9 @@ and unchanged workflow guardrails on each available client.
 | SKILL-12 | Inject failure during the second client's skill promotion | First client rolls back to its original skills; all selected clients retain one revision | Cross-client partial update | block |
 | SKILL-13 | Remove a previously managed canonical name | All selected clients back it up and prune it; injected later failure restores it | Obsolete workflow remains on one client | block |
 | SKILL-14 | Terminate after the first client's promotion, then rerun | Rerun detects the transaction record and restores all pre-install states before new work | Persistent partial revision | block |
+| SKILL-15 | Terminate after write-ahead pending but before/after rename | Recovery handles both states idempotently and restores one old revision | Unrecorded promotion window | block |
+| SKILL-16 | Terminate after commit but during cleanup | Recovery completes cleanup and preserves the new revision | Erroneous post-commit rollback | block |
+| SKILL-17 | Start a second installer while the lock owner is active | Second run exits before staging and names the owner | Overwritten journal or concurrent promotion | block |
 
 Static shell checks decide filesystem, metadata, and safety boundaries in CI.
 Client behavior is smoke-tested with installed CLIs available on the host; an
@@ -316,6 +349,8 @@ its own output.
   skill directories and prunes managed names absent from the new manifest.
 - New recovery-record boundary: transaction metadata stores local config paths
   under the private agent-config root.
+- New concurrency boundary: multiple local installer processes can target the
+  same user-level client directories.
 - Existing external-action boundary: some workflows use `gh`, git, package
   managers, or configured agent/subagent tools.
 
@@ -341,6 +376,8 @@ its own output.
   unrelated user skills and the removed Claude command path.
 - Recovery record: the private directory and record use owner-only modes,
   contain paths and state rather than config bodies, and are atomically replaced.
+- Concurrency: one private-root lock serializes recovery and installation;
+  stale-lock takeover is limited to a confirmed-dead same-host owner.
 - External actions: each workflow's current authorization and verification
   gates remain part of the compatibility review. Canonicalization does not
   widen GitHub token scopes or shell permissions.

@@ -78,13 +78,25 @@ every changed skill directory; a rollback failure reports the inconsistent
 destinations explicitly. This transaction applies to `--agent all` and to a
 single selected client.
 
+Before recovery or staging, the installer acquires one exclusive lock under the
+private agent-config root and holds it through commit, rollback, and cleanup. A
+competing installer stops actionably. A dead same-host lock may be taken over
+only after consulting the transaction record; an owner on another host requires
+operator intervention.
+
 Before the first promotion, the installer writes a mode-`0600` transaction
-record under the private agent-config root, outside this repository. The record
-identifies selected destinations plus stage, backup, promotion, and removal
-state without storing configuration content. It is updated atomically after
-each promotion. Every install first detects an incomplete record and restores
-the recorded pre-install state before starting new work. The record is cleared
-only after final validation and transaction-backup cleanup succeed.
+record under the private root, outside this repository. The record identifies
+selected destinations plus stage, backup, promotion, removal, manifest, commit,
+and cleanup state without storing configuration content. Each live rename uses
+write-ahead ordering: first persist `promotion-pending` or `removal-pending`,
+then rename, then persist completion. Recovery treats a pending operation as
+possibly applied and restores it idempotently from its recorded backup.
+
+After all destinations validate, the installer atomically publishes every new
+ownership manifest and marks the transaction committed. Recovery rolls back
+only an uncommitted record. A committed record resumes transaction-backup
+cleanup idempotently and never restores the old revision. The record is cleared
+and the lock released only after cleanup succeeds.
 
 ## Consequences
 
