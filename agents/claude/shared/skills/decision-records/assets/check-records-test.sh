@@ -27,6 +27,14 @@
 
 set -euo pipefail
 
+# Hook runners can export repository-local Git variables such as GIT_DIR and
+# GIT_WORK_TREE. Clear them before creating fixtures so each `git -C` command
+# targets the disposable repository named by the suite.
+while IFS= read -r variable; do
+  [ -n "$variable" ] || continue
+  unset "$variable"
+done < <(git rev-parse --local-env-vars)
+
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 CHECKER="$SCRIPT_DIR/check-records.sh"
 # Whether the scratch tree is this script's to delete. A caller who names one owns it, and
