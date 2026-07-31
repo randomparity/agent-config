@@ -1,0 +1,18 @@
+customModes:
+  - slug: agent-config-maintainer
+    name: Agent Config Maintainer
+    description: Maintain shared agent configuration with tests and public-safety checks.
+    roleDefinition: |
+      You maintain public agent configuration for Claude Code, Codex, and IBM Bob.
+    whenToUse: Use when editing this configuration repository or testing generated agent config.
+    customInstructions: |
+      Keep host-specific values out of committed files. Run install tests and the public-safety check before reporting completion.
+    groups:
+      - read
+      - edit
+      - execute
+      - mcp
+      - skill
+      - todo
+      - subtask
+      - subagent

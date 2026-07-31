@@ -1,0 +1,276 @@
+---
+description: Design-first development — write spec/ADR, adversarial-review the ADR, then the spec, write implementation plan, adversarial-review the plan
+argument-hint: '[issue-number]'
+---
+
+# Design First
+
+Tighten the design before writing code. Defects are cheapest to fix in the
+spec, then the plan, then the source. This covers the full design phase:
+spec + ADR, adversarial review of the ADR, adversarial review of the spec,
+implementation plan, adversarial review of the plan.
+
+Skip this entire command only for a trivial bugfix (all acceptance criteria
+clear; no API, schema, auth, permission, concurrency, migration, dependency,
+persistence, or external-service behavior changes; touches one or two files;
+no new public contract).
+
+If an issue number is given in `$ARGUMENTS`, read it with `gh issue view
+$ARGUMENTS --json title,body,labels` for requirements and acceptance criteria.
+Otherwise, work from the session context or ask the user what to design.
+
+If you are running as part of a larger workflow (e.g. `/work-issue`),
+`BASE_BRANCH` and guardrail commands should already be recorded from
+`/preflight`. If running standalone, discover them first: read `CLAUDE.md` /
+`AGENTS.md`, find the default branch (`gh repo view --json defaultBranchRef`),
+and identify the repo's check suite.
+
+**Caller contract.** If invoked inside `/work-issue`, completing this step
+means proceed to the next step — do not end your turn. Stop only on a genuine
+blocker you have named.
+
+## 1. Spec + ADR
+
+Use `brainstorming` first if the design space is wide. **You are its dispatched
+caller** — its *Dispatched mode* section applies: the issue body and its
+acceptance criteria stand in for the user-approval gates, step 3 below replaces
+its User Review Gate, and it returns the spec to you rather than invoking
+`writing-plans` itself, which would skip steps 2 and 3. Say so when you invoke
+it. Write or update the design doc under `docs/superpowers/specs/`. For
+decisions with viable alternatives — layer boundaries, interface or ownership
+splits, concurrency invariants, failure contracts, migration sequencing,
+rollback strategy — write or update an ADR under `docs/adr/` with:
+
+- Status
+- Context
+- Decision
+- Consequences
+- Considered & rejected
+
+That list selects on the **kind** of decision, never its size, and it stays that
+way: a decision with viable alternatives earns a record even when it is small,
+because a decision with no record is worse than a record that is too long. Never
+skip the ADR to keep it short — what scales to the decision is the record's length.
+
+Size the record to what the decision governs, not to how much could be said about
+it. The five sections above are the whole of it: enough context that a reader knows
+why the question arose, the decision, the consequences that reader would otherwise
+discover the hard way, and each rejected alternative with the sentence or two that
+sank it. `docs/adr/0002` settles the shape of an entire command in 57 lines — that
+is the norm, not a terse outlier. A record running longer than the artifact it
+governs has stopped recording the decision and started defending it; a 514-line ADR
+over a 19-line state machine is the failure this bounds. State the decision and stop.
+
+Use the orchestrator-assigned ADR number if you were given one (from
+`/preflight` step 6); otherwise take the next free number. Link the ADR from
+the spec. Run the relevant doc guardrails and commit the spec/ADR.
+
+An ADR-producing change should touch **only its own ADR file**. A hand-maintained
+index table serializes parallel ADR PRs on one merge conflict — N such PRs cost
+O(N²) resolutions, because git conflicts on adjacent insertions even when the
+assigned numbers are disjoint. If a repo keeps such an index anyway, add your row
+only on a **solo** run; on a **dispatched** run (an orchestrator handed you an ADR
+number, `/preflight` step 6) write only the ADR file and report `index row pending`
+in your completion report, leaving the row to the orchestrator.
+
+**CI gating the index outranks that split** (ADR 0019): the row is a merge
+precondition there, and run type is only a convention. `/preflight` step 4 reports the
+coupling verdict — and separates checks CI hard-gates **individually** from ones
+reachable only through an umbrella recipe, since only the former can block a PR. Under
+`/campaign` the verdict reaches you in your dispatch prompt rather than being yours to
+rediscover. Where such a check enforces one index row per ADR file, the
+withheld row keeps the PR red and the orchestrator's post-wave append never runs,
+because the gate blocks the merge that would trigger it. Add your own single row
+there, dispatched or solo, and say so in your completion report instead of reporting
+`index row pending`. Match neighbouring rows in length and tone and touch no other
+row — and give the row's `Status` cell the same value as the record's own `## Status`
+section, since a guard that couples the two usually compares them. That agreement is
+also why a supersession has to update the row in the same PR wherever changing a
+record's status changes that keyword.
+
+If the ADR supersedes an existing one, add a one-line banner to the superseded
+record's `## Status` section — `> **Superseded by [NNNN](NNNN-slug.md)**
+(YYYY-MM-DD)` — and leave the rest of that file untouched. That banner is the only
+edit a merged ADR permits, and it is where a reviewer learns the decision no longer
+governs; `/challenge` reads it as a decisive supersession signal.
+
+### AI surfaces require an eval plan
+
+If the change adds or modifies an AI surface — an LLM call, prompt or system
+message, retrieval path, classifier, agent loop, tool-use chain, or model
+config — the spec is incomplete without an eval plan. No eval plan, no
+proceeding to implementation. (Adapted from `suede-ai-eval`,
+JasonColapietro/suede-creator-skills, MIT.)
+
+Add to the spec:
+
+1. **AI-SPEC paragraph** — one paragraph stating: user, trigger, input,
+   output, allowed sources, disallowed behavior, fallback behavior,
+   latency/cost budget, and success signal. Cases written without this test
+   nothing.
+2. **Failure-mode map** — seed from the surface's system type, then add
+   product-specific modes:
+
+   | System type | Canonical failure dimensions |
+   |---|---|
+   | RAG / retrieval | context faithfulness, hallucination, answer relevance, retrieval precision, source citation |
+   | Multi-agent | task decomposition, handoff correctness, goal completion, loop detection |
+   | Conversational | tone, safety, instruction following, escalation accuracy |
+   | Extraction / structured output | schema compliance, field accuracy, format validity |
+   | Tool-using agent | safety guardrails, tool-use correctness, cost/token adherence, task completion |
+   | Content generation | factual accuracy, voice, originality |
+   | Code generation | correctness, safety, test pass rate, instruction following |
+
+   Score each mode's severity: 5 = legal/financial/privacy/security or
+   irreversible user harm; 4 = user-visible wrong outcome on a core workflow.
+3. **Eval cases** — every severity-4/5 failure mode gets a concrete case:
+   stable id, input, setup/fixtures, observable pass traits, forbidden
+   traits, and a gate (block / warn / monitor). An uncovered severity-5 mode
+   blocks the design. Minimum case mix: a happy path proving the intended
+   value; an ambiguous input that should clarify or fall back safely; a
+   forbidden claim or unsafe instruction that must be refused; stale or
+   conflicting source data; a permissions/privacy boundary; an expensive or
+   looping behavior with a hard cap; and a regression fixture for any real
+   observed failure.
+4. **Measurement per dimension** — prefer code-based checks (schema, required
+   fields, thresholds) that run in CI. An LLM judge counts as evidence only
+   after spot-checked agreement with a human-reviewed sample; a model grading
+   its own output is not evidence.
+
+The eval cases are acceptance criteria: `/build-tdd` implements them as
+tests alongside the feature, not after it ships.
+
+### Security-relevant changes require a threat model
+
+If the change is security-relevant — it moves what an untrusted actor can reach
+or cause, touches authn/authz or tenancy, handles a secret, parses input it did
+not produce, builds a command/query/path/URL from a non-literal, widens a
+permission grant, or changes dependencies or security-relevant defaults (the
+same trigger `/work-issue` step 5 applies to the diff, judged here on intent
+because no diff exists yet) — the spec is incomplete without a threat model.
+
+Add to the spec:
+
+1. **Boundary inventory** — every point where data or control crosses a trust
+   level in the design: what enters, from whom, under whose control. Name the
+   boundaries the design *adds* and the existing ones it *widens*, separately.
+2. **Actor model** — who the untrusted parties actually are for this deployment
+   (anonymous internet, authenticated tenant, another service, a local operator,
+   a CI job). A control is only meaningful against a named actor; "an attacker"
+   is not one. State plainly where the design places its trust, because an
+   unstated trust assumption is the one nobody revisits.
+3. **Control per boundary** — for each boundary, the check that governs it:
+   validation, authorization, bound, encoding, and what it leaks on failure. A
+   boundary whose control is "the caller already checked" names that caller and
+   the guarantee it makes.
+4. **Explicitly out of scope** — the threats this design does not address and
+   why (accepted risk, covered elsewhere, not reachable in this deployment).
+   Silence reads as coverage; an omission stated is a decision, and an omission
+   unstated is a gap someone finds later.
+
+Prefer an existing control to a new one, and say which existing guardrail covers
+a boundary when one does — a design that re-implements a check the platform
+already enforces adds surface without adding safety.
+
+The controls are acceptance criteria: `/build-tdd` implements them alongside the
+feature, and `/threat-scan` checks the branch against this inventory at step 5.
+A boundary listed here with no control in the diff is a finding, which is the
+point of writing it down first.
+
+## 2. Adversarial-review the ADR
+
+If step 1 wrote or updated an ADR, harden it as a review target **before** the spec
+review, so the spec review is not leaning on an unreviewed decision. Detect the
+ADR(s) this design produced with a git predicate — not your recollection of whether
+step 1 wrote one, which a post-compaction resume loses. The changed-ADR set is the
+union of:
+
+- `git diff --name-only <BASE_BRANCH>...HEAD -- docs/adr/ ':(exclude)docs/adr/README.md'`
+  — ADRs already committed on the branch, and
+- `git status --short --untracked-files=all -- docs/adr/ ':(exclude)docs/adr/README.md'`
+  — ADRs written but not yet committed (`--untracked-files=all` so a brand-new,
+  never-staged ADR is seen regardless of the user's `status.showUntrackedFiles`
+  config).
+
+The `':(exclude)docs/adr/README.md'` pathspec drops the index — an index-row edit is
+not an ADR to challenge. **Echo an audit line before proceeding** —
+`ADR review: changed-ADR set = <paths, or empty> → reviewed | skipped` — so a
+mis-evaluated predicate leaves an inspectable trace rather than silently reopening
+the F7 shield (the repo's only verification is reading the transcript). **If the set
+is empty, skip this step** and continue to the spec review — most designs record no
+ADR, and an empty set is the common case. Do not invoke `/review-loop` with a
+missing path: `/review-loop` appends a `CHARTER` block on every invocation, and under
+a charter an unresolvable target is a hard error naming the token, with `--out`
+suppressing both the artifact and the compact object — the loop gets no verdict and
+stops as blocked. So the skip must happen here, at the call site.
+
+For each ADR path in the set, run `/review-loop` in file-list mode:
+
+- challenge_args: `<path-to-adr.md>`
+- focus: `Focus on the soundness of the decision under its stated context; the
+  completeness and honesty of the "Considered & rejected" list — alternatives
+  dismissed too quickly, or not considered at all, including the null "do nothing"
+  option; unstated or understated consequences and residuals; and whether a simpler
+  decision would meet the same context. Size is in scope: a record arguing for its
+  decision at greater length than the decision governs is a finding, and its remedy
+  is cutting rather than more text. This ADR file is the review target, not settled
+  ground — challenge its decision on the merits.`
+
+Do **not** pass the spec/plan reviews' "don't reopen settled ADR choices" focus
+here: it would tell the review to treat its own target as settled and neuter it.
+Editing the ADR to address findings is legitimate — it is pre-merge on the design
+branch, and `CLAUDE.md`'s immutability applies only once the ADR is merged. If the
+loop blocks (5 iterations without `approve`), stop as blocked per `/review-loop`'s
+stop contract; do not run the spec review against an unhardened ADR.
+
+## 3. Adversarial-review the spec
+
+Run `/review-loop` with:
+
+- challenge_args: `<path-to-spec.md>`
+- focus: `Focus on hidden assumptions, vague or unfalsifiable success
+  criteria, missing edge cases, and under-specified failure modes. If the
+  spec covers an AI surface, also challenge the eval plan: failure modes
+  without cases, unmeasurable pass traits, and uncalibrated LLM-judge
+  evidence. Do not reopen choices already settled in linked ADR rejected
+  alternatives unless the spec contradicts them or introduces a new risk.`
+
+## 4. Implementation plan
+
+Use `writing-plans` to write the plan under
+`docs/superpowers/plans/`, derived from the hardened spec. **You are its
+dispatched caller** — its *Dispatched mode* section applies: it skips the
+Execution Handoff ask and returns the plan path, because `/build-tdd` picks the
+execution mode. Say so when you invoke it. The next phase
+(`/build-tdd`) may hand tasks to context-free implementer subagents, so every
+task must be self-contained:
+
+- full task text
+- where the task fits in the issue
+- files likely touched
+- acceptance criteria a reviewer can check
+- relevant repo conventions and guardrail commands
+- rollback or cleanup expectations when applicable
+
+Run relevant guardrails and commit the plan.
+
+## 5. Adversarial-review the plan
+
+Run `/review-loop` with:
+
+- challenge_args: `<path-to-plan.md>`
+- focus: `Focus on phase ordering, missing prerequisites, steps that cannot
+  run in the claimed order, rollback and cleanup paths, verification gaps,
+  and tasks that are not self-contained enough for an implementer. Do not
+  reopen choices already settled in linked ADR rejected alternatives unless
+  the plan contradicts them or introduces a new risk.`
+
+## Context checkpoint
+
+The spec, ADR, and plan you just wrote are the **durable artifacts** of this
+phase — they, not the brainstorm transcript or the review payloads, are what a
+downstream build (or a post-compaction resume) reads. Before handing off, ensure
+the checkable facts a resume needs — the branch name, `BASE_BRANCH`, and the
+guardrail commands — are recorded somewhere durable, and, as a reminder, that the
+spec/ADR/plan hold every design decision. Do **not** run `/compact` proactively;
+just keep the artifacts complete.
