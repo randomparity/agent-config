@@ -295,4 +295,30 @@ set -e
 assert_success "$hook_setup_status" "fallback hook setup"
 assert_contains "$hook_setup_output" "fake prek install"
 
+existing_bin="$tmpdir/existing-bin"
+existing_home="$tmpdir/existing-home"
+mkdir -p "$existing_bin" "$existing_home"
+for command_name in just jq rg shellcheck shfmt gh actionlint zizmor; do
+	cat >"$existing_bin/$command_name" <<'EOF'
+#!/usr/bin/env bash
+exit 0
+EOF
+	chmod +x "$existing_bin/$command_name"
+done
+cat >"$existing_bin/prek" <<'EOF'
+#!/usr/bin/env bash
+printf 'existing prek %s\n' "$*"
+exit 0
+EOF
+chmod +x "$existing_bin/prek"
+
+existing_setup_output="$(
+	PATH="$existing_bin:/usr/bin:/bin" \
+		HOME="$existing_home" \
+		AGENT_CONFIG_SETUP_HOOKS=1 \
+		./install-tools.sh 2>&1
+)"
+assert_contains "$existing_setup_output" "all required tools are available"
+assert_contains "$existing_setup_output" "existing prek install"
+
 printf 'install-tools-test: ok\n'

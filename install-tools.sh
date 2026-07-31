@@ -381,7 +381,8 @@ check_mode() {
 	missing="$(missing_commands)"
 	if [[ -z "$missing" ]]; then
 		printf 'install-tools: all required tools are available\n'
-		return 0
+		setup_hooks
+		return "$?"
 	fi
 
 	printf 'install-tools: missing required tools:\n' >&2
@@ -416,7 +417,8 @@ install_mode() {
 	missing="$(missing_commands)"
 	if [[ -z "$missing" ]]; then
 		printf 'install-tools: all required tools are available\n'
-		return 0
+		setup_hooks
+		return "$?"
 	fi
 
 	if ! skip_package_manager; then
