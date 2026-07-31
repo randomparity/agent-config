@@ -171,4 +171,41 @@ assert_contains "$fallback_output" "go install github.com/rhysd/actionlint/cmd/a
 assert_contains "$fallback_output" "cargo install --locked prek --version 0.4.11"
 assert_contains "$fallback_output" "cargo install --locked zizmor --version 1.28.0"
 
+runtime_bin="$tmpdir/runtime-bin"
+mkdir -p "$runtime_bin"
+for command_name in just jq rg shellcheck shfmt gh actionlint zizmor; do
+	cat >"$runtime_bin/$command_name" <<'EOF'
+#!/usr/bin/env bash
+exit 0
+EOF
+	chmod +x "$runtime_bin/$command_name"
+done
+
+cat >"$runtime_bin/cargo" <<'EOF'
+#!/usr/bin/env bash
+exit 17
+EOF
+cat >"$runtime_bin/uv" <<'EOF'
+#!/usr/bin/env bash
+bin_dir="$(cd "$(dirname "$0")" && pwd)"
+printf '#!/usr/bin/env bash\nexit 0\n' >"$bin_dir/prek"
+chmod +x "$bin_dir/prek"
+printf 'fake uv installed prek\n'
+exit 0
+EOF
+chmod +x "$runtime_bin/cargo" "$runtime_bin/uv"
+
+set +e
+runtime_fallback_output="$(
+	PATH="$runtime_bin:/usr/bin:/bin" \
+		AGENT_CONFIG_SKIP_PACKAGE_MANAGER=1 \
+		./install-tools.sh 2>&1
+)"
+runtime_fallback_status="$?"
+set -e
+assert_success "$runtime_fallback_status" "runtime fallback after failed cargo"
+assert_contains "$runtime_fallback_output" "install-tools: cargo fallback failed for prek"
+assert_contains "$runtime_fallback_output" "fake uv installed prek"
+assert_not_contains "$runtime_fallback_output" "could not install prek automatically"
+
 printf 'install-tools-test: ok\n'

@@ -291,25 +291,41 @@ install_with_fallback() {
 		;;
 	prek)
 		if runtime_available cargo; then
-			run_command cargo install --locked prek --version "$PREK_VERSION"
-		elif runtime_available uv; then
-			run_command uv tool install "prek==$PREK_VERSION"
-		elif runtime_available pipx; then
-			run_command pipx install "prek==$PREK_VERSION"
-		else
-			return 1
+			if run_command cargo install --locked prek --version "$PREK_VERSION"; then
+				return 0
+			fi
+			printf 'install-tools: cargo fallback failed for prek\n' >&2
 		fi
+		if runtime_available uv; then
+			if run_command uv tool install "prek==$PREK_VERSION"; then
+				return 0
+			fi
+			printf 'install-tools: uv fallback failed for prek\n' >&2
+		fi
+		if runtime_available pipx; then
+			run_command pipx install "prek==$PREK_VERSION"
+			return "$?"
+		fi
+		return 1
 		;;
 	zizmor)
 		if runtime_available cargo; then
-			run_command cargo install --locked zizmor --version "$ZIZMOR_VERSION"
-		elif runtime_available uv; then
-			run_command uv tool install "zizmor==$ZIZMOR_VERSION"
-		elif runtime_available pipx; then
-			run_command pipx install "zizmor==$ZIZMOR_VERSION"
-		else
-			return 1
+			if run_command cargo install --locked zizmor --version "$ZIZMOR_VERSION"; then
+				return 0
+			fi
+			printf 'install-tools: cargo fallback failed for zizmor\n' >&2
 		fi
+		if runtime_available uv; then
+			if run_command uv tool install "zizmor==$ZIZMOR_VERSION"; then
+				return 0
+			fi
+			printf 'install-tools: uv fallback failed for zizmor\n' >&2
+		fi
+		if runtime_available pipx; then
+			run_command pipx install "zizmor==$ZIZMOR_VERSION"
+			return "$?"
+		fi
+		return 1
 		;;
 	*) return 1 ;;
 	esac
