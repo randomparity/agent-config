@@ -191,6 +191,11 @@ pipx install zizmor==1.28.0
 
 Fail clearly when no supported fallback runtime is available.
 
+After a fallback installer succeeds, refresh the script's `PATH` with existing
+common fallback install directories (`$HOME/.cargo/bin`, `$HOME/.local/bin`,
+`$GOBIN`, and the Go bin directory). If `$GITHUB_PATH` is set, append those
+directories so the next workflow step can run tools installed by this setup step.
+
 - [x] **Step 5: Run tests and commit**
 
 Run:

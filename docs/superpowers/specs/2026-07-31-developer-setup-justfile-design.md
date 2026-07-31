@@ -97,7 +97,11 @@ final command list after attempting package installs. Fallbacks are:
 
 If no supported package manager or fallback runtime is available, the script
 must fail with the missing command and a suggested installation path. It must
-not claim success until `--check` passes.
+not claim success until `--check` passes. After fallback installers run, the
+script refreshes its current `PATH` with common install directories such as
+`$HOME/.cargo/bin`, `$HOME/.local/bin`, and the Go bin directory. In GitHub
+Actions, it also appends discovered fallback directories to `$GITHUB_PATH` so
+later workflow steps can see tools installed by the setup step.
 
 ## Just Recipes
 

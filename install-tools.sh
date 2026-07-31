@@ -65,6 +65,48 @@ runtime_available() {
 	is_dry_run || command -v "$command_name" >/dev/null 2>&1
 }
 
+known_tool_dirs() {
+	local go_path=""
+
+	printf '%s\n' \
+		"${GOBIN:-}" \
+		"${HOME:-}/.cargo/bin" \
+		"${HOME:-}/.local/bin"
+
+	if command -v go >/dev/null 2>&1; then
+		go_path="$(go env GOPATH 2>/dev/null || true)"
+	fi
+
+	if [[ -n "$go_path" ]]; then
+		printf '%s/bin\n' "$go_path"
+	elif [[ -n "${HOME:-}" ]]; then
+		printf '%s/go/bin\n' "$HOME"
+	fi
+}
+
+path_contains_dir() {
+	local dir="$1"
+
+	case ":$PATH:" in
+	*":$dir:"*) return 0 ;;
+	*) return 1 ;;
+	esac
+}
+
+refresh_fallback_path() {
+	local dir
+
+	while IFS= read -r dir; do
+		[[ -n "$dir" && -d "$dir" ]] || continue
+		if ! path_contains_dir "$dir"; then
+			export PATH="$dir:$PATH"
+			if [[ -n "${GITHUB_PATH:-}" ]]; then
+				printf '%s\n' "$dir" >>"$GITHUB_PATH"
+			fi
+		fi
+	done < <(known_tool_dirs)
+}
+
 host_uname() {
 	printf '%s\n' "${AGENT_CONFIG_TEST_UNAME:-$(uname -s)}"
 }
@@ -382,6 +424,7 @@ install_mode() {
 	while IFS= read -r command_name; do
 		[[ -n "$command_name" ]] || continue
 		if install_with_fallback "$command_name"; then
+			refresh_fallback_path
 			continue
 		fi
 		printf 'install-tools: could not install %s automatically\n' "$command_name" >&2

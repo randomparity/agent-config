@@ -208,4 +208,41 @@ assert_contains "$runtime_fallback_output" "install-tools: cargo fallback failed
 assert_contains "$runtime_fallback_output" "fake uv installed prek"
 assert_not_contains "$runtime_fallback_output" "could not install prek automatically"
 
+path_bin="$tmpdir/path-bin"
+path_home="$tmpdir/path-home"
+github_path="$tmpdir/github-path"
+mkdir -p "$path_bin" "$path_home"
+for command_name in jq rg shellcheck shfmt gh prek actionlint zizmor; do
+	cat >"$path_bin/$command_name" <<'EOF'
+#!/usr/bin/env bash
+exit 0
+EOF
+	chmod +x "$path_bin/$command_name"
+done
+
+cat >"$path_bin/cargo" <<'EOF'
+#!/usr/bin/env bash
+install_dir="$HOME/.cargo/bin"
+mkdir -p "$install_dir"
+printf '#!/usr/bin/env bash\nexit 0\n' >"$install_dir/just"
+chmod +x "$install_dir/just"
+printf 'fake cargo installed just\n'
+exit 0
+EOF
+chmod +x "$path_bin/cargo"
+
+set +e
+path_fallback_output="$(
+	PATH="$path_bin:/usr/bin:/bin" \
+		HOME="$path_home" \
+		GITHUB_PATH="$github_path" \
+		AGENT_CONFIG_SKIP_PACKAGE_MANAGER=1 \
+		./install-tools.sh 2>&1
+)"
+path_fallback_status="$?"
+set -e
+assert_success "$path_fallback_status" "fallback-installed binary path"
+assert_contains "$path_fallback_output" "fake cargo installed just"
+assert_contains "$(cat "$github_path")" "$path_home/.cargo/bin"
+
 printf 'install-tools-test: ok\n'
