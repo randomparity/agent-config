@@ -24,11 +24,16 @@ four-digit number sequence. The sorted directory listing is the index, so no
 hand-maintained table is added.
 
 Every ADR contains `Status`, `Context`, `Decision`, `Consequences`, and
-`Considered & rejected`. Every debt record contains `Status`, `Concern`,
+`Considered & rejected`. ADR status is `Proposed`, `Deferred`, or dated `Accepted`,
+`Rejected`, or `Superseded`. Every debt record contains `Status`, `Concern`,
 `Why deferred`, `Non-regression boundary`, `What would resolve it`, and `Provenance`.
+Open debt has an ISO-8601 `review-by:` line in its status and at least one bare,
+column-one `target:` line in its provenance.
+
 Merged substantive sections are append-only. A later ADR supersedes an earlier one by
-adding a dated `Superseded by` banner to the old record's status; completed debt is
-retired with a dated `Resolved by` banner. Records are never deleted.
+adding a dated `Superseded by` banner beneath the old record's status. Completed debt
+replaces `Open` with a dated `Resolved by` banner and removes its retired `review-by:`
+line. Records are never deleted.
 
 The repository-owned gate package lives under `.github/scripts/`: one checker, its
 regression suite, the marker-only migrator, both record profiles, and the workflow
@@ -69,6 +74,8 @@ as deferred work.
 
 ## Considered & rejected
 
+- **Leave root records ungated.** Rejected because the current agent-native copies do
+  not validate repository records, leaving both enforcement and ownership ambiguous.
 - **Make the Codex or Claude skill assets authoritative.** Rejected because choosing a
   deployed projection makes another agent's native tree the owner of root policy.
 - **Keep three independent gate copies.** Rejected because fixes can drift while every
