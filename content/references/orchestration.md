@@ -1,6 +1,7 @@
 # Subagent orchestration
 
-On-demand reference for `~/.codex/AGENTS.md` — read before dispatching any subagent or parallel fan-out.
+On-demand reference for agent instruction files — read before dispatching any
+subagent or parallel fan-out.
 
 ## Worktrees
 
