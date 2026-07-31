@@ -97,6 +97,11 @@ assert_failure "$check_status" "fake missing check mode"
 assert_contains "$check_output" "missing required tools"
 assert_contains "$check_output" "just"
 
+just_default_output="$(just --dry-run 2>&1)"
+assert_contains "$just_default_output" "just --list"
+assert_not_contains "$just_default_output" "./install-tools.sh"
+assert_not_contains "$just_default_output" "prek install"
+
 captured="$(run_plan Darwin "$ubuntu_release")"
 status="$(capture_status "$captured")"
 plan_output="$(capture_output "$captured")"

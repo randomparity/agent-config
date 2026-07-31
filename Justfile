@@ -1,5 +1,8 @@
 set shell := ["bash", "-eu", "-o", "pipefail", "-c"]
 
+default:
+  just --list
+
 setup:
   ./install-tools.sh
   prek install
