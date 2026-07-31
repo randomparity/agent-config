@@ -457,12 +457,14 @@ install_bob() {
 	local overlay_dir
 	local settings_tmp
 	local mcp_tmp
+	local bob_modes
 
 	start_agent
 	dest_dir="$(canonical_dir "${BOB_CONFIG_DIR:-$HOME/.bob}")"
 	overlay_dir="$(private_overlay_dir bob "$host")"
 	settings_tmp="$(new_temp_file)"
 	mcp_tmp="$(new_temp_file)"
+	bob_modes="$REPO/agents/bob/shared/custom_modes.yaml"
 
 	merge_json_settings \
 		"$REPO/agents/bob/shared/settings.base.json" \
@@ -472,14 +474,14 @@ install_bob() {
 		"$REPO/agents/bob/shared/mcp.json" \
 		"$overlay_dir/mcp.overlay.json" \
 		"$mcp_tmp"
-	validate_yaml_if_possible "$REPO/agents/bob/shared/custom_modes.yaml"
+	validate_yaml_if_possible "$bob_modes"
 
 	install_managed_path "$dest_dir" "$settings_tmp" "settings.json"
 	install_managed_path "$dest_dir" "$mcp_tmp" "mcp.json"
 	install_managed_path "$dest_dir" "$mcp_tmp" "mcp_settings.json"
 	install_managed_path "$dest_dir" "$REPO/agents/bob/shared/AGENTS.md" "AGENTS.md"
-	install_managed_path "$dest_dir" "$REPO/agents/bob/shared/custom_modes.yaml" "settings/custom_modes.yaml"
-	install_managed_path "$dest_dir" "$REPO/agents/bob/shared/custom_modes.yaml" "custom_modes.yaml"
+	install_managed_path "$dest_dir" "$bob_modes" "settings/custom_modes.yaml"
+	install_managed_path "$dest_dir" "$bob_modes" "custom_modes.yaml"
 	install_managed_path "$dest_dir" "$REPO/agents/bob/shared/rules" "rules"
 	install_managed_path "$dest_dir" "$REPO/agents/bob/shared/skills" "skills"
 	install_common_content "$dest_dir"

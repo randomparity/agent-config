@@ -98,7 +98,14 @@ write_json \
 	'{"agentConfigTest":{"bob":true}}'
 write_json \
 	"$AGENT_CONFIG_PRIVATE_DIR/hosts/test-host/bob/mcp.overlay.json" \
-	'{"mcpServers":{"example-docs":{"command":"npx","args":["-y","@modelcontextprotocol/server-fetch"]}}}'
+	'{
+  "mcpServers": {
+    "example-docs": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-fetch"]
+    }
+  }
+}'
 
 AGENT_CONFIG_HOST=test-host ./install.sh --agent all
 
