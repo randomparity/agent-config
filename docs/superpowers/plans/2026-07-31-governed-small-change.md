@@ -150,8 +150,10 @@ Expected: both exit 0 with zero warnings.
 
 - [ ] **Step 7: Review the diff and commit**
 
-Confirm only the four task files changed, prompt rules match ADR 0007, campaign carries
-evidence rather than authority, and no post-build phase was weakened. Then run:
+Confirm the staged implementation delta contains only the four task files, prompt rules
+match ADR 0007, campaign carries evidence rather than authority, and no post-build phase
+was weakened. The full branch diff may additionally contain the committed issue 26 spec,
+ADR, and implementation plan. Then run:
 
 ```bash
 git add scripts/check-workflow-scope-contract-test.sh \
