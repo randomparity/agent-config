@@ -55,9 +55,26 @@ Also classify the work:
 - **Trivial bugfix:** all acceptance criteria are clear; no API, schema, auth,
   permission, concurrency, migration, dependency, persistence, or external-service
   behavior changes; touches one or two files; no new public contract.
+- **Governed small change (`governed-small-change`):** one accepted decision governs
+  every changed contract and normative behavior; the acceptance criteria are explicit
+  and testable; no design-changing ambiguity remains; the work is one independently
+  testable slice with no cross-task sequencing or decomposition; and implementation
+  introduces no architecture, schema, dependency, persistence, concurrency,
+  authentication, migration, or external-service behavior.
 - **Non-trivial change:** anything else.
 
-Only trivial bugfixes may skip step 3.
+<!-- SCOPE-RULE:governed-small-change -->
+Classify as governed-small-change only when one accepted decision governs every changed contract and normative behavior.
+Require explicit testable acceptance criteria, no design-changing ambiguity, and one independently testable slice with no cross-task sequencing or decomposition.
+Revalidate the decision reference, decision kind, accepted status, and governed behavior when the abbreviated path is consumed.
+Missing, superseded, non-accepted, conflicting, incomplete, or no-longer-governing evidence returns to SCOPE CHECKPOINT and full design.
+<!-- SCOPE-RULE:END:governed-small-change -->
+
+Only trivial bugfixes and verified governed small changes may skip step 3. The governing
+decision must be a stable reference whose repository-defined status and supersession state
+can be checked independently. Record its reference, decision kind, authoritative accepted
+status, and the behavior or contract it governs; a label or caller-selected subtype is not
+evidence.
 
 **Adopt an existing `$scope` report.** If the operator ran `$scope <issue-number>` in this
 session, its report already carries blast radius, risk flags, complexity (S/M/L), and
@@ -102,7 +119,10 @@ An unattended root may post only a generic public-safe WORK:TRAJECTORY notice wi
 - `interaction`: the root value established above.
 
 Also retain the tracking metadata: blast radius, risk flags, complexity (`S`/`M`/`L`),
-and decompose verdict.
+decompose verdict, and selected classification. A `governed-small-change` additionally
+retains the decision reference, decision kind, accepted status, governed behavior, and
+the explicit acceptance criteria. Read those fields back with the eight charter fields
+before proceeding.
 
 Minimize every public GitHub annotation to the authority needed for its fields. Use
 public-safe source labels for provenance instead of copying private source text. Never
@@ -156,6 +176,29 @@ the repo, do not use it; run `git worktree add <external-path>` yourself.
 If the repo already has a branch for this issue, ask before reusing it unless the
 issue or PR explicitly names that branch.
 
+<!-- SCOPE-ORDER:work-abbreviated -->
+### Governed small change path
+
+Immediately before using the abbreviated path, resolve the governing decision again and
+confirm its kind, accepted and non-superseded status, claimed governed behavior, and fit
+against the live issue criteria. Confirm the work is still one independently testable
+slice and no excluded decision or ambiguity has appeared. A failed check returns to
+`SCOPE CHECKPOINT`; re-freeze the complete charter and run step 3. Do not automatically
+reselect the abbreviated path in that design cycle.
+
+<!-- SCOPE-RULE:governed-direct-build -->
+A governed-small-change proceeds from verified WORK:SCOPE directly to build-tdd without a new spec or plan.
+<!-- SCOPE-RULE:END:governed-direct-build -->
+
+<!-- SCOPE-ORDER:governed-proof -->
+The first executable action on the abbreviated path is the focused failing test in step 4.
+<!-- SCOPE-ORDER:governed-elaboration -->
+Optional design elaboration may follow that proof but is not a prerequisite.
+
+<!-- SCOPE-RULE:post-build-controls -->
+The abbreviated path retains branch review, simplification, repository guardrails, PR creation, CI, and merge handoff.
+<!-- SCOPE-RULE:END:post-build-controls -->
+
 <!-- SCOPE-ORDER:work-design -->
 ## 3. Design
 
@@ -174,7 +217,7 @@ ambiguities: <frozen ambiguity list>
 
 Run `$design <issue-number>` to write the spec + ADR, adversarial-review the spec,
 write the implementation plan, and adversarial-review the plan. Skip only for a
-trivial bugfix as defined in step 1.
+trivial bugfix or a governed small change that passed the revalidation above.
 
 **Durable artifact:** the spec, ADR, and implementation plan written by
 `$design` (see that skill for their exact paths — the ADR lives under
@@ -186,6 +229,10 @@ hold the design.
 
 Run `$build-tdd` to implement the plan using test-driven development and run the
 guardrail suite. Pass the plan path if one exists.
+
+<!-- SCOPE-RULE:governed-build-handoff -->
+For a governed-small-change, pass build-tdd the selected classification plus the revalidated decision reference, decision kind, accepted status, governed behavior, and acceptance criteria; pass no plan path.
+<!-- SCOPE-RULE:END:governed-build-handoff -->
 
 **Durable artifact:** the committed code and tests, plus the plan's completed
 tasks. Context checkpoint before step 5: the branch name and guardrail commands

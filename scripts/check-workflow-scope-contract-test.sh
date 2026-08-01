@@ -96,14 +96,48 @@ skill_path() {
 	printf '%s/%s/SKILL.md\n' "$root" "$skill"
 }
 
+check_governed_contract() {
+	local work=$1 build=$2 campaign=$3
+	assert_rule "$work" governed-small-change \
+		"Classify as governed-small-change only when one accepted decision governs every changed contract and normative behavior." || return 1
+	assert_rule "$work" governed-small-change \
+		"Require explicit testable acceptance criteria, no design-changing ambiguity, and one independently testable slice with no cross-task sequencing or decomposition." || return 1
+	assert_rule "$work" governed-small-change \
+		"Revalidate the decision reference, decision kind, accepted status, and governed behavior when the abbreviated path is consumed." || return 1
+	assert_rule "$work" governed-small-change \
+		"Missing, superseded, non-accepted, conflicting, incomplete, or no-longer-governing evidence returns to SCOPE CHECKPOINT and full design." || return 1
+	assert_ordered_clause "$work" work-abbreviated \
+		"### Governed small change path" work-design "## 3. Design" || return 1
+	assert_rule "$work" governed-direct-build \
+		"A governed-small-change proceeds from verified WORK:SCOPE directly to build-tdd without a new spec or plan." || return 1
+	assert_ordered_clause "$work" governed-proof \
+		"The first executable action on the abbreviated path is the focused failing test in step 4." \
+		governed-elaboration \
+		"Optional design elaboration may follow that proof but is not a prerequisite." || return 1
+	assert_rule "$work" post-build-controls \
+		"The abbreviated path retains branch review, simplification, repository guardrails, PR creation, CI, and merge handoff." || return 1
+	assert_rule "$build" governed-scope-expansion \
+		"Build-time scope expansion stops implementation, re-freezes scope, and runs full design without automatically reselecting the abbreviated path." || return 1
+	assert_rule "$work" governed-build-handoff \
+		"For a governed-small-change, pass build-tdd the selected classification plus the revalidated decision reference, decision kind, accepted status, governed behavior, and acceptance criteria; pass no plan path." || return 1
+	assert_rule "$build" governed-build-input \
+		"When the caller supplies a governed-small-change classification with its revalidated decision reference, decision kind, accepted status, governed behavior, and acceptance criteria, reject any supplied or auto-discovered plan and write and run the focused failing test as the first executable proof." || return 1
+	assert_rule "$campaign" governed-evidence \
+		"Campaign carries governed-small-change evidence to work-issue; the subtype name alone never authorizes the abbreviated path." || return 1
+	assert_rule "$campaign" governed-dispatch-evidence \
+		"A governed-small-change dispatch carries the triage subtype, decision reference, decision kind, authoritative accepted status, governed behavior, and explicit testable acceptance criteria." || return 1
+}
+
 check_contract() {
-	local root=$1 work brainstorm design plans review challenge
+	local root=$1 work brainstorm design plans review challenge build campaign
 	work=$(skill_path "$root" work-issue)
 	brainstorm=$(skill_path "$root" brainstorming)
 	design=$(skill_path "$root" design)
 	plans=$(skill_path "$root" writing-plans)
 	review=$(skill_path "$root" review-loop)
 	challenge=$(skill_path "$root" challenge)
+	build=$(skill_path "$root" build-tdd)
+	campaign=$(skill_path "$root" campaign)
 	assert_ordered_clause "$work" work-frozen "## Frozen scope charter" \
 		work-design "## 3. Design" || return 1
 	assert_rule "$work" scope-identity \
@@ -167,6 +201,7 @@ check_contract() {
 		"Treat an ungrounded normative guarantee as material scope expansion." || return 1
 	assert_rule "$challenge" delete-ungrounded \
 		"Delete or weaken an ungrounded guarantee before recommending machinery." || return 1
+	check_governed_contract "$work" "$build" "$campaign" || return 1
 }
 
 check_durable_contract() {
@@ -189,9 +224,9 @@ rewrite_block_line_once() {
 	fi
 	[[ "$count" -eq 1 ]] || fail "$file: duplicate mutation literal: $old"
 	tmp=$file.scope-tmp
-	if ! awk -v start="$start" -v end="$end" -v old="$old" -v new="$new" '
+	if ! SCOPE_REPLACEMENT=$new awk -v start="$start" -v end="$end" -v old="$old" '
     $0 == start { active = 1 }
-    active && $0 == old { print new; changed++; next }
+    active && $0 == old { print ENVIRON["SCOPE_REPLACEMENT"]; changed++; next }
     $0 == end { active = 0 }
     { print }
     END { if (changed != 1) exit 42 }
@@ -256,10 +291,94 @@ copy_fixture() {
 	local case_name=$1 fixture skill
 	fixture=$scratch/$case_name
 	mkdir -p "$fixture"
-	for skill in work-issue brainstorming design writing-plans review-loop challenge; do
+	for skill in work-issue brainstorming design writing-plans review-loop challenge \
+		build-tdd campaign; do
 		cp -R "$canonical_root/$skill" "$fixture/$skill"
 	done
 	printf '%s\n' "$fixture"
+}
+
+run_governed_fixtures() {
+	local fixture file
+	fixture=$(copy_fixture governed-direct-build)
+	file=$(skill_path "$fixture" work-issue)
+	rewrite_block_line_once "$file" RULE governed-direct-build \
+		"A governed-small-change proceeds from verified WORK:SCOPE directly to build-tdd without a new spec or plan." \
+		"A governed-small-change writes a new spec and plan before build-tdd."
+	assert_fixture_fails governed-direct-build \
+		"rule governed-direct-build missing instruction" "$fixture"
+
+	fixture=$(copy_fixture governed-ambiguity)
+	file=$(skill_path "$fixture" work-issue)
+	rewrite_block_line_once "$file" RULE governed-small-change \
+		"Require explicit testable acceptance criteria, no design-changing ambiguity, and one independently testable slice with no cross-task sequencing or decomposition." \
+		"Resolve remaining ambiguity inline and select governed-small-change."
+	assert_fixture_fails governed-ambiguity \
+		"rule governed-small-change missing instruction" "$fixture"
+
+	fixture=$(copy_fixture governed-scope-expansion)
+	file=$(skill_path "$fixture" build-tdd)
+	rewrite_block_line_once "$file" RULE governed-scope-expansion \
+		"Build-time scope expansion stops implementation, re-freezes scope, and runs full design without automatically reselecting the abbreviated path." \
+		"Infer the new decision and continue implementation."
+	assert_fixture_fails governed-scope-expansion \
+		"rule governed-scope-expansion missing instruction" "$fixture"
+
+	fixture=$(copy_fixture governed-build-handoff)
+	file=$(skill_path "$fixture" work-issue)
+	rewrite_block_line_once "$file" RULE governed-build-handoff \
+		"For a governed-small-change, pass build-tdd the selected classification plus the revalidated decision reference, decision kind, accepted status, governed behavior, and acceptance criteria; pass no plan path." \
+		"Run build-tdd without classification evidence and allow plan discovery."
+	assert_fixture_fails governed-build-handoff \
+		"rule governed-build-handoff missing instruction" "$fixture"
+
+	fixture=$(copy_fixture governed-build-input)
+	file=$(skill_path "$fixture" build-tdd)
+	rewrite_block_line_once "$file" RULE governed-build-input \
+		"When the caller supplies a governed-small-change classification with its revalidated decision reference, decision kind, accepted status, governed behavior, and acceptance criteria, reject any supplied or auto-discovered plan and write and run the focused failing test as the first executable proof." \
+		"When the caller supplies governed-small-change, discover any repository plan first."
+	assert_fixture_fails governed-build-input \
+		"rule governed-build-input missing instruction" "$fixture"
+
+	fixture=$(copy_fixture governed-campaign-evidence)
+	file=$(skill_path "$fixture" campaign)
+	rewrite_block_line_once "$file" RULE governed-evidence \
+		"Campaign carries governed-small-change evidence to work-issue; the subtype name alone never authorizes the abbreviated path." \
+		"Campaign passes only the governed-small-change subtype name."
+	assert_fixture_fails governed-campaign-evidence \
+		"rule governed-evidence missing instruction" "$fixture"
+
+	fixture=$(copy_fixture governed-dispatch-evidence)
+	file=$(skill_path "$fixture" campaign)
+	rewrite_block_line_once "$file" RULE governed-dispatch-evidence \
+		"A governed-small-change dispatch carries the triage subtype, decision reference, decision kind, authoritative accepted status, governed behavior, and explicit testable acceptance criteria." \
+		"A governed-small-change dispatch carries only the triage subtype."
+	assert_fixture_fails governed-dispatch-evidence \
+		"rule governed-dispatch-evidence missing instruction" "$fixture"
+
+	fixture=$(copy_fixture governed-post-build-controls)
+	file=$(skill_path "$fixture" work-issue)
+	rewrite_block_line_once "$file" RULE post-build-controls \
+		"The abbreviated path retains branch review, simplification, repository guardrails, PR creation, CI, and merge handoff." \
+		"The abbreviated path ends after the focused test passes."
+	assert_fixture_fails governed-post-build-controls \
+		"rule post-build-controls missing instruction" "$fixture"
+
+	fixture=$(copy_fixture governed-proof-order)
+	file=$(skill_path "$fixture" work-issue)
+	move_ordered_clause_after "$file" governed-proof \
+		"The first executable action on the abbreviated path is the focused failing test in step 4." \
+		governed-elaboration \
+		"Optional design elaboration may follow that proof but is not a prerequisite."
+	assert_fixture_fails governed-proof-order \
+		"expected order marker governed-proof before governed-elaboration" "$fixture"
+
+	fixture=$(copy_fixture governed-order)
+	file=$(skill_path "$fixture" work-issue)
+	move_ordered_clause_after "$file" work-abbreviated \
+		"### Governed small change path" work-design "## 3. Design"
+	assert_fixture_fails governed-order \
+		"expected order marker work-abbreviated before work-design" "$fixture"
 }
 
 assert_case_fails() {
@@ -443,9 +562,10 @@ extractor_count=0
 check_contract "$canonical_root"
 check_durable_contract
 run_scope_fixtures
+run_governed_fixtures
 run_extractor_tests
 run_review_fixtures
-[[ "$fixture_count" -eq 12 ]] || fail "expected 12 SCOPE fixtures, got $fixture_count"
+[[ "$fixture_count" -eq 22 ]] || fail "expected 22 SCOPE fixtures, got $fixture_count"
 [[ "$extractor_count" -eq 3 ]] || fail "expected 3 extractor tests, got $extractor_count"
 printf 'workflow-scope-contract-test: ok (%d fixtures, %d extractor tests)\n' \
 	"$fixture_count" "$extractor_count"
