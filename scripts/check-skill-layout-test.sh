@@ -82,6 +82,10 @@ assert_fails \
 	'examples/other/SKILL.md: SKILL.md is allowed only under examples/project-review-skills' \
 	"$root"
 
+root="$(new_fixture)"
+ln -s project-review-skills/accessibility-reviewer "$root/examples/other"
+assert_fails 'examples/other: directory symlinks are forbidden' "$root"
+
 [[ ! -e "$legacy_bob_skill" && ! -L "$legacy_bob_skill" ]] ||
 	fail "expected legacy Bob skill source to be absent: $legacy_bob_skill"
 assert_contains \

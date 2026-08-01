@@ -47,10 +47,14 @@ validate_example_skill_locations() {
 	[[ -d "$examples_root" ]] || return 0
 	while IFS= read -r -d '' path; do
 		relative="${path#"$examples_root/"}"
+		if [[ -L "$path" && -d "$path" ]]; then
+			skill_error "examples/$relative" 'directory symlinks are forbidden'
+		fi
+		[[ "${path##*/}" == 'SKILL.md' ]] || continue
 		[[ "$relative" =~ ^project-review-skills/[^/]+/SKILL\.md$ ]] ||
 			skill_error "examples/$relative" \
 				'SKILL.md is allowed only under examples/project-review-skills'
-	done < <(find "$examples_root" \( -type f -o -type l \) -name SKILL.md -print0)
+	done < <(find "$examples_root" \( -type l -o -type f -name SKILL.md \) -print0)
 }
 
 validate_relative_path() {
