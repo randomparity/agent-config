@@ -8,7 +8,7 @@
 # Every transform is **line-local**. It rewrites markers and the case around text without
 # moving text between lines or regions, and without introducing text the line did not carry:
 #
-#   # 1. Title, # ADR 1: Title    ->  # 0001 — Title   (number from the filename)
+#   # 1. Title, # ADR N: Title    ->  # 0001 — Title   (number from the filename)
 #   ## Status:, ## status         ->  ## Status
 #   accepted (2026-07-19)         ->  Accepted (2026-07-19)          (case only)
 #   accepted 2026-07-19           ->  Accepted (2026-07-19)          (case and parentheses)

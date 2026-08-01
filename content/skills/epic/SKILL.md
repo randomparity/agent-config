@@ -5,9 +5,7 @@ description: "Interview a rough feature idea into a GitHub epic containing a PRD
 # Plan an Epic
 
 Turn the rough idea supplied by the user into a filed **epic**: a PRD living in the epic
-issue's body, plus native sub-issues born triaged, ready for `$campaign`. Spec and
-contracts: `docs/superpowers/specs/2026-07-19-epic-command-design.md`, ADR 0002
-(design record — background, not runtime reading).
+issue's body, plus native sub-issues born triaged, ready for `$campaign`.
 
 **Read-only until the step-6 confirmation gate.** No GitHub writes of any kind before
 it; that one confirmation covers **every** write this skill performs, including the

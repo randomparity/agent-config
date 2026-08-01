@@ -291,7 +291,7 @@ reading the changed files, not by the issue's description of itself:
   files, archives, or any format that constructs objects while decoding;
 - **builds a command, query, path, URL, or template from a value** that is not a
   literal in the same file;
-- **widens a permission grant** — a workflow's permission grant (ADR 0017), a CI
+- **widens a permission grant** — a workflow's permission grant, a CI
   token scope, a sandbox or guardrail exemption;
 - **changes a dependency, a lockfile, or a pinned CI action reference**;
 - **alters file modes, network exposure, TLS or certificate handling, or a
@@ -324,7 +324,7 @@ in step 7 says which arms ran rather than leaving a reader to infer it.
 
 `$threat-scan` is this pipeline's own pass, and it is a weaker instrument than
 the built-in `/security-review` — which a model cannot invoke at all, since a
-built-in expands client-side only when a human types it (ADR 0023). Where an
+built-in expands client-side only when a human types it. Where an
 operator wants the built-in, `$merge-cleanup`'s hand-off is where a human is
 reliably present to run it.
 

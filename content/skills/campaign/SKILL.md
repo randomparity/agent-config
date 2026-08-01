@@ -369,7 +369,7 @@ told to write only their ADR file and report `index row pending`. Append every p
 row for the wave **once**, after the wave's last PR merges, on its own branch — never
 mid-wave, which recreates the conflict the split exists to avoid.
 
-That split inverts where CI gates the index (ADR 0019). A required check enforcing one
+That split inverts where CI gates the index. A required check enforcing one
 index row per ADR file holds every ADR-bearing PR red until its row lands, and the merge
 it blocks is the one that would trigger your append — a deadlock, not a sequencing
 wrinkle. There each subagent adds its own row in its own PR, and you own only the
