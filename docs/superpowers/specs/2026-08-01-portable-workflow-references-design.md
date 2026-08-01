@@ -46,6 +46,11 @@ only when the same line introduces it with the literal natural-language marker
 are permitted when their basename is visibly templated with `YYYY-MM-DD`, an angle-bracket
 placeholder, or a glob.
 
+The record engine under `content/skills/decision-records/assets/` is a bounded structural
+exception for concrete ADR/debt paths: those paths are executable target operands and test
+fixtures owned by that component. The exception does not apply to plan/spec paths, bare
+numeric citations, other skill assets, or native payloads.
+
 This catches the known stale epic spec, source issue, and conflicting ADR-number forms
 without making the checker interpret prose. Valid target inputs and examples express their
 classification in the reference syntax itself.
@@ -79,7 +84,8 @@ The denied forms are:
   label; and
 - a concrete relative Markdown file below a governed plan/spec directory; and
 - a concrete relative Markdown file below `docs/adr/` or `docs/debt/` unless
-  `target-repository` appears earlier on the same line.
+  `target-repository` appears earlier on the same line or the file belongs to the bounded
+  decision-record engine.
 
 Fully qualified provenance therefore uses a descriptive, nonnumeric Markdown label, such
 as `[governing-review decision](https://github.com/owner/repo/blob/<commit>/docs/adr/0019-name.md)`,
@@ -90,6 +96,11 @@ or `*` for plans/specs. An unrelated marker in a parent component cannot exempt 
 file. A concrete ADR/debt basename instead requires `target-repository` before the path on
 that line, making its classification visible to both readers and the guard. Diagnostics
 name the file, line, and reference class.
+
+The decision-record engine exception is path-scoped to
+`content/skills/decision-records/assets/`; an executable file elsewhere receives no general
+exemption. Tests prove an operational record path in that component passes and the same
+unmarked path in another shell asset fails.
 
 The test script creates a minimal temporary repository fixture and proves both sides of each
 classification boundary. It includes explicit regressions for the stale epic design path,
