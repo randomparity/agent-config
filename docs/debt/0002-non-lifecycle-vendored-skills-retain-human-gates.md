@@ -20,19 +20,26 @@ Several deployed skills still direct a dispatched worker to an unavailable human
 - `receiving-code-review/SKILL.md` stops for human discussion when feedback conflicts with
   prior decisions and routes architectural escalation to the human. These executable
   gates are present in the Claude and Codex projections; Bob does not deploy the skill.
+- `subagent-driven-development/SKILL.md` sends a wrong plan and a plan-mandated review
+  conflict to the human. These executable residuals are present in the Claude and Codex
+  projections; Bob does not deploy the skill.
 
 Other audited references are descriptive rather than gates. The two `human partner`
 quotes in `test-driven-development/testing-anti-patterns.md`, the source examples and
 quoted preferences in `receiving-code-review/SKILL.md`, and the failure-history sentence
 in `verification-before-completion/SKILL.md` prescribe no wait or decision. Verification
 is deployed to Claude, Codex, and Bob and needs no dispatched adaptation for that sentence.
+In `subagent-driven-development/SKILL.md`, the pre-flight plan question is already handled
+by its dispatched section; the continuous-execution and no-human-loop phrases are
+descriptive or prohibitive, not residual gates.
 
 ## Why deferred
 
 This change restores attribution and records the governing policy; it does not alter the
 runtime instructions of the derived skills. Each executable gate needs a reviewed choice
 between resolving from written policy and returning a blocker. Applying one blanket text
-substitution would hide those different semantics.
+substitution would hide those different semantics, including inside skills whose lifecycle
+handoff is already adapted.
 
 Review by 2026-10-31, one quarter after migration, so the gap is reconsidered on a bounded
 cadence even if no upstream refresh occurs. Re-evaluate sooner if an upstream update
@@ -70,6 +77,8 @@ target: agents/claude/shared/skills/systematic-debugging/SKILL.md
 target: agents/codex/shared/skills/systematic-debugging/SKILL.md
 target: agents/claude/shared/skills/receiving-code-review/SKILL.md
 target: agents/codex/shared/skills/receiving-code-review/SKILL.md
+target: agents/claude/shared/skills/subagent-driven-development/SKILL.md
+target: agents/codex/shared/skills/subagent-driven-development/SKILL.md
 target: agents/claude/shared/skills/verification-before-completion/SKILL.md
 target: agents/codex/shared/skills/verification-before-completion/SKILL.md
 target: agents/bob/shared/skills/verification-before-completion/SKILL.md

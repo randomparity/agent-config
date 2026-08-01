@@ -40,17 +40,18 @@ Interactive behavior remains the default. A caller or orchestrator explicitly as
 dispatched mode, and that mode flows through downstream derived skills. A dispatched gate
 either resolves from the caller's written requirements and repository policy or returns a
 blocker to the caller; it never guesses permission from an unavailable human. The five
-Claude and Codex lifecycle skills with embedded adaptations are `brainstorming`,
+Claude and Codex lifecycle skills carrying embedded lifecycle adaptations are `brainstorming`,
 `writing-plans`, `executing-plans`, `subagent-driven-development`, and
 `finishing-a-development-branch`. They return without merging, pushing, or discarding
 work. This does not restrict later, non-vendored integration owners such as `ship-pr` and
 `merge-cleanup`, whose own authorization governs pushing and merging.
 
 [Debt 0002](../debt/0002-non-lifecycle-vendored-skills-retain-human-gates.md)
-owns the remaining human-only gates in derived testing, debugging, and review-reception
-skills. It records which projections deploy each skill, which references are executable
-gates, and which are descriptive. Closing its tracker does not resolve that debt; only the
-adaptations and proof named by the record do.
+owns the remaining human-only gates in derived testing, debugging, review-reception, and
+subagent-development skills, including gates outside those skills' existing dispatched
+sections. It records which projections deploy each skill, which references are executable
+gates, and which are descriptive or already handled. Closing its tracker does not resolve
+that debt; only the adaptations and proof named by the record do.
 
 ## Consequences
 
