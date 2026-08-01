@@ -34,6 +34,7 @@ shfmt -d -i 2 "$recipe"
 source "$recipe"
 
 gh_log=$tmp_dir/gh.log
+blocker_log=$tmp_dir/blockers.log
 ready_state=$tmp_dir/ready
 fake_mode=normal
 
@@ -53,14 +54,20 @@ gh() {
 	fi
 	if [[ $1 == issue && $2 == view ]]; then
 		case $3 in
-		1) printf 'CLOSED\n' ;;
-		2) printf 'OPEN\n' ;;
+		1)
+			printf '1\n' >>"$blocker_log"
+			printf 'CLOSED\n'
+			;;
+		2)
+			printf '2\n' >>"$blocker_log"
+			printf 'OPEN\n'
+			;;
 		404)
 			printf 'not found\n' >&2
 			return 1
 			;;
 		500)
-			printf 'permission denied\n' >&2
+			printf 'permission \033[31mdenied\n' >&2
 			return 1
 			;;
 		101)
@@ -85,8 +92,11 @@ gh() {
 	fail "unexpected fake gh call: $*"
 }
 
+reset_cleared_dependency_cache
+: >"$blocker_log"
 cleared_dependency_body_verdict owner/repo 10 $'Blocked by #1\nBlocked by #1' ||
 	fail 'multiple closed canonical blockers should clear'
+[[ $(wc -l <"$blocker_log") -eq 1 ]] || fail 'duplicate blockers were not deduplicated'
 if cleared_dependency_body_verdict owner/repo 10 $'Blocked by #1\nBlocked by #2'; then
 	fail 'an open blocker must retain the dependent'
 fi
@@ -99,6 +109,19 @@ for fixture in 'Blocked by #404' 'Blocked by #500' 'Blocked by #abc' ' Blocked b
 		fail "invalid dependency record cleared: $fixture"
 	fi
 done
+reset_cleared_dependency_cache
+cleared_dependency_body_verdict owner/repo 10 'Blocked by #500' || :
+[[ $cleared_dependency_reason != *$'\033'* ]] || fail 'diagnostic leaked a control character'
+reset_cleared_dependency_cache
+cleared_dependency_max_lookups=1
+if cleared_dependency_body_verdict owner/repo 10 $'Blocked by #1\nBlocked by #2'; then
+	fail 'lookup budget overflow must retain the dependent'
+fi
+[[ $cleared_dependency_reason == *'rerun with issue-number batches'* ]] ||
+	fail 'lookup overflow was not resumable'
+# Consumed by the sourced canonical recipe on later calls.
+# shellcheck disable=SC2034
+cleared_dependency_max_lookups=500
 
 plan_errors=$tmp_dir/plan-errors
 set +e
