@@ -1,0 +1,110 @@
+# Portable Workflow References Design
+
+## Scope charter
+
+- **Interaction:** interactive
+- **Scope identity:** issue #14 `WORK:SCOPE` annotation
+- **Outcome:** make deployed workflow references understandable outside this checkout and
+  prevent the dangling-reference class from returning.
+- **Completion criteria:** the seven acceptance criteria in issue #14.
+- **Provenance:** issue #14 and the accepted records delivered by dependencies #8–#13.
+- **Exclusions:** no runtime semantic changes, unsupported Bob parity, or cleanup outside
+  deployable payloads.
+- **Surface:** canonical skills, applicable agent-native shared payloads, one guard and its
+  tests, Justfile integration, and these workflow design artifacts.
+- **Ambiguities:** none.
+
+## Problem
+
+Canonical skills are copied into an agent's configuration directory and then invoked in an
+unrelated target repository. A bare source-repository citation such as `ADR 0019`, `issue
+#49`, or a concrete `docs/superpowers/specs/...` path is therefore ambiguous or dangling at
+the point of use. The target repository may have a different record with the same number,
+and the relative design file is not installed with the skill that cites it.
+
+The current inventory contains three categories:
+
+1. **Target-repository inputs:** record directories, next-number patterns, plan/spec output
+   locations, and paths supplied by the user. These remain relative but must visibly be a
+   directory or template rather than a source-repository citation.
+2. **Agent-config provenance:** bare ADR/issue citations currently attached to otherwise
+   self-contained rules. The deployed rule must state the behavior directly; optional
+   provenance must be a fully qualified stable link.
+3. **Examples:** illustrative plan/spec/record paths. These must use visible placeholders,
+   globs, or the repository's documented `YYYY-MM-DD`/`NNNN` templates.
+
+## Approaches considered
+
+### Syntax-driven guard — selected
+
+Scan every deployable prose payload under `content/skills/` and each
+`agents/{claude,codex,bob}/shared/` tree. Reject bare numeric ADR citations, bare numeric
+source-issue citations, and concrete relative file references beneath `docs/adr/`,
+`docs/debt/`, `docs/superpowers/specs/`, or `docs/superpowers/plans/`. Permit directory
+contracts and visibly templated references containing `NNNN`, `YYYY-MM-DD`, `<...>`, or a
+glob.
+
+This catches the known stale epic spec, source issue, and conflicting ADR-number forms
+without making the checker interpret prose. Valid target inputs and examples express their
+classification in the reference syntax itself.
+
+### Explicit classification markers — rejected
+
+Inline markers could label every reference as target input, provenance, or example. They
+would be exact, but would add a second annotation language throughout the installed
+instructions and make ordinary prose depend on guard-specific metadata.
+
+### Central allowlist — rejected
+
+A path-and-line allowlist would minimize edits. It would drift whenever prose moves, hide
+why an exception is safe, and let a copied dangling reference pass merely because its text
+resembles a historical exception.
+
+## Guard design
+
+`scripts/check-deployed-references.sh` owns discovery and classification. It resolves the
+repository root from its own path, requires `rg`, enumerates regular prose files from the
+canonical and native deployment roots, and reports every violation before exiting nonzero.
+It never follows symlinks or scans repository-only design records.
+
+The denied forms are:
+
+- case-insensitive `ADR` followed by a concrete number;
+- case-insensitive `issue` followed by `#` and a concrete number; and
+- a concrete relative Markdown file below one of the four record/design directories.
+
+The path rule accepts directory references and template/example signals (`NNNN`,
+`YYYY-MM-DD`, angle-bracket placeholders, or `*`). Fully qualified URLs are outside the
+relative-path rule. Diagnostics name the file, line, and reference class.
+
+The test script creates a minimal temporary repository fixture and proves both sides of each
+classification boundary. It includes explicit regressions for the stale epic design path,
+the source issue reference, conflicting ADR numbers, fully qualified provenance, target
+directories, and templated examples. It also proves that Claude-, Codex-, and Bob-native
+roots are scanned.
+
+`just references-check` runs the guard directly. `just test` runs its regression suite, and
+`just verify` includes the guard so the required GitHub check blocks a regression.
+
+## Payload remediation
+
+Each deployed behavioral rule remains in place. Bare citations that only explain history
+are removed; citations that help provenance become stable fully qualified links. Concrete
+examples become placeholder examples. Canonical skills remain the single reusable workflow
+source, so Claude and Codex receive identical policy through installation. Bob-native files
+change only if the inventory finds the referenced workflow there; absence is not filled in
+to manufacture parity.
+
+## Error handling and portability
+
+The guard fails with an actionable diagnostic if `rg` is unavailable or a deployment root
+is missing. It accumulates violations so one run shows the complete repair set. The script
+uses Bash with `set -euo pipefail`, portable `rg` expressions, and temporary files allocated
+by `mktemp`; the tests remove only their owned scratch directory.
+
+## Verification
+
+Development follows red-green TDD: install the failing fixtures first, observe the missing
+guard failure, implement the minimum scanner, verify focused tests, then clean the real
+payload until the guard passes. `shellcheck`, `shfmt -d`, focused tests, mutation checks for
+the three known defects, and `just verify` provide the final evidence.
