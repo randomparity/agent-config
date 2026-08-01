@@ -96,6 +96,38 @@ skill_path() {
 	printf '%s/%s/SKILL.md\n' "$root" "$skill"
 }
 
+check_governed_contract() {
+	local work=$1 build=$2 campaign=$3
+	assert_rule "$work" governed-small-change \
+		"Classify as governed-small-change only when one accepted decision governs every changed contract and normative behavior." || return 1
+	assert_rule "$work" governed-small-change \
+		"Require explicit testable acceptance criteria, no design-changing ambiguity, and one independently testable slice with no cross-task sequencing or decomposition." || return 1
+	assert_rule "$work" governed-small-change \
+		"Revalidate the decision reference, decision kind, accepted status, and governed behavior when the abbreviated path is consumed." || return 1
+	assert_rule "$work" governed-small-change \
+		"Missing, superseded, non-accepted, conflicting, incomplete, or no-longer-governing evidence returns to SCOPE CHECKPOINT and full design." || return 1
+	assert_ordered_clause "$work" work-abbreviated \
+		"### Governed small change path" work-design "## 3. Design" || return 1
+	assert_rule "$work" governed-direct-build \
+		"A governed-small-change proceeds from verified WORK:SCOPE directly to build-tdd without a new spec or plan." || return 1
+	assert_ordered_clause "$work" governed-proof \
+		"The first executable action on the abbreviated path is the focused failing test in step 4." \
+		governed-elaboration \
+		"Optional design elaboration may follow that proof but is not a prerequisite." || return 1
+	assert_rule "$work" post-build-controls \
+		"The abbreviated path retains branch review, simplification, repository guardrails, PR creation, CI, and merge handoff." || return 1
+	assert_rule "$build" governed-scope-expansion \
+		"Build-time scope expansion stops implementation, re-freezes scope, and runs full design without automatically reselecting the abbreviated path." || return 1
+	assert_rule "$work" governed-build-handoff \
+		"For a governed-small-change, pass build-tdd the selected classification plus the revalidated decision reference, decision kind, accepted status, governed behavior, and acceptance criteria; pass no plan path." || return 1
+	assert_rule "$build" governed-build-input \
+		"When the caller supplies a governed-small-change classification with its revalidated decision reference, decision kind, accepted status, governed behavior, and acceptance criteria, reject any supplied or auto-discovered plan and write and run the focused failing test as the first executable proof." || return 1
+	assert_rule "$campaign" governed-evidence \
+		"Campaign carries governed-small-change evidence to work-issue; the subtype name alone never authorizes the abbreviated path." || return 1
+	assert_rule "$campaign" governed-dispatch-evidence \
+		"A governed-small-change dispatch carries the triage subtype, decision reference, decision kind, authoritative accepted status, governed behavior, and explicit testable acceptance criteria." || return 1
+}
+
 check_contract() {
 	local root=$1 work brainstorm design plans review challenge build campaign
 	work=$(skill_path "$root" work-issue)
@@ -169,34 +201,7 @@ check_contract() {
 		"Treat an ungrounded normative guarantee as material scope expansion." || return 1
 	assert_rule "$challenge" delete-ungrounded \
 		"Delete or weaken an ungrounded guarantee before recommending machinery." || return 1
-	assert_rule "$work" governed-small-change \
-		"Classify as governed-small-change only when one accepted decision governs every changed contract and normative behavior." || return 1
-	assert_rule "$work" governed-small-change \
-		"Require explicit testable acceptance criteria, no design-changing ambiguity, and one independently testable slice with no cross-task sequencing or decomposition." || return 1
-	assert_rule "$work" governed-small-change \
-		"Revalidate the decision reference, decision kind, accepted status, and governed behavior when the abbreviated path is consumed." || return 1
-	assert_rule "$work" governed-small-change \
-		"Missing, superseded, non-accepted, conflicting, incomplete, or no-longer-governing evidence returns to SCOPE CHECKPOINT and full design." || return 1
-	assert_ordered_clause "$work" work-abbreviated \
-		"### Governed small change path" work-design "## 3. Design" || return 1
-	assert_rule "$work" governed-direct-build \
-		"A governed-small-change proceeds from verified WORK:SCOPE directly to build-tdd without a new spec or plan." || return 1
-	assert_ordered_clause "$work" governed-proof \
-		"The first executable action on the abbreviated path is the focused failing test in step 4." \
-		governed-elaboration \
-		"Optional design elaboration may follow that proof but is not a prerequisite." || return 1
-	assert_rule "$work" post-build-controls \
-		"The abbreviated path retains branch review, simplification, repository guardrails, PR creation, CI, and merge handoff." || return 1
-	assert_rule "$build" governed-scope-expansion \
-		"Build-time scope expansion stops implementation, re-freezes scope, and runs full design without automatically reselecting the abbreviated path." || return 1
-	assert_rule "$work" governed-build-handoff \
-		"For a governed-small-change, pass build-tdd the selected classification plus the revalidated decision reference, decision kind, accepted status, governed behavior, and acceptance criteria; pass no plan path." || return 1
-	assert_rule "$build" governed-build-input \
-		"When the caller supplies a governed-small-change classification with its revalidated decision reference, decision kind, accepted status, governed behavior, and acceptance criteria, reject any supplied or auto-discovered plan and write and run the focused failing test as the first executable proof." || return 1
-	assert_rule "$campaign" governed-evidence \
-		"Campaign carries governed-small-change evidence to work-issue; the subtype name alone never authorizes the abbreviated path." || return 1
-	assert_rule "$campaign" governed-dispatch-evidence \
-		"A governed-small-change dispatch carries the triage subtype, decision reference, decision kind, authoritative accepted status, governed behavior, and explicit testable acceptance criteria." || return 1
+	check_governed_contract "$work" "$build" "$campaign" || return 1
 }
 
 check_durable_contract() {
