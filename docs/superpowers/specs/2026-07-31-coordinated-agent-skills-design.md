@@ -44,10 +44,11 @@ required local guardrail is meaningful during issue 17 work.
   unmanaged runtime state.
 - An unmanaged legacy Claude command that collides with a canonical skill stops
   installation with the collision name and a recovery action.
-- The shared-skill and ownership-manifest phase of `--agent all` either commits
-  one canonical revision to every selected client or rolls that phase back for
-  every client after an ordinary reported failure; rollback failure becomes a
-  durable, named needs-repair state that blocks later installs.
+- The filesystem-managed portion of `--agent all` either commits one complete
+  revision—including native files, common content, canonical skills, legacy
+  removals, and ownership manifests—to every selected client or rolls every
+  selected client back after an ordinary reported failure; rollback failure
+  becomes a durable, named needs-repair state that blocks later installs.
 - A process interruption after promotion is detected and rolled back before the
   next installer run changes any destination.
 - A durable `needs-repair` transaction has one explicit, validated repair path;
@@ -116,9 +117,11 @@ is pinned to upstream Agent Skills commit
   checked-in union of documented built-in, bundled, and mode-command names for
   Claude, Codex, or Bob;
 - bundled resources are addressed relative to the skill directory;
-- every packaged runtime dependency lives inside that skill directory; shared
-  skills never resolve installer-owned sibling `languages/`, `references/`, or
-  agent-native content by path;
+- every package-relative component is 1–100 ASCII characters matching
+  `[A-Za-z0-9][A-Za-z0-9._-]*`, does not end in a dot, is unique under ASCII
+  case folding within its parent, and keeps the complete relative path at or
+  below 512 bytes; non-ASCII normalization and host-reserved hidden names are
+  excluded rather than normalized differently by supported filesystems;
 - installed config roots for Claude, Codex, and Bob are never named by shared
   workflow execution; target-repository paths remain repository-relative;
 - canonical skill packages contain regular files and directories only, with no
@@ -131,8 +134,8 @@ Optional metadata such as `agents/openai.yaml` may improve one client's UI, but
 must live outside `SKILL.md` frontmatter, must not change the workflow
 instructions, and must not be required for execution.
 
-`install_common_content` installs three canonical paths into each selected
-config root:
+The common installer stages three canonical paths for each selected config
+root:
 
 ```text
 content/languages     -> languages/
@@ -214,8 +217,11 @@ namespace. Project, enterprise, and plugin scopes are not modified.
 Resolve and canonicalize every selected config destination, reject duplicates,
 and sort by canonical path. Atomically create a unique mode-`0600` journal in
 state `locking` before acquiring `.agent-config-skills.lock` in each destination
-in that order. A lock is a regular mode-`0600` JSON file containing the host,
-PID, transaction id, private root, journal path, and canonical destination.
+in that order. A lock is a regular mode-`0600` JSON file containing the
+execution identity, PID/start identity, transaction id, private root, journal
+path, its canonical destination, the complete sorted selected-destination list,
+and that list's canonical JSON digest. Every lock in the transaction carries
+the same scope digest.
 Create and validate that complete file at a random sibling path, record
 the sibling path, device, inode, and content digest as acquisition `pending` in
 the journal, then use a same-directory hard link to publish
@@ -225,6 +231,16 @@ sibling file and no apparent lock. After publication, require the lock name to
 resolve to the pending device, inode, and digest, unlink the sibling name, and
 record `held`. Pending recovery checks both names against that recorded identity
 and removes only matching links; cleanup leaves neither sibling nor lock name.
+
+After all locks are held and before any live promotion, publish an immutable
+mode-`0600` transaction header inside each destination's contained transaction
+directory. Each header repeats the transaction id, full destination list/scope
+digest, identity algorithm, and journal generation digest. Validate a matching
+header in every selected destination before entering `open`. Reconstruction
+requires the complete list from at least one valid lock/header and a matching
+header or lock from every destination on that list. Missing or conflicting
+scope evidence makes automated release impossible and reports the exact
+destination whose original membership cannot be proved.
 
 Hold all acquired locks through commit, rollback, and cleanup. If any
 acquisition fails, journal and release locks acquired by the current process in
@@ -236,32 +252,40 @@ per-destination identity serializes overlapping selections even when
 invocations use different `AGENT_CONFIG_PRIVATE_DIR` values and prevents
 deadlock for selections containing the same roots.
 
-For a same-host owner whose process no longer exists, validate the lock metadata,
-filesystem identity, and identified journal before taking over all destinations
-named by that journal and recovering it. Never take over a malformed lock or one
-owned by another host; name the lock and require operator intervention.
+Supported destinations are host-local filesystems. Before creating a journal,
+query the OS filesystem type and reject network/shared types (including NFS,
+SMB/CIFS, AFP, and SSH/FUSE network mounts); an unknown type stops with the
+destination and detected value. Hostname is display-only. The execution
+identity is the OS machine identity plus boot identity and, when present, PID
+namespace identity (Linux: machine-id, boot-id, and PID-namespace inode; macOS:
+IOPlatformUUID and `kern.boottime`). The process identity also records its OS
+start token, not PID alone. Automatic liveness probing or takeover is allowed
+only when the complete execution identity matches and that exact PID/start token
+is gone. A different execution identity, malformed metadata, or unsupported
+storage topology requires the repair path and is never inferred dead from a
+hostname/PID collision.
 
-Installation has two explicit phases. First, install and validate existing
-agent-native files plus `languages/` and `references/` for every selected
-client. A failure in this non-atomic phase stops before any shared-skill stage
-or skill-manifest publication; output names completed native paths and makes no
-all-agent rollback claim for them. Second, run the transaction below for only
-canonical skills, managed legacy commands, and the ownership manifests. An
-error after this phase begins cannot produce an ordinary success or generic
-install summary: it either restores every selected client's skill/manifest
-state or enters `needs-repair`.
+After locks are held, resolve overlays and stage every filesystem-managed source
+for every selected client: agent-native files, `languages/`, `references/`,
+each canonical skill name, managed legacy-command removals, and the complete
+ownership manifest. Validate every stage before changing a live path. The
+transaction promotes and rolls back all of those entries together, so a
+manifest always describes the same committed filesystem generation. An error
+after staging cannot produce an ordinary success or generic install summary:
+it either restores every selected client's prior managed paths and manifest or
+enters `needs-repair`. Optional external side effects such as Claude MCP
+registration run only after filesystem commit and are reported separately;
+they are not represented as part of the atomic filesystem transaction.
 
-Resolve every selected destination and validate overlays and source files before
-changing a live skill directory. Under each destination, create a temporary
-stage on the same filesystem, copy every canonical skill into it, and compare the
-stage to the source. Record the pre-install state of every managed name: absent,
-managed directory, or legacy managed tree.
+Under each destination, create a temporary stage on the same filesystem, copy
+every managed payload into it, and compare the stage to the source. Record the
+pre-install identity of every managed path and canonical skill name.
 
-Promotion renames each old managed directory to a transaction backup and each
-staged directory into place. Same-filesystem rename makes each individual name
-atomic. After promotion, compare every selected client's managed names with the
-source. Only then mark the transaction committed and let normal timestamped
-drift backups retain replaced content.
+Promotion renames each old managed path to a transaction backup and each staged
+path into place. Same-filesystem rename makes each individual path atomic.
+After promotion, compare every selected client's managed filesystem generation
+and manifest with the staged source. Only then mark the transaction committed
+and let normal timestamped drift backups retain replaced content.
 
 Reconcile removals from the old per-skill manifest before promotion. A managed
 name absent from the new canonical inventory is moved to a transaction backup
@@ -280,7 +304,8 @@ summary for a partially rolled-back run.
 
 The only exit from `needs-repair` is
 `./install.sh --repair-skills <transaction-id>`. It validates the closed schema,
-takes over every recorded lock only from a dead same-host owner, and revalidates
+takes over every recorded lock only from the matching dead execution identity,
+and revalidates
 every live, stage, backup, manifest, and lock identity before mutation. It then
 retries the same idempotent rollback. If recovery material is unavailable, it
 accepts an operator-restored path only when its bytes, file types, executable
@@ -293,14 +318,17 @@ the next exact path/action. There is no force-accept or journal-delete option.
 If neither journal generation is valid, normal repair refuses. The auditable
 fallback is `--repair-skills <transaction-id> --reconstruct <repair.json>`.
 The operator-supplied, closed-schema repair record names the transaction,
-private root, creator host/PID, every canonical destination, the observed
+private root, creator execution/PID-start identity, every canonical destination,
+the scope digest, the observed
 device/inode/digest of each lock, and the desired versioned identity of every
-live managed name and manifest. Its scope must equal the union derivable from
-the current canonical inventory, historical ledger, live manifests, and safely
-contained transaction-entry names; omission is an error. The command verifies
-the named same-host PID is dead, every lock is a regular non-symlink file with
-the supplied identity, every live path already matches the supplied coherent
-state, and no path escapes a destination. It performs no content restoration.
+live managed name and manifest. Its destination scope must exactly match the
+full list and digest replicated in a valid lock/header, with matching evidence
+present at every member destination; current inventory, historical ledger, live
+manifests, and safely contained transaction-entry names must also all be
+included. Omission is an error. The command verifies the recorded local process
+instance is dead, every surviving lock/header has the supplied identity, every
+live path already matches the supplied coherent state, and no path escapes a
+destination. It performs no content restoration.
 It archives the corrupt generations, no-follow copies of the matching locks,
 and supplied repair record under an owner-only quarantine, writes a new valid
 `needs-repair` generation recording the reconstruction, and then uses normal
@@ -329,7 +357,8 @@ falls back to the valid previous generation.
 
 The version-1 record is a closed schema. Its top-level state is exactly
 `locking`, `open`, `committed`, `cleanup-complete`, or `needs-repair`; it
-contains a lowercase hexadecimal transaction id, creator host/PID/private root,
+contains a lowercase hexadecimal transaction id, creator execution identity,
+PID/start token, private root,
 selected destinations in canonical sorted order, a per-destination lock state,
 and one unique operation identity for each destination plus managed name. Lock
 state is exactly `planned`, `pending`, `held`, `release-pending`, or `released`.
@@ -340,10 +369,10 @@ Operation kind is exactly `promote`, `remove`, `legacy-skill`,
 recovery entry, explicit legacy resolution, commit state, and cleanup progress.
 Every prior and staged state includes its versioned tree identity so repair can
 validate an operator-restored path without trusting prose. Unknown keys,
-duplicate destination/name identities,
-out-of-order destinations, invalid enum transitions, and unknown versions are
-invalid. The record contains no skill body, overlay, credential, or other
-configuration value.
+duplicate destination/name identities, out-of-order destinations, and invalid
+enum transitions are invalid. An unsupported version is preserved for a
+compatible installer. The record contains no skill body, overlay, credential,
+or other configuration value.
 
 All mutable recovery paths are derived and then compared with the record:
 stages and transaction backups must be descendants of
@@ -367,7 +396,8 @@ leave an operation pending but never unrecorded; recovery treats pending as
 possibly applied and restores it idempotently.
 
 When a destination lock already exists, validate its identified record before
-taking over a dead same-host owner. An interrupted `locking` record has not
+taking over a dead matching execution/process identity. An interrupted
+`locking` record has not
 entered the live-content phase: release any possibly acquired locks
 idempotently and delete the record after all are absent. For an `open` record,
 first take over all destinations named by that record, then restore the recorded
@@ -403,8 +433,6 @@ Before moving the Codex superset, audit every skill and supporting script for:
 
 - absolute installed roots such as `~/.codex`, `~/.claude`, or `~/.bob`;
 - repository scratch paths named for one client;
-- references to installer-owned sibling `languages/`, `references/`, or native
-  content rather than bundled resources or applicable ambient instructions;
 - statements that assume one client's invocation prefix or built-in command;
 - client-specific subagent API names where capability-based wording is enough;
 - optional OpenAI metadata that is safe for other clients to ignore; and
@@ -432,10 +460,12 @@ Add `scripts/check-skill-layout.sh` and a `skills-check` recipe. The guard:
 5. rejects every `SKILL.md` and every command-directory file under `agents/`;
 6. verifies bundled Markdown links resolve within the canonical package;
 7. rejects symlinks and absolute supported-agent config-root references in
-   canonical skills, plus literal package-relative escapes to installed sibling
-   `languages/`, `references/`, or agent-native content; and
+   canonical skills; and
 8. rejects names in `scripts/reserved-skill-names.txt`, whose comments identify
-   the supported-client documentation source and retrieval date for each group.
+   the supported-client documentation source and retrieval date for each group;
+   and
+9. enforces the portable component/path grammar and rejects nested case-fold
+   collisions before checkout or installation can alias them.
 
 `just verify` invokes `skills-check`, making it part of both hooks and CI. The
 guard uses existing shell tools only.
@@ -537,13 +567,14 @@ is reported separately as sampled evidence, never as a deterministic guarantee.
 | SKILL-20 | Start installers with different private roots but the same three destinations | One owns all destination locks; the other exits before live or journal mutation | Split journals or concurrent promotion | block |
 | SKILL-21 | Seed an intact unknown version, invalid transition, duplicate name, path escape, symlink swap, stale destination, truncated current with valid previous, and invalid current/previous journals | Unsupported version requests a compatible installer; parseable invalid state enters `needs-repair`; one valid generation recovers; no valid generation requires reconstruction; live paths remain byte-identical | Executing any unvalidated live rename | block |
 | SKILL-22 | Legacy whole-tree manifests contain exact historical children, user-created current-name collisions, modified former-managed names, removed historical names, and unrelated children; exercise each explicit resolution and inject termination at every boundary across three clients | Proven ownership migrates automatically; ambiguity stops or follows only the recorded resolution; rollback restores every byte/mode and preserves unrelated children | Name-only ownership, enclosing-tree replacement, or user-child loss | block |
-| SKILL-23 | Fail native/common installation before and after each client boundary | No shared-skill stage begins; output identifies the non-atomic native phase and completed paths | Claiming all-agent rollback or skill commit | block |
-| SKILL-24 | Add empty/1025-scalar descriptions, combining characters, duplicate/unknown keys, quoted names, block descriptions, escapes, comments, malformed UTF-8, consecutive-hyphen names, contract-identity drift, and every reserved-name fixture under multiple locales | `skills-check` accepts only the deterministic four-line subset and rejects each invalid rule/path identically across locales | Hand-parsed ambiguity or a package accepted by only a subset of clients | block |
-| SKILL-25 | Terminate before journal `pending`, after `pending` but before hard-link publication, after publication but before `held`, after `held`, before the first release, and between every release; replace one lock before recovery | Rerun removes only the dead same-host lock with matching device/inode/content identity; completed runs leave no lock, sibling, or journal | Malformed apparent lock, no-record dead lock, leaked sibling, or deletion of a replacement lock | block |
-| SKILL-26 | Change installed `languages/` and `references/`, fail skill promotion, and restore the old skills | Guard proves the old skill packages contain no installed-sibling path dependency; direct bundled links still resolve | Restored skill opens newly changed common/native content by package path | block |
-| SKILL-27 | Corrupt both journal generations and one lock; restore a coherent known state; exercise incomplete, live-PID, mismatched, remote-host, and complete reconstruction records | Unsafe records refuse without evidence loss; complete record is quarantined, validated, and releases only matching locks | Manual evidence deletion or accepting incomplete/inconsistent state | block |
+| SKILL-23 | Fail promotion before and after every native/common path and client boundary | Every selected client's complete managed filesystem and sole manifest return to their prior identity | Manifest/filesystem skew or a partial client revision | block |
+| SKILL-24 | Add empty/1025-scalar descriptions, combining characters, duplicate/unknown keys, quoted names, block descriptions, escapes, comments, malformed UTF-8, consecutive-hyphen/reserved names, and nested case-fold, non-ASCII, trailing-dot, overlength, and contract-identity fixtures under multiple locales | `skills-check` accepts only the deterministic frontmatter/path subset and rejects each invalid rule/path identically across locales | Hand-parsed ambiguity or a package accepted by only a subset of clients/filesystems | block |
+| SKILL-25 | Terminate before journal `pending`, after `pending` but before hard-link publication, after publication but before `held`, after `held`, before the first release, and between every release; replace one lock before recovery | Rerun removes only the dead matching execution/process lock with matching device/inode/content identity; completed runs leave no lock, sibling, or journal | Malformed apparent lock, no-record dead lock, leaked sibling, or deletion of a replacement lock | block |
+| SKILL-26 | Change `languages/`, `references/`, native files, and skills, then fail after mixed-path promotion | Rollback restores one prior identity for every managed path and manifest in all selected clients | Old skills paired with new common/native content | block |
+| SKILL-27 | Corrupt both journal generations; delete one destination's lock/header before its first live operation; then exercise incomplete, live process-start, mismatched execution/scope, and complete reconstruction records after restoring coherent state/evidence | Missing scope evidence and unsafe records refuse without loss; a complete matching scope is quarantined, validated, and releases only matching locks | Inferring omitted destinations, manual evidence deletion, or accepting inconsistent state | block |
 | SKILL-28 | Preserve an unrelated legacy skill containing an unreadable file, symlink, large asset, and sentinel secret while replacing one proven-managed sibling | Install succeeds without the unrelated sentinel appearing under transaction or timestamped backups; managed symlinks are copied no-follow; special files stop before mutation | Reading/copying unrelated content or following a symlink | block |
 | SKILL-29 | Compute fixed absent, empty-directory, executable, Unicode-path, and symlink identity fixtures under every supported host | Every host matches checked-in `tree-v1-git-blob` goldens and rejects unknown identity/object formats | Platform-dependent or delimiter-ambiguous identity | block |
+| SKILL-30 | Present identical hostnames/PIDs with different boot or PID-namespace identities and target known network/unknown filesystem types | No automatic takeover occurs; unsupported destinations stop before journal/lock creation; matching local execution/start identity still recovers | Hostname-only takeover or mutation on unsupported shared storage | block |
 
 Static shell checks decide filesystem, metadata, and safety boundaries in CI.
 `scripts/skill-smoke-eval.sh` provides sampled behavioral evidence. It creates
@@ -595,8 +626,9 @@ client compatibility gap rather than hidden behind a warning.
   three clients instead of only Codex.
 - Widened invocation boundary: Claude receives former command workflows as
   discoverable skills, and Bob receives the complete workflow inventory.
-- Existing filesystem boundary: the installer replaces managed destination
-  skill directories and prunes managed names absent from the new manifest.
+- Existing filesystem boundary: the installer transaction replaces every
+  filesystem-managed destination path, publishes the matching manifest, and
+  prunes managed paths absent from the new manifest.
 - New recovery-record boundary: transaction metadata stores local config paths
   under the private agent-config root.
 - New concurrency boundary: multiple local installer processes can target the
@@ -636,7 +668,8 @@ client compatibility gap rather than hidden behind a warning.
 - Concurrency: deterministically ordered per-destination locks serialize every
   overlapping selection regardless of private root; crash-atomic hard-link
   publication exposes only complete lock identities, and stale-lock takeover is
-  limited to a confirmed-dead same-host owner with a valid identified journal.
+  limited to a matching execution identity with a confirmed-dead process-start
+  token and valid identified journal. Network/shared destinations are rejected.
 - External actions: each workflow's current authorization and verification
   gates remain part of the compatibility review. Canonicalization does not
   widen GitHub token scopes or shell permissions.
