@@ -20,6 +20,21 @@ assert_contains() {
 	grep -Fq "$expected" "$file" || fail "expected $file to contain: $expected"
 }
 
+assert_command_fails() {
+	local expected="$1"
+	shift
+	local output
+	local status
+
+	set +e
+	output="$("$@" 2>&1)"
+	status="$?"
+	set -e
+	[[ "$status" -ne 0 ]] || fail "expected command to fail containing: $expected"
+	printf '%s\n' "$output" | grep -Fq "$expected" ||
+		fail "expected failure output to contain: $expected; got: $output"
+}
+
 assert_json_value() {
 	local file="$1"
 	local filter="$2"
@@ -163,6 +178,22 @@ assert_not_file "$BOB_CONFIG_DIR/stale-managed.txt"
 assert_file "$CLAUDE_CONFIG_DIR/runtime-state.txt"
 assert_file "$CODEX_CONFIG_DIR/runtime-state.txt"
 assert_file "$BOB_CONFIG_DIR/runtime-state.txt"
+
+failure_bin="$tmpdir/failing-bin"
+system_git="$(command -v git)"
+mkdir -p "$failure_bin"
+# The wrapper source must contain the literal positional parameters.
+# shellcheck disable=SC2016
+printf '%s\n' \
+	'#!/usr/bin/env bash' \
+	'set -euo pipefail' \
+	'if [[ "${1:-}" == "hash-object" ]]; then exit 86; fi' \
+	"exec \"$system_git\" \"\$@\"" >"$failure_bin/git"
+chmod 755 "$failure_bin/git"
+assert_command_fails \
+	'install: could not compute payload identity:' \
+	env PATH="$failure_bin:$PATH" AGENT_CONFIG_HOST=test-host \
+	./install.sh --agent codex
 
 mode_drift="$CODEX_CONFIG_DIR/skills/brainstorming/scripts/start-server.sh"
 chmod 644 "$mode_drift"

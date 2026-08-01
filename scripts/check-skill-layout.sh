@@ -67,6 +67,9 @@ validate_native_sources() {
 		if [[ "${relative##*/}" == 'SKILL.md' ]]; then
 			skill_error "$relative" 'native SKILL.md is forbidden'
 		fi
+		if [[ -L "$path" ]]; then
+			skill_error "$relative" 'native symlinks are forbidden'
+		fi
 		case "$tail" in
 		commands/* | */commands/*) skill_error "$relative" 'native command is forbidden' ;;
 		esac
@@ -194,6 +197,14 @@ markdown_visible_text() {
       while (substr(line, position + run_size, 1) == "`") run_size++
       return run_size
     }
+    function escaped_delimiter(line, position, slash_count) {
+      slash_count = 0
+      while (position - slash_count > 1 &&
+             substr(line, position - slash_count - 1, 1) == "\\") {
+        slash_count++
+      }
+      return slash_count % 2 == 1
+    }
     function visible_line(line, position, start, run_size, text) {
       position = 1
       while (position <= length(line)) {
@@ -205,6 +216,11 @@ markdown_visible_text() {
           return
         }
         start += position - 1
+        if (code_length == 0 && escaped_delimiter(line, start)) {
+          printf "%s", substr(line, position, start - position + 1)
+          position = start + 1
+          continue
+        }
         if (code_length == 0) printf "%s", substr(line, position, start - position)
         else pending = pending substr(line, position, start - position)
         run_size = code_run(line, start)
@@ -228,6 +244,8 @@ markdown_visible_text() {
         }
         next
       }
+      if (code_length == 0 &&
+          (substr($0, 1, 4) == "    " || substr($0, 1, 1) == "\t")) next
       if (code_length == 0 && opens_fence($0)) next
       visible_line($0)
       if (code_length == 0) printf "\n"

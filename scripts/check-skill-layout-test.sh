@@ -141,7 +141,34 @@ printf '%s\n' \
 	fail 'valid scan changed executable mode'
 
 root="$(new_fixture)"
+# The escaped delimiter is visible CommonMark text, not a code-span opener.
+# shellcheck disable=SC2016
+printf '%s\n' '\` [Broken](missing-escaped.md) `' \
+	>>"$root/content/skills/skill-01/SKILL.md"
+assert_fails \
+	'content/skills/skill-01/SKILL.md: broken relative link: missing-escaped.md' \
+	"$root"
+
+root="$(new_fixture)"
+printf '%s\n' \
+	'' \
+	'    [Space code](missing-space-code.md)' \
+	$'\t[Tab code](missing-tab-code.md)' \
+	>>"$root/content/skills/skill-01/SKILL.md"
+(cd "$root" && bash scripts/check-skill-layout.sh)
+
+root="$(new_fixture)"
 assert_portable_userland "$root"
+
+root="$(new_fixture)"
+mkdir -p "$root/workflow-tree"
+ln -s ../../workflow-tree "$root/agents/codex/tooling"
+assert_fails 'agents/codex/tooling: native symlinks are forbidden' "$root"
+
+root="$(new_fixture)"
+mkdir -p "$root/workflow-tree"
+ln -s ../../workflow-tree "$root/agents/codex/commands"
+assert_fails 'agents/codex/commands: native symlinks are forbidden' "$root"
 
 root="$(new_fixture)"
 mkdir -p "$root/agents/claude/shared/skills/native"

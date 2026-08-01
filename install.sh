@@ -166,8 +166,14 @@ payload_differs() {
 	local source_identity
 	local destination_identity
 
-	source_identity="$(identity_path "$src")"
-	destination_identity="$(identity_path "$dest")"
+	if ! source_identity="$(identity_path "$src")"; then
+		printf 'install: could not compute payload identity: %s\n' "$src" >&2
+		exit 1
+	fi
+	if ! destination_identity="$(identity_path "$dest")"; then
+		printf 'install: could not compute payload identity: %s\n' "$dest" >&2
+		exit 1
+	fi
 	[[ "$source_identity" != "$destination_identity" ]]
 }
 
