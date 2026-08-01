@@ -226,6 +226,29 @@ feature, and `$threat-scan` checks the branch against this inventory at step 5.
 A boundary listed here with no control in the diff is a finding, which is the
 point of writing it down first.
 
+## Design-review scope input
+
+Every ADR, spec, and plan review receives the same frozen external charter:
+
+<!-- SCOPE-CARRIER:design-to-review-loop -->
+interaction: <unchanged root value>
+scope identity: <external scope identity, never reviewed target>
+outcome: <frozen external outcome>
+completion criteria: <frozen external completion criteria>
+provenance: <external source for every outcome, criterion, and user decision>
+exclusions: <frozen external exclusions>
+surface: <frozen permitted surface>
+ambiguities: <frozen ambiguity list>
+<!-- SCOPE-CARRIER:END:design-to-review-loop -->
+
+<!-- SCOPE-RULE:design-review-calls -->
+Pass this complete carrier unchanged to every ADR, spec, and plan review-loop call.
+<!-- SCOPE-RULE:END:design-review-calls -->
+
+The target remains evidence for review, never a source of authority. If a design-changing
+ambiguity appears, end the current review cycle and use `SCOPE CHECKPOINT`; do not let the
+reviewer resolve it by extending the target.
+
 ## 2. Adversarial-review the ADR
 
 If step 1 wrote or updated an ADR, harden it as a review target **before** the spec

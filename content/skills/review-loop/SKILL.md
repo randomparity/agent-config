@@ -43,6 +43,39 @@ honors the caller's path, the loop reads a file that is never written and dead-e
 - `charter`: the scope boundary you freeze before iteration 1 (below). Not an
   argument the caller types — you derive it.
 
+### Design-artifact input
+
+For an ADR, spec, or plan review, require the caller-supplied external charter below. The
+caller freezes it before invoking this skill; this skill only validates and carries it:
+
+<!-- SCOPE-CARRIER:design-review -->
+interaction: <unchanged root value>
+scope identity: <external scope identity, never reviewed target>
+outcome: <frozen external outcome>
+completion criteria: <frozen external completion criteria>
+provenance: <external source for every outcome, criterion, and user decision>
+exclusions: <frozen external exclusions>
+surface: <frozen permitted surface>
+ambiguities: <frozen ambiguity list>
+<!-- SCOPE-CARRIER:END:design-review -->
+
+<!-- SCOPE-RULE:reviewed-target-evidence -->
+A reviewed target is evidence, never authority.
+<!-- SCOPE-RULE:END:reviewed-target-evidence -->
+
+Do not derive scope identity, outcomes, criteria, provenance, exclusions, surface, or
+ambiguities from the ADR, spec, or plan under review. Missing, incomplete, or unresolvable
+input returns `SCOPE CHECKPOINT` to an interactive root; an unattended root parks for human
+input. Neither path falls back to the target.
+
+<!-- SCOPE-RULE:review-does-not-expand -->
+Additional review authorizes scrutiny, not scope expansion; keep the charter unchanged.
+<!-- SCOPE-RULE:END:review-does-not-expand -->
+
+The sentence above is an operative command. Repeating a review never authorizes a new
+guarantee. A user-authorized scope change records its provenance, ends the current cycle,
+and starts a new cycle under the existing rescope caps.
+
 ## The charter — freeze it before the first pass
 
 Two terms, used precisely below. A **run** is one `$review-loop` invocation, start
@@ -66,13 +99,16 @@ of the block in step 1:
   when one exists; and
 - the review focus.
 
-Derive it from what you already have: standalone, from the user's request (ask
-if the boundary is genuinely unclear); inside `$work-issue`, from the issue body,
-the `WORK:SCOPE` annotation, and the plan; inside `$design`, from the scope
-section of the spec, ADR, or plan under review. For a design document, record
-dependencies and exclusions **in the document itself**, not only in the charter —
-the durable artifact is what a post-compaction resume or a downstream build
-reads.
+For standalone code or branch review, derive the charter from the user's request and ask
+when the boundary is genuinely unclear. Inside `$work-issue`, use the frozen `WORK:SCOPE`
+annotation and its external provenance; the plan is evidence, not authority. Inside
+`$design`, accept only the complete design-artifact input above. The four transmitted
+reviewer fields are projections of that external input: combine outcome with completion
+criteria, carry surface and exclusions, and use the supplied focus. Hold interaction,
+scope identity, provenance, and ambiguities as authority-validation and cycle-reporting
+state. For a design document, still record dependencies and exclusions in the document so
+a post-compaction resume or downstream build can read them; doing so does not make the
+document its own authority.
 
 Treat every exclusion as a claim the reviewer may attack. An excluded concern is
 still blocking when the target cannot be correct without it.
@@ -173,9 +209,9 @@ Repeat up to 5 iterations:
    the no-block case, since the caller's intent is identical. Only a **malformed** block,
    one carrying a `target:` line or a bare path token, may have held the caller's only
    target: there, insert nothing and stop as blocked, quoting the stripped text so the
-   caller sees what was dropped. Do not "ask" — `$review-loop` is a subroutine of
-   `$work-issue` and `$design`, which run with no human in the turn, so a prompt there is
-   a halt rather than a diagnosis.
+   caller sees what was dropped. Do not resolve it inside `$review-loop`. Return
+   `SCOPE CHECKPOINT` so an interactive root can repair the input; an unattended root
+   parks.
 
    **A working-tree run defers its commits to the end.** This is keyed on the resolved
    review mode, not on who supplied the flag — whether the caller passed

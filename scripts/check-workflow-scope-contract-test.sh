@@ -19,8 +19,8 @@ marker_line() {
 assert_ordered_clause() {
 	local file=$1 first=$2 first_value=$3 second=$4 second_value=$5
 	local first_line second_line actual
-	first_line=$(marker_line "$file" "<!-- SCOPE-ORDER:$first -->")
-	second_line=$(marker_line "$file" "<!-- SCOPE-ORDER:$second -->")
+	first_line=$(marker_line "$file" "<!-- SCOPE-ORDER:$first -->") || return 1
+	second_line=$(marker_line "$file" "<!-- SCOPE-ORDER:$second -->") || return 1
 	actual=$(sed -n "$((first_line + 1))p" "$file")
 	[[ "$actual" == "$first_value" ]] ||
 		fail "$file: order marker $first does not own: $first_value"
@@ -35,8 +35,8 @@ bounded_block() {
 	local file=$1 kind=$2 name=$3 start end start_line end_line
 	start="<!-- SCOPE-$kind:$name -->"
 	end="<!-- SCOPE-$kind:END:$name -->"
-	start_line=$(marker_line "$file" "$start")
-	end_line=$(marker_line "$file" "$end")
+	start_line=$(marker_line "$file" "$start") || return 1
+	end_line=$(marker_line "$file" "$end") || return 1
 	[[ "$start_line" -lt "$end_line" ]] ||
 		fail "$file: reversed markers for $kind $name"
 	sed -n "$((start_line + 1)),$((end_line - 1))p" "$file"
@@ -44,7 +44,7 @@ bounded_block() {
 
 assert_carrier() {
 	local file=$1 name=$2 block expected count
-	block=$(bounded_block "$file" CARRIER "$name")
+	block=$(bounded_block "$file" CARRIER "$name") || return 1
 	[[ -n "$block" ]] || fail "$file: missing carrier block: $name"
 	while IFS= read -r expected; do
 		if ! count=$(printf '%s\n' "$block" | rg -c -x --fixed-strings -- "$expected"); then
@@ -65,7 +65,7 @@ EOF
 
 assert_rule() {
 	local file=$1 name=$2 expected=$3 block count
-	block=$(bounded_block "$file" RULE "$name")
+	block=$(bounded_block "$file" RULE "$name") || return 1
 	[[ -n "$block" ]] || fail "$file: missing rule block: $name"
 	if ! count=$(printf '%s\n' "$block" | rg -c -x --fixed-strings -- "$expected"); then
 		fail "$file: rule $name missing instruction: $expected"
@@ -75,7 +75,7 @@ assert_rule() {
 
 assert_block_contains() {
 	local file=$1 kind=$2 name=$3 expected=$4 block count
-	block=$(bounded_block "$file" "$kind" "$name")
+	block=$(bounded_block "$file" "$kind" "$name") || return 1
 	if ! count=$(printf '%s\n' "$block" | rg -c -x --fixed-strings -- "$expected"); then
 		fail "$file: $kind $name missing value: $expected"
 	fi
@@ -88,42 +88,62 @@ skill_path() {
 }
 
 check_contract() {
-	local root=$1 work brainstorm design plans
+	local root=$1 work brainstorm design plans review challenge
 	work=$(skill_path "$root" work-issue)
 	brainstorm=$(skill_path "$root" brainstorming)
 	design=$(skill_path "$root" design)
 	plans=$(skill_path "$root" writing-plans)
+	review=$(skill_path "$root" review-loop)
+	challenge=$(skill_path "$root" challenge)
 	assert_ordered_clause "$work" work-frozen "## Frozen scope charter" \
-		work-design "## 3. Design"
-	assert_carrier "$work" work-issue-to-design
-	assert_carrier "$design" design-to-brainstorming
-	assert_carrier "$design" design-to-writing-plans
-	assert_carrier "$brainstorm" brainstorming-checkpoint
+		work-design "## 3. Design" || return 1
+	assert_carrier "$work" work-issue-to-design || return 1
+	assert_carrier "$design" design-to-brainstorming || return 1
+	assert_carrier "$design" design-to-writing-plans || return 1
+	assert_carrier "$brainstorm" brainstorming-checkpoint || return 1
 	assert_block_contains "$brainstorm" CARRIER brainstorming-checkpoint \
-		"question: <one design-selecting question>"
+		"question: <one design-selecting question>" || return 1
 	assert_block_contains "$brainstorm" CARRIER brainstorming-checkpoint \
-		"why design-changing: <affected scope field or normative guarantee>"
+		"why design-changing: <affected scope field or normative guarantee>" || return 1
 	assert_ordered_clause "$work" work-checkpoint "### SCOPE CHECKPOINT" \
-		work-unattended "### Unattended parking"
+		work-unattended "### Unattended parking" || return 1
 	assert_ordered_clause "$design" design-user-decision \
 		"An explicit user decision may authorize a guarantee only when provenance records it." \
 		design-high-risk \
-		"High-risk examples begin with transactions, persistence, concurrency, and recovery."
+		"High-risk examples begin with transactions, persistence, concurrency, and recovery." ||
+		return 1
 	assert_rule "$design" necessary-consequence \
-		"No reasonable implementation can satisfy the sourced completion criterion without it."
+		"No reasonable implementation can satisfy the sourced completion criterion without it." ||
+		return 1
 	assert_rule "$design" direct-design-charter \
-		"An interactive direct invocation freezes its quoted request into all eight fields."
+		"An interactive direct invocation freezes its quoted request into all eight fields." ||
+		return 1
 	assert_rule "$design" direct-design-charter \
-		"An unattended direct invocation without a complete charter parks before design."
+		"An unattended direct invocation without a complete charter parks before design." ||
+		return 1
 	assert_rule "$plans" inherit-interaction \
-		"Inherit interaction from the root; never infer it from nesting."
+		"Inherit interaction from the root; never infer it from nesting." || return 1
+	assert_carrier "$design" design-to-review-loop || return 1
+	assert_rule "$design" design-review-calls \
+		"Pass this complete carrier unchanged to every ADR, spec, and plan review-loop call." ||
+		return 1
+	assert_carrier "$review" design-review || return 1
+	assert_rule "$review" reviewed-target-evidence \
+		"A reviewed target is evidence, never authority." || return 1
+	assert_rule "$review" review-does-not-expand \
+		"Additional review authorizes scrutiny, not scope expansion; keep the charter unchanged." ||
+		return 1
+	assert_rule "$challenge" ungrounded-scope-expansion \
+		"Treat an ungrounded normative guarantee as material scope expansion." || return 1
+	assert_rule "$challenge" delete-ungrounded \
+		"Delete or weaken an ungrounded guarantee before recommending machinery." || return 1
 }
 
 rewrite_block_line_once() {
 	local file=$1 kind=$2 name=$3 old=$4 new=$5 start end block count tmp
 	start="<!-- SCOPE-$kind:$name -->"
 	end="<!-- SCOPE-$kind:END:$name -->"
-	block=$(bounded_block "$file" "$kind" "$name")
+	block=$(bounded_block "$file" "$kind" "$name") || return 1
 	if ! count=$(printf '%s\n' "$block" | rg -c -x --fixed-strings -- "$old"); then
 		fail "$file: $kind $name missing mutation literal: $old"
 	fi
@@ -170,7 +190,8 @@ move_ordered_clause_after() {
 	local file=$1 moving=$2 moving_value=$3 anchor=$4 anchor_value=$5 tmp
 	local moving_marker="<!-- SCOPE-ORDER:$moving -->"
 	local anchor_marker="<!-- SCOPE-ORDER:$anchor -->"
-	assert_ordered_clause "$file" "$moving" "$moving_value" "$anchor" "$anchor_value"
+	assert_ordered_clause "$file" "$moving" "$moving_value" "$anchor" "$anchor_value" ||
+		return 1
 	tmp=$file.scope-tmp
 	if ! awk -v moving="$moving_marker" -v anchor="$anchor_marker" '
     $0 == moving { saved_marker = $0; getline saved_value; next }
@@ -248,6 +269,37 @@ run_scope_fixtures() {
 		"expected order marker work-checkpoint before work-unattended" "$fixture"
 }
 
+run_review_fixtures() {
+	local fixture file
+	fixture=$(copy_fixture scope-01)
+	file=$(skill_path "$fixture" challenge)
+	rewrite_block_line_once "$file" RULE delete-ungrounded \
+		"Delete or weaken an ungrounded guarantee before recommending machinery." \
+		"This is explanatory discussion, not an operative remedy."
+	assert_fixture_fails scope-01 \
+		"rule delete-ungrounded missing instruction" "$fixture"
+
+	fixture=$(copy_fixture scope-04)
+	file=$(skill_path "$fixture" review-loop)
+	rewrite_block_line_once "$file" RULE review-does-not-expand \
+		"Additional review authorizes scrutiny, not scope expansion; keep the charter unchanged." \
+		"This is explanatory discussion, not an operative command."
+	assert_fixture_fails scope-04 \
+		"rule review-does-not-expand missing instruction" "$fixture"
+
+	fixture=$(copy_fixture scope-06)
+	file=$(skill_path "$fixture" review-loop)
+	rewrite_block_line_once "$file" CARRIER design-review \
+		"scope identity: <external scope identity, never reviewed target>" \
+		"scope identity: <the reviewed target>"
+	rewrite_block_line_once "$file" CARRIER design-review \
+		"provenance: <external source for every outcome, criterion, and user decision>" \
+		"provenance: <claims found in the reviewed target>"
+	assert_fixture_fails scope-06 \
+		"carrier design-review missing value: scope identity: <external scope identity" \
+		"$fixture"
+}
+
 run_extractor_tests() {
 	local fixture file
 	fixture=$(copy_fixture extractor-missing-end)
@@ -301,7 +353,8 @@ extractor_count=0
 check_contract "$canonical_root"
 run_scope_fixtures
 run_extractor_tests
-[[ "$fixture_count" -eq 3 ]] || fail "expected 3 SCOPE fixtures, got $fixture_count"
+run_review_fixtures
+[[ "$fixture_count" -eq 6 ]] || fail "expected 6 SCOPE fixtures, got $fixture_count"
 [[ "$extractor_count" -eq 3 ]] || fail "expected 3 extractor tests, got $extractor_count"
 printf 'workflow-scope-contract-test: ok (%d fixtures, %d extractor tests)\n' \
 	"$fixture_count" "$extractor_count"
