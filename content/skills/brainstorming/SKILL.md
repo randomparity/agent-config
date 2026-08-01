@@ -66,7 +66,9 @@ answer and provenance. An unattended caller parks for human input.
 
 Every project goes through this process. A todo list, a single-function utility, a config change — all of them. "Simple" projects are where unexamined assumptions cause the most wasted work. The design can be short (a few sentences for truly simple projects), but you MUST present it and get approval.
 
-In dispatched mode the design still gets written — brevity is not the carve-out. What changes is who approves it: the issue supplied the requirement, and the caller's adversarial review of the spec is the approval.
+In dispatched mode the design still gets written — brevity is not the carve-out. The frozen
+external charter supplies the approved requirement, and the caller's adversarial review
+checks the spec without expanding that authority.
 
 ## Checklist
 

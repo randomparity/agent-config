@@ -80,12 +80,17 @@ surface: <frozen permitted surface>
 ambiguities: <frozen ambiguity list>
 <!-- SCOPE-CARRIER:END:design-to-brainstorming -->
 
+<!-- SCOPE-RULE:frozen-approval -->
+Only the frozen external charter and its provenance satisfy dispatched approval gates.
+<!-- SCOPE-RULE:END:frozen-approval -->
+
 Use `brainstorming` first if the design space is wide. **You are its dispatched
-caller** — its *Dispatched mode* section applies: the issue body and its
-acceptance criteria stand in for the user-approval gates, step 3 below replaces
-its User Review Gate, and it returns the spec to you rather than invoking
-`writing-plans` itself, which would skip steps 2 and 3. Say so when you invoke
-it. Write or update the design doc under `docs/superpowers/specs/`. For
+caller** — its *Dispatched mode* section applies: the frozen external charter and
+its provenance satisfy the approval gate, step 3 below replaces its User Review
+Gate, and it returns the spec to you rather than invoking `writing-plans` itself,
+which would skip steps 2 and 3. The issue body remains evidence used while freezing
+the charter, not a second live authority source. Say so when you invoke it. Write or
+update the design doc under `docs/superpowers/specs/`. For
 decisions with viable alternatives — layer boundaries, interface or ownership
 splits, concurrency invariants, failure contracts, migration sequencing,
 rollback strategy — write or update an ADR under `docs/adr/` with:

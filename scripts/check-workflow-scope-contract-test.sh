@@ -108,6 +108,9 @@ check_contract() {
 		work-design "## 3. Design" || return 1
 	assert_carrier "$work" work-issue-to-design || return 1
 	assert_carrier "$design" design-to-brainstorming || return 1
+	assert_rule "$design" frozen-approval \
+		"Only the frozen external charter and its provenance satisfy dispatched approval gates." ||
+		return 1
 	assert_carrier "$design" design-to-writing-plans || return 1
 	assert_checkpoint_carrier "$brainstorm" brainstorming-checkpoint || return 1
 	assert_rule "$brainstorm" ambiguity-checkpoint \
