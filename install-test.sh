@@ -42,8 +42,11 @@ assert_worktree_baseline_transcripts() {
 	assert_contains "$skill_file" \
 		'Report the failures as a blocker and return to the caller.'
 	# WT-BL-03: only authority that addresses the failed baseline resolves the gate.
+	assert_contains "$skill_file" '**Dispatched mode with resolving authority:**'
 	assert_contains "$skill_file" \
 		'An applicable caller instruction or repository rule must explicitly address the failed baseline.'
+	assert_contains "$skill_file" \
+		'Report the failures, then follow the explicit applicable instruction or repository rule.'
 	# WT-BL-04: generic dispatch does not imply permission to continue.
 	assert_contains "$skill_file" \
 		'Generic dispatch, autonomy, or task-completion language does not resolve the gate.'
