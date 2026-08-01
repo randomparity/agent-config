@@ -110,10 +110,13 @@ check_contract() {
 		"Use the issue URL plus a unique annotation token as the pre-publication scope identity." ||
 		return 1
 	assert_rule "$work" public-scope-comment \
-		"Before posting WORK:SCOPE, keep only public-safe authority labels; omit secrets and host data." ||
+		"Before posting any GitHub annotation, keep only public-safe authority labels; omit secrets and host data." ||
 		return 1
 	assert_rule "$work" public-scope-comment \
-		"If authority cannot be summarized safely, return SCOPE CHECKPOINT without posting." ||
+		"If authority cannot be summarized safely, do not post or log its raw value." ||
+		return 1
+	assert_rule "$work" public-scope-comment \
+		"An unattended root may post only a generic public-safe WORK:TRAJECTORY notice without charter values." ||
 		return 1
 	assert_carrier "$work" work-issue-to-design || return 1
 	assert_carrier "$design" design-to-brainstorming || return 1
@@ -316,9 +319,25 @@ run_scope_fixtures() {
 	fixture=$(copy_fixture unsafe-scope-comment)
 	file=$(skill_path "$fixture" work-issue)
 	rewrite_block_line_once "$file" RULE public-scope-comment \
-		"Before posting WORK:SCOPE, keep only public-safe authority labels; omit secrets and host data." \
+		"Before posting any GitHub annotation, keep only public-safe authority labels; omit secrets and host data." \
 		"Copy the complete interactive answer into WORK:SCOPE."
 	assert_fixture_fails unsafe-scope-comment \
+		"rule public-scope-comment missing instruction" "$fixture"
+
+	fixture=$(copy_fixture unsafe-scope-log)
+	file=$(skill_path "$fixture" work-issue)
+	rewrite_block_line_once "$file" RULE public-scope-comment \
+		"If authority cannot be summarized safely, do not post or log its raw value." \
+		"Log the raw value before returning to SCOPE CHECKPOINT."
+	assert_fixture_fails unsafe-scope-log \
+		"rule public-scope-comment missing instruction" "$fixture"
+
+	fixture=$(copy_fixture unsafe-trajectory)
+	file=$(skill_path "$fixture" work-issue)
+	rewrite_block_line_once "$file" RULE public-scope-comment \
+		"An unattended root may post only a generic public-safe WORK:TRAJECTORY notice without charter values." \
+		"Post the complete charter in WORK:TRAJECTORY before parking."
+	assert_fixture_fails unsafe-trajectory \
 		"rule public-scope-comment missing instruction" "$fixture"
 }
 
@@ -426,7 +445,7 @@ check_durable_contract
 run_scope_fixtures
 run_extractor_tests
 run_review_fixtures
-[[ "$fixture_count" -eq 10 ]] || fail "expected 10 SCOPE fixtures, got $fixture_count"
+[[ "$fixture_count" -eq 12 ]] || fail "expected 12 SCOPE fixtures, got $fixture_count"
 [[ "$extractor_count" -eq 3 ]] || fail "expected 3 extractor tests, got $extractor_count"
 printf 'workflow-scope-contract-test: ok (%d fixtures, %d extractor tests)\n' \
 	"$fixture_count" "$extractor_count"

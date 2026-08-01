@@ -87,8 +87,9 @@ Use the issue URL plus a unique annotation token as the pre-publication scope id
 <!-- SCOPE-RULE:END:scope-identity -->
 
 <!-- SCOPE-RULE:public-scope-comment -->
-Before posting WORK:SCOPE, keep only public-safe authority labels; omit secrets and host data.
-If authority cannot be summarized safely, return SCOPE CHECKPOINT without posting.
+Before posting any GitHub annotation, keep only public-safe authority labels; omit secrets and host data.
+If authority cannot be summarized safely, do not post or log its raw value.
+An unattended root may post only a generic public-safe WORK:TRAJECTORY notice without charter values.
 <!-- SCOPE-RULE:END:public-scope-comment -->
 
 - `scope identity`: the issue URL plus that unique annotation token;
@@ -103,11 +104,12 @@ If authority cannot be summarized safely, return SCOPE CHECKPOINT without postin
 Also retain the tracking metadata: blast radius, risk flags, complexity (`S`/`M`/`L`),
 and decompose verdict.
 
-Minimize the public annotation to the authority needed for those fields. Use public-safe
-source labels for provenance instead of copying private source text. Never include secrets,
-authentication headers, host-specific paths, hostnames, IP addresses, or private internal
-details. Do not log an unsafe answer; when it cannot be summarized without disclosure,
-return to `SCOPE CHECKPOINT` and leave the comment unposted.
+Minimize every public GitHub annotation to the authority needed for its fields. Use
+public-safe source labels for provenance instead of copying private source text. Never
+include secrets, authentication headers, host-specific paths, hostnames, IP addresses, or
+private internal details. Do not log an unsafe answer. When it cannot be summarized without
+disclosure, return to `SCOPE CHECKPOINT` and leave `WORK:SCOPE` unposted; an unattended root
+may post only a generic public-safe parked notice with no charter values or raw answer.
 
 Every normative guarantee must trace to this charter, a later explicit user decision, or
 an unavoidable consequence of satisfying a sourced criterion. The workflow and the
@@ -128,7 +130,9 @@ ADR, plan, or other generated artifact.
 ### Unattended parking
 
 When the root interaction is unattended, do not answer a design-changing question on the
-caller's behalf. Post `WORK:TRAJECTORY`, set `status:needs-human`, and stop before design.
+caller's behalf. Post a public-safe `WORK:TRAJECTORY`, set `status:needs-human`, and stop
+before design. If checkpoint data is unsafe, the trajectory contains only a generic parked
+phase and request for human input; it never contains charter values or the raw answer.
 
 Mint the annotation token once before posting and include it in the comment. Capture the
 returned comment URL as the annotation's location, not its identity. Read the posted comment
