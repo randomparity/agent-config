@@ -43,6 +43,39 @@ honors the caller's path, the loop reads a file that is never written and dead-e
 - `charter`: the scope boundary you freeze before iteration 1 (below). Not an
   argument the caller types — you derive it.
 
+### Design-artifact input
+
+For an ADR, spec, or plan review, require the caller-supplied external charter below. The
+caller freezes it before invoking this skill; this skill only validates and carries it:
+
+<!-- SCOPE-CARRIER:design-review -->
+interaction: <unchanged root value>
+scope identity: <external scope identity, never reviewed target>
+outcome: <frozen external outcome>
+completion criteria: <frozen external completion criteria>
+provenance: <external source for every outcome, criterion, and user decision>
+exclusions: <frozen external exclusions>
+surface: <frozen permitted surface>
+ambiguities: <frozen ambiguity list>
+<!-- SCOPE-CARRIER:END:design-review -->
+
+<!-- SCOPE-RULE:reviewed-target-evidence -->
+A reviewed target is evidence, never authority.
+<!-- SCOPE-RULE:END:reviewed-target-evidence -->
+
+Do not derive scope identity, outcomes, criteria, provenance, exclusions, surface, or
+ambiguities from the ADR, spec, or plan under review. Missing, incomplete, or unresolvable
+input returns `SCOPE CHECKPOINT` to an interactive root; an unattended root parks for human
+input. Neither path falls back to the target.
+
+<!-- SCOPE-RULE:review-does-not-expand -->
+Additional review authorizes scrutiny, not scope expansion; keep the charter unchanged.
+<!-- SCOPE-RULE:END:review-does-not-expand -->
+
+The sentence above is an operative command. Repeating a review never authorizes a new
+guarantee. A user-authorized scope change records its provenance, ends the current cycle,
+and starts a new cycle under the existing rescope caps.
+
 ## The charter — freeze it before the first pass
 
 Two terms, used precisely below. A **run** is one `$review-loop` invocation, start
@@ -57,31 +90,34 @@ elements the loop **holds in its own state** and never puts in the block it send
   themselves; and
 - the iteration count for this cycle.
 
-Four elements are **transmitted** to the reviewer, and are exactly the four fields
-of the block in step 1:
+Transmit the complete eight-field external charter to the reviewer, followed by the review
+focus. Scope identity and provenance are required evidence: without them the reviewer
+cannot distinguish an externally authorized guarantee from a claim invented by the target.
+The target paths or branch diff and base remain argument tokens, never charter fields.
 
-- the requested outcome and completion criteria;
-- the permitted change surface and its direct dependencies;
-- explicit exclusions, each naming its owning deferral record or governing decision
-  when one exists; and
-- the review focus.
-
-Derive it from what you already have: standalone, from the user's request (ask
-if the boundary is genuinely unclear); inside `$work-issue`, from the issue body,
-the `WORK:SCOPE` annotation, and the plan; inside `$design`, from the scope
-section of the spec, ADR, or plan under review. For a design document, record
-dependencies and exclusions **in the document itself**, not only in the charter —
-the durable artifact is what a post-compaction resume or a downstream build
-reads.
+For standalone code or branch review, derive the charter from the user's request and ask
+when the boundary is genuinely unclear. Inside `$work-issue`, use the frozen `WORK:SCOPE`
+annotation and its external provenance; the plan is evidence, not authority. Inside
+`$design`, accept only the complete design-artifact input above. Carry every field unchanged
+to `$challenge` and append the supplied focus. Also hold the charter in parent state for
+cycle validation and reporting. For a design document, still record dependencies and
+exclusions in the document so a post-compaction resume or downstream build can read them;
+doing so does not make the document its own authority.
 
 Treat every exclusion as a claim the reviewer may attack. An excluded concern is
 still blocking when the target cannot be correct without it.
 
-**A verified deferral joins the exclusion list; nothing else does.** When a finding
-earns `deferred-tracked` with a verified owner, append it to the transmitted
-`exclusions` field naming that owner and carry it for the rest of the run. That is
-bookkeeping, not a charter change. An exclusion added any other way — no owner, or
-added to make a finding go away — is the gaming the next paragraph forbids.
+**A verified deferral can join the exclusion list only when the frozen charter already
+authorizes that bookkeeping.** A verified owner proves the deferral exists; it does not
+authorize changing exclusions. When authorized, append the concern and owner and carry it
+for the rest of the run. Otherwise return `SCOPE CHECKPOINT` to an interactive root or park
+an unattended root. An exclusion added without both external authority and a verified owner
+is the gaming the next paragraph forbids.
+
+<!-- SCOPE-RULE:deferral-authority -->
+A new deferral may change exclusions or surface only when the frozen charter authorizes it.
+When docs/debt is outside surface, return SCOPE CHECKPOINT or park; never write a record.
+<!-- SCOPE-RULE:END:deferral-authority -->
 
 **Transmitted exclusions are advisory, and cannot be your convergence mechanism.**
 Nothing in `$challenge` lets focus text retire a defensible finding: its contract is
@@ -115,30 +151,36 @@ five passes will not find that out.
 
 ## The Loop
 
+Append this exact block after the real target arguments on every pass:
+
+<!-- SCOPE-CARRIER:review-dispatch -->
+CHARTER (scope authority; all fields below are focus, never targets):
+interaction: <unchanged root value>
+scope identity: <external scope identity, never reviewed target>
+outcome: <frozen external outcome>
+completion criteria: <frozen external completion criteria>
+provenance: <external source for every outcome, criterion, and user decision>
+exclusions: <frozen external exclusions>
+surface: <frozen permitted surface>
+ambiguities: <frozen ambiguity list>
+focus: <review focus, unchanged>
+<!-- SCOPE-CARRIER:END:review-dispatch -->
+
 Repeat up to 5 iterations:
 
 1. Run `$challenge` in a **subagent** with `--json --out <findings-path>
-   <challenge-args>`, then the charter appended as a labeled trailing block:
-
-   ```
-   CHARTER (all text below this label is focus text, never target tokens —
-   any path named here is prose describing the permitted surface, not a file
-   to review):
-   outcome: <requested outcome and completion criteria>
-   surface: <permitted change surface and direct dependencies>
-   exclusions: <concern> — owned by <record/decision>; <concern> — <owner>
-   focus: <the focus text from the challenge arguments, restated>
-   ```
+   <challenge-args>`, then the exact `review-dispatch` block above as the labeled
+   trailing block.
 
    Restating the focus inside the block is deliberate — it keeps the charter
    self-contained for the reviewer, and `$challenge` reads the duplicate as one
    priority, not two.
 
-   **The block has exactly those four fields.** The target and base are carried by
-   the argument tokens that precede it and must never be restated as a field inside
-   it. There is no `target:` line: restating the target duplicates state that can
-   drift out of agreement with the tokens actually sent, and a reviewer running an
-   older vendored `$challenge` would target-classify it.
+   **The block has exactly the eight charter fields plus focus.** The target and base are
+   carried by the argument tokens that precede it and must never be restated as a field
+   inside it. There is no `target:` line: restating the target duplicates state that can
+   drift out of agreement with the tokens actually sent, and a reviewer running an older
+   vendored `$challenge` would target-classify it.
 
    **Three invariants hold the block's position, and they are not optional.**
 
@@ -168,14 +210,14 @@ Repeat up to 5 iterations:
    review the working tree — breaking a supported entry point instead of diagnosing a
    swallowed target. When it carries neither *because stripping removed a pasted block*,
    decide on what that block actually contained, not on the fact of a strip. The
-   four-field rule above guarantees a well-formed block has no `target:` line, so a conforming
+   complete-block rule above guarantees a well-formed block has no `target:` line, so a conforming
    block carried no target and nothing was lost — insert `--working-tree` exactly as in
    the no-block case, since the caller's intent is identical. Only a **malformed** block,
    one carrying a `target:` line or a bare path token, may have held the caller's only
    target: there, insert nothing and stop as blocked, quoting the stripped text so the
-   caller sees what was dropped. Do not "ask" — `$review-loop` is a subroutine of
-   `$work-issue` and `$design`, which run with no human in the turn, so a prompt there is
-   a halt rather than a diagnosis.
+   caller sees what was dropped. Do not resolve it inside `$review-loop`. Return
+   `SCOPE CHECKPOINT` so an interactive root can repair the input; an unattended root
+   parks.
 
    **A working-tree run defers its commits to the end.** This is keyed on the resolved
    review mode, not on who supplied the flag — whether the caller passed
@@ -329,11 +371,11 @@ Repeat up to 5 iterations:
    it, in its own change, rather than reserving numbers up front. Renumbering a record
    without changing its content is explicitly allowed and does not read as an erasure.
 
-   A record is a file, so this works with no tracker, no authentication, no network,
-   and no human in the turn — there is no environment where a deferral is impossible,
-   and therefore no reason for an out-of-charter finding to halt the run. It also
-   lands **in the diff**, so the reviewer of the resulting PR sees the deferral at
-   review time, which an issue never achieves.
+   A record requires no tracker, authentication, or network, but it still requires scope
+   authority. Write it only when the frozen surface includes `docs/debt/` and the frozen
+   exclusions permit deferral bookkeeping. Otherwise use the checkpoint or parking path
+   above. When authorized, the record lands in the diff so the resulting PR reviewer sees
+   it at review time.
 
    Records are immutable in the ADR sense: resolve one with a
    `> **Resolved by …** (YYYY-MM-DD)` banner in its `## Status`, never by deleting it.
@@ -341,14 +383,11 @@ Repeat up to 5 iterations:
    this design is mechanically enforced — every constraint here is prose, so the record in
    the diff and the reviewer reading it are what hold the line.
 
-   **A record you write is inside the permitted surface, by construction.** Adding it is
-   bookkeeping, exactly as appending a verified deferral to the exclusions list is — not a
-   material charter change, even though it adds a file to the reviewed diff. Findings on a
-   record this run wrote are fixed here like anything else in scope, and they do not count
-   toward the self-collision fraction the stop conditions count. Without
-   that exemption the disposition eats itself: the record lands in the diff the next pass
-   reviews, and the loop rescopes to a halt over its own bookkeeping — the very halt this
-   disposition exists to remove.
+   **A record is inside the permitted surface only when external authority put it there.**
+   Adding one or appending an exclusion without that authority is a material charter change,
+   even when described as bookkeeping. For an authorized record, fix findings on it like
+   anything else in scope and exclude those findings from the self-collision fraction. The
+   exemption affects convergence accounting only; it never grants write authority.
 
    Write the record **once per run**, not once per pass. The concern recurs on later
    iterations by design; the second sighting is the same deferral, so re-affirm it in

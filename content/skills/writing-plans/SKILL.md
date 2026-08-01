@@ -15,11 +15,27 @@ Assume they are a skilled developer, but know almost nothing about our toolset o
 
 **Context:** If working in an isolated worktree, it should have been created via the `using-git-worktrees` skill at execution time.
 
-## Dispatched mode — no human in the turn
+## Dispatched workflow mode — caller-owned sequencing
 
 **You are in dispatched mode when your instructions came from a curated skill (`$design`, `$work-issue`) or from an orchestrator that dispatched you — not from a human typing in this turn.** Otherwise assume a human is present and follow the rest of this skill as written. Do not try to infer the mode: your caller states it. Mode is a property of the run, not of the skill, so every skill you invoke downstream inherits it.
 
-One thing changes: **skip the Execution Handoff ask at the end.** Nobody will answer "Which approach?", and the caller has already decided — `$build-tdd` picks subagent-driven vs. direct execution from what the plan looks like. Write the plan, run the Self-Review, commit it, and report the path to your caller. Invoke neither `subagent-driven-development` nor `executing-plans` yourself.
+Dispatched mode controls sequencing, not human reachability. Consume the complete external
+scope charter supplied by `$design`, including the separate root `interaction` value.
+
+<!-- SCOPE-RULE:inherit-interaction -->
+Inherit interaction from the root; never infer it from nesting.
+<!-- SCOPE-RULE:END:inherit-interaction -->
+
+Carry `scope identity`, `outcome`, `completion criteria`, `provenance`, `exclusions`,
+`surface`, and `ambiguities` unchanged. If any field is missing, incomplete, or
+unresolvable, return the brainstorming `SCOPE CHECKPOINT` contract. The interactive root
+asks its question; an unattended root parks. Never derive missing authority from the spec,
+ADR, or plan.
+
+One thing changes: **skip the Execution Handoff ask at the end.** The caller owns that
+decision and `$build-tdd` picks subagent-driven vs. direct execution from what the plan
+looks like. Write the plan, run the Self-Review, commit it, and report the path to your
+caller. Invoke neither `subagent-driven-development` nor `executing-plans` yourself.
 
 Everything else — the plan header, the file-structure pass, task right-sizing, bite-sized steps, no placeholders, the Self-Review — applies unchanged, and matters more here: a dispatched build hands these tasks to context-free implementer subagents that cannot ask you what a step meant.
 
@@ -163,7 +179,8 @@ If you find issues, fix them inline. No need to re-review — just fix and move 
 
 ## Execution Handoff
 
-**Interactive mode only.** In dispatched mode, report the plan path to your caller and stop here — see Dispatched mode above.
+**Interactive workflow mode only.** In dispatched mode, report the plan path to your caller
+and stop here; root interaction remains unchanged. See Dispatched mode above.
 
 After saving the plan, offer execution choice:
 

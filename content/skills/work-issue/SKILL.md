@@ -72,6 +72,73 @@ then set this issue to `status:in-progress` (single-active swap, removing any ot
 `status:` value). If ensure-create fails, stop with its message rather than proceeding
 label-less.
 
+<!-- SCOPE-ORDER:work-frozen -->
+## Frozen scope charter
+
+Freeze the complete external authority before design. Set `interaction: interactive` when
+a human invoked this run in the active turn. Set `interaction: unattended` only when an
+orchestrator or background task explicitly says no human is reachable. Nesting never
+changes this root value.
+
+Record all eight fields in the issue's `WORK:SCOPE` annotation:
+
+<!-- SCOPE-RULE:scope-identity -->
+Use the issue URL plus a unique annotation token as the pre-publication scope identity.
+<!-- SCOPE-RULE:END:scope-identity -->
+
+<!-- SCOPE-RULE:public-scope-comment -->
+Before posting any GitHub annotation, keep only public-safe authority labels; omit secrets and host data.
+If authority cannot be summarized safely, do not post or log its raw value.
+An unattended root may post only a generic public-safe WORK:TRAJECTORY notice without charter values.
+<!-- SCOPE-RULE:END:public-scope-comment -->
+
+- `scope identity`: the issue URL plus that unique annotation token;
+- `outcome`: the requested outcome;
+- `completion criteria`: each criterion and its source;
+- `provenance`: the source of every outcome, criterion, and later user decision;
+- `exclusions`: explicit exclusions and their owners, or an explicit empty value;
+- `surface`: permitted change surface and direct dependencies;
+- `ambiguities`: unresolved design-changing ambiguities, or an explicit empty value;
+- `interaction`: the root value established above.
+
+Also retain the tracking metadata: blast radius, risk flags, complexity (`S`/`M`/`L`),
+and decompose verdict.
+
+Minimize every public GitHub annotation to the authority needed for its fields. Use
+public-safe source labels for provenance instead of copying private source text. Never
+include secrets, authentication headers, host-specific paths, hostnames, IP addresses, or
+private internal details. Do not log an unsafe answer. When it cannot be summarized without
+disclosure, return to `SCOPE CHECKPOINT` and leave `WORK:SCOPE` unposted; an unattended root
+may post only a generic public-safe parked notice with no charter values or raw answer.
+
+Every normative guarantee must trace to this charter, a later explicit user decision, or
+an unavoidable consequence of satisfying a sourced criterion. The workflow and the
+artifact it produces cannot authorize their own scope. More review authorizes more
+scrutiny, not more scope.
+
+<!-- SCOPE-ORDER:work-checkpoint -->
+### SCOPE CHECKPOINT
+
+Before freezing, return here when an omission or conflict could change a charter field or
+normative guarantee. In an interactive run, ask one design-selecting question at a time,
+record the answer and provenance, then freeze the complete charter. After freezing, a
+design-changing answer ends the current design cycle and re-freezes the charter before a
+new cycle starts. Missing, incomplete, or unresolvable fields never fall back to a spec,
+ADR, plan, or other generated artifact.
+
+<!-- SCOPE-ORDER:work-unattended -->
+### Unattended parking
+
+When the root interaction is unattended, do not answer a design-changing question on the
+caller's behalf. Post a public-safe `WORK:TRAJECTORY`, set `status:needs-human`, and stop
+before design. If checkpoint data is unsafe, the trajectory contains only a generic parked
+phase and request for human input; it never contains charter values or the raw answer.
+
+Mint the annotation token once before posting and include it in the comment. Capture the
+returned comment URL as the annotation's location, not its identity. Read the posted comment
+back and verify the token and all eight fields before continuing. It is also the liveness
+signal `$recover-orphans` reads, so post it for a trivial bugfix that will skip design.
+
 ## 2. Branch
 
 Fetch the latest remote state. Sync `BASE_BRANCH` to `origin/BASE_BRANCH`, then
@@ -89,7 +156,21 @@ the repo, do not use it; run `git worktree add <external-path>` yourself.
 If the repo already has a branch for this issue, ask before reusing it unless the
 issue or PR explicitly names that branch.
 
+<!-- SCOPE-ORDER:work-design -->
 ## 3. Design
+
+Pass the frozen charter to `$design` exactly as follows:
+
+<!-- SCOPE-CARRIER:work-issue-to-design -->
+interaction: <unchanged root value>
+scope identity: <external scope identity, never reviewed target>
+outcome: <frozen external outcome>
+completion criteria: <frozen external completion criteria>
+provenance: <external source for every outcome, criterion, and user decision>
+exclusions: <frozen external exclusions>
+surface: <frozen permitted surface>
+ambiguities: <frozen ambiguity list>
+<!-- SCOPE-CARRIER:END:work-issue-to-design -->
 
 Run `$design <issue-number>` to write the spec + ADR, adversarial-review the spec,
 write the implementation plan, and adversarial-review the plan. Skip only for a
@@ -100,10 +181,6 @@ trivial bugfix as defined in step 1.
 `docs/adr/`, not with the plan). Context checkpoint before step 4 (see the callout
 above): brainstorm transcripts and spec-review payloads are droppable once these
 hold the design.
-
-**Annotate (github-tracking skill).** Post a `WORK:SCOPE` comment on the issue — blast
-radius, risk flags, complexity (S/M/L), decompose verdict. This is also the liveness signal
-`$recover-orphans` reads, so post it even for a trivial bugfix that skipped `$design`.
 
 ## 4. Build With TDD
 

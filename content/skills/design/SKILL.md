@@ -28,14 +28,69 @@ and identify the repo's check suite.
 means proceed to the next step — do not end your turn. Stop only on a genuine
 blocker you have named.
 
+## External scope authority
+
+Use a complete caller-supplied charter unchanged. It contains `interaction`, `scope
+identity`, `outcome`, `completion criteria`, `provenance`, `exclusions`, `surface`, and
+`ambiguities`. A reviewed or generated artifact is never a substitute for a missing field.
+
+<!-- SCOPE-RULE:direct-design-charter -->
+An interactive direct invocation freezes its quoted request into all eight fields.
+An unattended direct invocation without a complete charter parks before design.
+<!-- SCOPE-RULE:END:direct-design-charter -->
+
+For a direct human invocation, establish `interaction: interactive`. Before freezing, ask
+one question at a time about any omission or conflict that could change a charter field or
+normative guarantee. Record the quoted request, answers, and their provenance; use an
+explicit empty value when no exclusion or ambiguity exists. An unattended caller must
+supply every field. Missing, incomplete, or unresolvable input returns `SCOPE CHECKPOINT`
+or parks and never derives authority from a spec, ADR, or plan.
+
+A normative guarantee is a promise that downstream implementation or review must preserve.
+Each guarantee must cite a frozen requirement, a later explicit user decision, or a
+necessary consequence.
+
+<!-- SCOPE-ORDER:design-user-decision -->
+An explicit user decision may authorize a guarantee only when provenance records it.
+
+<!-- SCOPE-RULE:necessary-consequence -->
+No reasonable implementation can satisfy the sourced completion criterion without it.
+<!-- SCOPE-RULE:END:necessary-consequence -->
+
+Treat that sentence as the boundary for a necessary consequence. Contestable necessity
+returns `SCOPE CHECKPOINT`; review cannot settle it by adding a promise.
+
+<!-- SCOPE-ORDER:design-high-risk -->
+High-risk examples begin with transactions, persistence, concurrency, and recovery.
+Migrations and new public contracts are also high-risk examples. An explicit sourced
+request can authorize any of them; the list is not a blanket ban.
+
 ## 1. Spec + ADR
 
+Pass the complete charter to brainstorming without changing root interaction:
+
+<!-- SCOPE-CARRIER:design-to-brainstorming -->
+interaction: <unchanged root value>
+scope identity: <external scope identity, never reviewed target>
+outcome: <frozen external outcome>
+completion criteria: <frozen external completion criteria>
+provenance: <external source for every outcome, criterion, and user decision>
+exclusions: <frozen external exclusions>
+surface: <frozen permitted surface>
+ambiguities: <frozen ambiguity list>
+<!-- SCOPE-CARRIER:END:design-to-brainstorming -->
+
+<!-- SCOPE-RULE:frozen-approval -->
+Only the frozen external charter and its provenance satisfy dispatched approval gates.
+<!-- SCOPE-RULE:END:frozen-approval -->
+
 Use `brainstorming` first if the design space is wide. **You are its dispatched
-caller** — its *Dispatched mode* section applies: the issue body and its
-acceptance criteria stand in for the user-approval gates, step 3 below replaces
-its User Review Gate, and it returns the spec to you rather than invoking
-`writing-plans` itself, which would skip steps 2 and 3. Say so when you invoke
-it. Write or update the design doc under `docs/superpowers/specs/`. For
+caller** — its *Dispatched mode* section applies: the frozen external charter and
+its provenance satisfy the approval gate, step 3 below replaces its User Review
+Gate, and it returns the spec to you rather than invoking `writing-plans` itself,
+which would skip steps 2 and 3. The issue body remains evidence used while freezing
+the charter, not a second live authority source. Say so when you invoke it. Write or
+update the design doc under `docs/superpowers/specs/`. For
 decisions with viable alternatives — layer boundaries, interface or ownership
 splits, concurrency invariants, failure contracts, migration sequencing,
 rollback strategy — write or update an ADR under `docs/adr/` with:
@@ -176,6 +231,29 @@ feature, and `$threat-scan` checks the branch against this inventory at step 5.
 A boundary listed here with no control in the diff is a finding, which is the
 point of writing it down first.
 
+## Design-review scope input
+
+Every ADR, spec, and plan review receives the same frozen external charter:
+
+<!-- SCOPE-CARRIER:design-to-review-loop -->
+interaction: <unchanged root value>
+scope identity: <external scope identity, never reviewed target>
+outcome: <frozen external outcome>
+completion criteria: <frozen external completion criteria>
+provenance: <external source for every outcome, criterion, and user decision>
+exclusions: <frozen external exclusions>
+surface: <frozen permitted surface>
+ambiguities: <frozen ambiguity list>
+<!-- SCOPE-CARRIER:END:design-to-review-loop -->
+
+<!-- SCOPE-RULE:design-review-calls -->
+Pass this complete carrier unchanged to every ADR, spec, and plan review-loop call.
+<!-- SCOPE-RULE:END:design-review-calls -->
+
+The target remains evidence for review, never a source of authority. If a design-changing
+ambiguity appears, end the current review cycle and use `SCOPE CHECKPOINT`; do not let the
+reviewer resolve it by extending the target.
+
 ## 2. Adversarial-review the ADR
 
 If step 1 wrote or updated an ADR, harden it as a review target **before** the spec
@@ -235,6 +313,19 @@ Run `$review-loop` with:
   alternatives unless the spec contradicts them or introduces a new risk.`
 
 ## 4. Implementation plan
+
+Pass the same complete charter and root interaction to `writing-plans`:
+
+<!-- SCOPE-CARRIER:design-to-writing-plans -->
+interaction: <unchanged root value>
+scope identity: <external scope identity, never reviewed target>
+outcome: <frozen external outcome>
+completion criteria: <frozen external completion criteria>
+provenance: <external source for every outcome, criterion, and user decision>
+exclusions: <frozen external exclusions>
+surface: <frozen permitted surface>
+ambiguities: <frozen ambiguity list>
+<!-- SCOPE-CARRIER:END:design-to-writing-plans -->
 
 Use `writing-plans` to write the plan under
 `docs/superpowers/plans/`, derived from the hardened spec. **You are its
