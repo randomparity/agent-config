@@ -112,7 +112,8 @@ global inventory count.
 Extend the layout guard's fixture suite with a valid project-review example and a failure
 case proving malformed example frontmatter is rejected. Extend installer coverage to
 assert that the local example is absent from every global destination after an all-agent
-install.
+install. Add a fixture proving `SKILL.md` anywhere else below `examples/` is rejected, so
+ADR 0020's exception cannot widen silently.
 
 ## Failure behavior and edge cases
 
@@ -133,7 +134,8 @@ install.
 ## Acceptance tests
 
 - `scripts/check-skill-layout-test.sh` proves a valid example passes and malformed
-  project-review frontmatter fails.
+  project-review frontmatter fails, and rejects `SKILL.md` in every other `examples/`
+  subtree.
 - `install-test.sh` proves all three installed global skill trees exclude
   `accessibility-reviewer`.
 - `just verify` passes, including shell lint, formatting, skill layout, installation,
@@ -145,4 +147,5 @@ install.
 - Base branch: `main`
 - Local guardrail: `just verify`
 - CI guardrail: `just ci` (`just verify` plus `prek run --all-files`)
-- ADR/index coupling: not coupled; root records are directory-indexed and no ADR is added.
+- ADR/index coupling: not coupled; ADR 0020 is added and root records use the directory
+  listing as their index, so no hand-maintained index row is required.
