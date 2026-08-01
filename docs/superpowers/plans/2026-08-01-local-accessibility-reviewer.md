@@ -44,17 +44,21 @@ portable package rules as global skills, while the installer continues to copy o
 
 - [ ] **Step 1: Add a valid local-example fixture and a failing frontmatter case**
 
-Add a `write_project_review_skill` fixture helper that writes
-`examples/project-review-skills/<name>/SKILL.md`. Seed `accessibility-reviewer` in every
-fixture. Update the real-repository and two-skill expected summaries to include one
-project-review example. Add focused cases for:
+Add an inventory-aware fixture helper that writes a named `SKILL.md` beneath either
+`content/skills/` or `examples/project-review-skills/`. Seed `accessibility-reviewer` in
+every fixture. Update the real-repository and two-skill expected summaries to include one
+project-review example.
 
-- a non-directory child directly under `examples/project-review-skills/`;
-- a symlink inside the local example;
-- a non-portable path component inside the local example;
-- a case-folded duplicate path inside the local example;
-- a reserved local example name; and
-- an example using `summary:` instead of `description:`.
+Convert the existing package-validation cases into a small test matrix that runs each case
+once against the canonical inventory and once against the project-review inventory. The
+matrix must cover malformed frontmatter, name mismatch, empty description, empty body,
+reserved package names, internal symlinks, non-regular entries, non-portable paths,
+case-fold collisions, and invalid UTF-8. Preserve the canonical-only installed-config-root
+case because local project documentation may legitimately use native project paths.
+
+Add local-inventory cases for a missing `examples/project-review-skills/` root and a
+non-directory child directly beneath it. These prove inventory discovery separately from
+the shared package validators.
 
 For the malformed frontmatter case, expect:
 
@@ -92,7 +96,8 @@ skills-check: ok (<N> canonical skills, <M> project review examples)
 
 Run: `bash scripts/check-skill-layout-test.sh`
 
-Expected: PASS with the focused-failure count incremented by one.
+Expected: PASS with every shared package case reported for both inventories and the two
+local-inventory discovery cases reported once.
 
 Run: `just verify`
 
