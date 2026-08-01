@@ -156,8 +156,8 @@ npm test / cargo test / pytest / go test ./...
 
 - **Interactive mode:**
   Report the failures, ask whether to proceed or investigate, and wait.
-- **Dispatched mode with resolving authority:** Report the failures, then follow the
-  explicit applicable instruction or repository rule.
+- **Dispatched mode with resolving authority:**
+  Report the failures, then follow the explicit applicable instruction or repository rule.
 - **Dispatched mode without resolving authority:**
   Report the failures as a blocker and return to the caller.
   Do not ask an unavailable user, infer permission to continue, or start implementation.
