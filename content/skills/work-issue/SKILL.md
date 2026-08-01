@@ -86,6 +86,11 @@ Record all eight fields in the issue's `WORK:SCOPE` annotation:
 Use the issue URL plus a unique annotation token as the pre-publication scope identity.
 <!-- SCOPE-RULE:END:scope-identity -->
 
+<!-- SCOPE-RULE:public-scope-comment -->
+Before posting WORK:SCOPE, keep only public-safe authority labels; omit secrets and host data.
+If authority cannot be summarized safely, return SCOPE CHECKPOINT without posting.
+<!-- SCOPE-RULE:END:public-scope-comment -->
+
 - `scope identity`: the issue URL plus that unique annotation token;
 - `outcome`: the requested outcome;
 - `completion criteria`: each criterion and its source;
@@ -97,6 +102,12 @@ Use the issue URL plus a unique annotation token as the pre-publication scope id
 
 Also retain the tracking metadata: blast radius, risk flags, complexity (`S`/`M`/`L`),
 and decompose verdict.
+
+Minimize the public annotation to the authority needed for those fields. Use public-safe
+source labels for provenance instead of copying private source text. Never include secrets,
+authentication headers, host-specific paths, hostnames, IP addresses, or private internal
+details. Do not log an unsafe answer; when it cannot be summarized without disclosure,
+return to `SCOPE CHECKPOINT` and leave the comment unposted.
 
 Every normative guarantee must trace to this charter, a later explicit user decision, or
 an unavoidable consequence of satisfying a sourced criterion. The workflow and the

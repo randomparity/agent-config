@@ -79,6 +79,13 @@ publishing a complete scope record. A genuinely unattended root records the ambi
 posts the required trajectory note, and parks as `status:needs-human`; it does not start
 design with an unresolved charter. Existing historical annotations are not rewritten.
 
+The GitHub issue comment is a public-output trust boundary. Before publication,
+`$work-issue` minimizes the annotation to the authority required by its fields, replaces
+private source text with public-safe provenance labels, and excludes secrets,
+authentication headers, host-specific paths, hostnames, IP addresses, and private
+internal details. If an authoritative answer cannot be summarized safely, the workflow
+returns `SCOPE CHECKPOINT` and does not post or log that answer.
+
 ### Propagate interaction context
 
 `$brainstorming`, `$design`, and `$writing-plans` stop treating curated-skill nesting as
@@ -179,9 +186,12 @@ No additional product guarantee is a necessary consequence of these workflow rul
 
 The user is an operator invoking issue, design, and review workflows. The trigger is a
 design phase or design review. Inputs are the user request, issue text, explicit user
-decisions, the frozen `WORK:SCOPE` record, and repository evidence. Outputs are a scoped
-specification, ADR when warranted, plan, questions returned to an interactive caller, or
-a parked unattended workflow. Allowed sources are those external inputs and necessary
+decisions, the frozen `WORK:SCOPE` record, and repository evidence. Outputs are the public
+GitHub `WORK:SCOPE` issue comment, a scoped specification, ADR when warranted, plan,
+questions returned to an interactive caller, or a parked unattended workflow. Before
+publishing the comment, the workflow minimizes its content to public-safe authority labels
+and omits secrets and host data; if safe summarization is impossible, it returns
+`SCOPE CHECKPOINT` without posting. Allowed sources are those external inputs and necessary
 consequences explained in the design. The workflow must not treat its own generated spec,
 additional review authorization, or reviewer suggestions as product-scope authority. When
 authority is missing it asks through an interactive caller or parks unattended work. It

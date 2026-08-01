@@ -109,6 +109,12 @@ check_contract() {
 	assert_rule "$work" scope-identity \
 		"Use the issue URL plus a unique annotation token as the pre-publication scope identity." ||
 		return 1
+	assert_rule "$work" public-scope-comment \
+		"Before posting WORK:SCOPE, keep only public-safe authority labels; omit secrets and host data." ||
+		return 1
+	assert_rule "$work" public-scope-comment \
+		"If authority cannot be summarized safely, return SCOPE CHECKPOINT without posting." ||
+		return 1
 	assert_carrier "$work" work-issue-to-design || return 1
 	assert_carrier "$design" design-to-brainstorming || return 1
 	assert_rule "$design" frozen-approval \
@@ -306,6 +312,14 @@ run_scope_fixtures() {
 		"Pick one interpretation, make it explicit, and continue."
 	assert_fixture_fails ambiguity-fallback \
 		"rule ambiguity-checkpoint missing instruction" "$fixture"
+
+	fixture=$(copy_fixture unsafe-scope-comment)
+	file=$(skill_path "$fixture" work-issue)
+	rewrite_block_line_once "$file" RULE public-scope-comment \
+		"Before posting WORK:SCOPE, keep only public-safe authority labels; omit secrets and host data." \
+		"Copy the complete interactive answer into WORK:SCOPE."
+	assert_fixture_fails unsafe-scope-comment \
+		"rule public-scope-comment missing instruction" "$fixture"
 }
 
 run_review_fixtures() {
@@ -412,7 +426,7 @@ check_durable_contract
 run_scope_fixtures
 run_extractor_tests
 run_review_fixtures
-[[ "$fixture_count" -eq 9 ]] || fail "expected 9 SCOPE fixtures, got $fixture_count"
+[[ "$fixture_count" -eq 10 ]] || fail "expected 10 SCOPE fixtures, got $fixture_count"
 [[ "$extractor_count" -eq 3 ]] || fail "expected 3 extractor tests, got $extractor_count"
 printf 'workflow-scope-contract-test: ok (%d fixtures, %d extractor tests)\n' \
 	"$fixture_count" "$extractor_count"
