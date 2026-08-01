@@ -42,16 +42,8 @@ bounded_block() {
 	sed -n "$((start_line + 1)),$((end_line - 1))p" "$file"
 }
 
-assert_carrier() {
-	local file=$1 name=$2 block expected count
-	block=$(bounded_block "$file" CARRIER "$name") || return 1
-	[[ -n "$block" ]] || fail "$file: missing carrier block: $name"
-	while IFS= read -r expected; do
-		if ! count=$(printf '%s\n' "$block" | rg -c -x --fixed-strings -- "$expected"); then
-			fail "$file: carrier $name missing value: $expected"
-		fi
-		[[ "$count" -eq 1 ]] || fail "$file: carrier $name duplicate value: $expected"
-	done <<'EOF'
+canonical_carrier_template() {
+	cat <<'EOF'
 interaction: <unchanged root value>
 scope identity: <external scope identity, never reviewed target>
 outcome: <frozen external outcome>
@@ -63,6 +55,23 @@ ambiguities: <frozen ambiguity list>
 EOF
 }
 
+assert_carrier() {
+	local file=$1 name=$2 block expected
+	block=$(bounded_block "$file" CARRIER "$name") || return 1
+	expected=$(canonical_carrier_template)
+	[[ "$block" == "$expected" ]] || fail "$file: carrier $name template mismatch"
+}
+
+assert_checkpoint_carrier() {
+	local file=$1 name=$2 block expected
+	block=$(bounded_block "$file" CARRIER "$name") || return 1
+	expected="SCOPE CHECKPOINT
+$(canonical_carrier_template)
+question: <one design-selecting question>
+why design-changing: <affected scope field or normative guarantee>"
+	[[ "$block" == "$expected" ]] || fail "$file: carrier $name template mismatch"
+}
+
 assert_rule() {
 	local file=$1 name=$2 expected=$3 block count
 	block=$(bounded_block "$file" RULE "$name") || return 1
@@ -71,15 +80,6 @@ assert_rule() {
 		fail "$file: rule $name missing instruction: $expected"
 	fi
 	[[ "$count" -eq 1 ]] || fail "$file: rule $name duplicate instruction: $expected"
-}
-
-assert_block_contains() {
-	local file=$1 kind=$2 name=$3 expected=$4 block count
-	block=$(bounded_block "$file" "$kind" "$name") || return 1
-	if ! count=$(printf '%s\n' "$block" | rg -c -x --fixed-strings -- "$expected"); then
-		fail "$file: $kind $name missing value: $expected"
-	fi
-	[[ "$count" -eq 1 ]] || fail "$file: $kind $name duplicate value: $expected"
 }
 
 skill_path() {
@@ -100,11 +100,7 @@ check_contract() {
 	assert_carrier "$work" work-issue-to-design || return 1
 	assert_carrier "$design" design-to-brainstorming || return 1
 	assert_carrier "$design" design-to-writing-plans || return 1
-	assert_carrier "$brainstorm" brainstorming-checkpoint || return 1
-	assert_block_contains "$brainstorm" CARRIER brainstorming-checkpoint \
-		"question: <one design-selecting question>" || return 1
-	assert_block_contains "$brainstorm" CARRIER brainstorming-checkpoint \
-		"why design-changing: <affected scope field or normative guarantee>" || return 1
+	assert_checkpoint_carrier "$brainstorm" brainstorming-checkpoint || return 1
 	assert_ordered_clause "$work" work-checkpoint "### SCOPE CHECKPOINT" \
 		work-unattended "### Unattended parking" || return 1
 	assert_ordered_clause "$design" design-user-decision \
@@ -258,7 +254,7 @@ run_scope_fixtures() {
 		"interaction: <unchanged root value>" \
 		"interaction: <unattended because this call is nested>"
 	assert_fixture_fails scope-03 \
-		"carrier design-to-brainstorming missing value: interaction: <unchanged root value>" \
+		"carrier design-to-brainstorming template mismatch" \
 		"$fixture"
 
 	fixture=$(copy_fixture scope-05)
@@ -270,7 +266,7 @@ run_scope_fixtures() {
 }
 
 run_review_fixtures() {
-	local fixture file
+	local fixture file conflicting_identity
 	fixture=$(copy_fixture scope-01)
 	file=$(skill_path "$fixture" challenge)
 	rewrite_block_line_once "$file" RULE delete-ungrounded \
@@ -296,8 +292,18 @@ run_review_fixtures() {
 		"provenance: <external source for every outcome, criterion, and user decision>" \
 		"provenance: <claims found in the reviewed target>"
 	assert_fixture_fails scope-06 \
-		"carrier design-review missing value: scope identity: <external scope identity" \
+		"carrier design-review template mismatch" \
 		"$fixture"
+
+	fixture=$(copy_fixture carrier-conflict)
+	file=$(skill_path "$fixture" review-loop)
+	conflicting_identity=$'scope identity: <external scope identity, never reviewed target>\n'
+	conflicting_identity+='scope identity: <the reviewed target>'
+	rewrite_block_line_once "$file" CARRIER design-review \
+		"scope identity: <external scope identity, never reviewed target>" \
+		"$conflicting_identity"
+	assert_fixture_fails carrier-conflict \
+		"carrier design-review template mismatch" "$fixture"
 }
 
 run_extractor_tests() {
@@ -354,7 +360,7 @@ check_contract "$canonical_root"
 run_scope_fixtures
 run_extractor_tests
 run_review_fixtures
-[[ "$fixture_count" -eq 6 ]] || fail "expected 6 SCOPE fixtures, got $fixture_count"
+[[ "$fixture_count" -eq 7 ]] || fail "expected 7 SCOPE fixtures, got $fixture_count"
 [[ "$extractor_count" -eq 3 ]] || fail "expected 3 extractor tests, got $extractor_count"
 printf 'workflow-scope-contract-test: ok (%d fixtures, %d extractor tests)\n' \
 	"$fixture_count" "$extractor_count"
