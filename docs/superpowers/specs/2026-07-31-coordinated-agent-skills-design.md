@@ -155,14 +155,26 @@ host/agent overlay, naming the private path and `content/skills/` as the only
 repository-managed workflow source. Native non-workflow overlay files remain
 governed by ADR 0001.
 
-The version-2 JSON manifest records every managed path, one
-`skills/<name>` entry per canonical skill, the identity algorithm, and the
-single canonical source-snapshot identity used by the transaction. The
-installer iterates canonical skill directories in sorted order and preserves
-non-canonical user skill directories. Later removals are pruned per managed
-skill name. Unmanaged files outside managed names are unchanged. A legacy
-newline manifest is recognized only as the version-1 migration input described
-below; new writes are version 2.
+The version-2 JSON manifest is untrusted local input until validated. Its closed
+schema records every managed path and installed identity, one
+`skills/<name>` entry per canonical skill, the identity algorithm, the single
+canonical source-snapshot identity used by the transaction, a prior-manifest
+digest, and its own canonical-JSON digest. Entries are safe relative paths,
+unique, and non-overlapping: no parent/child operation roots coexist.
+`scripts/managed-path-ownership.json` is an append-only provenance allowlist for
+fixed native/common paths and historical removals; skill/command entries must
+also be canonical, per-name-manifest-owned, or proven by the historical ledger.
+An unknown path class, checksum/link failure, unsafe path, overlap, symlinked
+manifest, invalid per-entry identity, or unknown schema stops before journal or
+live mutation and names the manifest recovery action. It never becomes removal
+authority.
+
+The installer iterates canonical skill directories in sorted order and
+preserves non-canonical user skill directories. Later removals are pruned per
+managed skill name. Unmanaged files outside managed names are unchanged. A
+legacy newline manifest is recognized only as version-1 migration input after
+every entry matches the checked-in historical managed-path/skill/command
+allowlists described below; new writes are version 2.
 
 The legacy manifest contains only whole-tree `skills` and, for Claude,
 `commands` entries; it does not identify children. This change therefore checks
@@ -290,10 +302,15 @@ per-destination identity serializes overlapping selections even when
 invocations use different `AGENT_CONFIG_PRIVATE_DIR` values and prevents
 deadlock for selections containing the same roots.
 
-Supported destinations are host-local filesystems. Before creating a journal,
-query the OS filesystem type and reject network/shared types (including NFS,
+Supported destinations and the resolved private transaction root are host-local
+filesystems. Before creating any private directory, journal, snapshot, or lock,
+query every filesystem type and reject network/shared types (including NFS,
 SMB/CIFS, AFP, and SSH/FUSE network mounts); an unknown type stops with the
-destination and detected value. Hostname is display-only. Stable machine
+path and detected value. For a missing private root, inspect its nearest
+existing ancestor before creation and recheck the created root. Record the
+private-root device/filesystem identity in
+the journal and every lock/header and require it unchanged during recovery.
+Hostname is display-only. Stable machine
 identity is Linux machine-id or macOS IOPlatformUUID. The runtime epoch
 separately records boot identity and, when present, PID namespace identity
 (Linux: boot-id and PID-namespace inode; macOS: `kern.boottime`). The process
@@ -371,13 +388,26 @@ private root, creator execution/PID-start identity, every canonical destination,
 the scope digest, the observed
 device/inode/digest of each lock, and the desired versioned identity of every
 live managed name and manifest. Its destination scope must exactly match the
-full list and digest replicated in a valid lock/header, with matching evidence
-present at every member destination; current inventory, historical ledger, live
-manifests, and safely contained transaction-entry names must also all be
-included. Omission is an error. The command verifies the recorded local process
-instance is dead, every surviving lock/header has the supplied identity, every
-live path already matches the supplied coherent state, and no path escapes a
-destination. It performs no content restoration.
+full list and digest replicated in a valid lock/header. For a transaction that
+may have entered `open`, matching evidence must be present at every member
+destination. Current inventory, historical ledger, validated live manifests,
+and safely contained transaction-entry names must also all be included.
+Omission is an error. The command verifies the recorded local process instance
+is dead, every surviving lock/header has the supplied identity, every live path
+already matches the supplied coherent state, and no path escapes a destination.
+It performs no content restoration.
+
+There is one pre-open reconstruction branch for corruption during partial lock
+acquisition. At least one valid lock must provide the full scope/digest, every
+surviving transaction lock must match it, no destination in that scope may
+contain a transaction header, stage, backup, operation marker, or other live-
+phase evidence, and every live manifest must validate without consulting the
+corrupt journal. Under those conditions `open` was unreachable: quarantine the
+corrupt private transaction evidence and recorded lock siblings, then release
+only the matching acquired-lock subset with identity checks. Scope members with
+no lock require no fabricated evidence. Any header/live-operation evidence
+selects the full reconstruction rules above instead. This branch never changes
+a managed live path.
 It archives the corrupt generations, no-follow copies of the matching locks,
 and supplied repair record under an owner-only quarantine, writes a new valid
 `needs-repair` generation recording the reconstruction, and then uses normal
@@ -620,14 +650,16 @@ is reported separately as sampled evidence, never as a deterministic guarantee.
 | SKILL-24 | Add empty/1025-scalar descriptions, combining characters, duplicate/unknown keys, quoted names, block descriptions, escapes, comments, malformed UTF-8, consecutive-hyphen/reserved names, and nested case-fold, non-ASCII, trailing-dot, overlength, and contract-identity fixtures under multiple locales | `skills-check` accepts only the deterministic frontmatter/path subset and rejects each invalid rule/path identically across locales | Hand-parsed ambiguity or a package accepted by only a subset of clients/filesystems | block |
 | SKILL-25 | Terminate before journal `pending`, after `pending` but before hard-link publication, after publication but before `held`, after `held`, before the first release, and between every release; replace one lock before recovery | Rerun removes only a matching-stable-machine prior-boot or proven-dead exact-process lock with matching device/inode/content identity; completed runs leave no lock, sibling, or journal | Malformed apparent lock, no-record dead lock, leaked sibling, or deletion of a replacement lock | block |
 | SKILL-26 | Change `languages/`, `references/`, native files, and skills, then fail after mixed-path promotion | Rollback restores one prior identity for every managed path and manifest in all selected clients | Old skills paired with new common/native content | block |
-| SKILL-27 | Corrupt both journal generations; delete one destination's lock/header before its first live operation; then exercise incomplete, live process-start, mismatched execution/scope, and complete reconstruction records after restoring coherent state/evidence | Missing scope evidence and unsafe records refuse without loss; a complete matching scope is quarantined, validated, and releases only matching locks | Inferring omitted destinations, manual evidence deletion, or accepting inconsistent state | block |
+| SKILL-27 | Corrupt both journal generations during `open`; delete one destination's lock/header; then exercise incomplete, live process-start, mismatched execution/scope, and complete reconstruction records after restoring coherent state/evidence | Missing open-scope evidence and unsafe records refuse without loss; a complete matching scope is quarantined, validated, and releases only matching locks | Inferring omitted open destinations, manual evidence deletion, or accepting inconsistent state | block |
 | SKILL-28 | Preserve an unrelated legacy skill containing an unreadable file, symlink, large asset, and sentinel secret while replacing one proven-managed sibling | Install succeeds without the unrelated sentinel appearing under transaction or timestamped backups; managed symlinks are copied no-follow; special files stop before mutation | Reading/copying unrelated content or following a symlink | block |
 | SKILL-29 | Compute fixed absent, empty-directory, executable, Unicode-path, and symlink identity fixtures under every supported host | Every host matches checked-in `tree-v1-git-blob` goldens and rejects unknown identity/object formats | Platform-dependent or delimiter-ambiguous identity | block |
-| SKILL-30 | Present identical hostnames/PIDs with different stable-machine, boot, or PID-namespace identities and target known network/unknown filesystem types | Same stable machine plus prior boot recovers; different stable machine or same-boot namespace refuses; unsupported destinations stop before journal/lock creation | Hostname/PID-only takeover or mutation on unsupported shared storage | block |
+| SKILL-30 | Present identical hostnames/PIDs with different stable-machine, boot, or PID-namespace identities and target known network/unknown destination or private-root filesystem types | Same stable machine plus prior boot recovers; different stable machine or same-boot namespace refuses; unsupported destinations/private roots stop before artifact creation | Hostname/PID-only takeover or safety evidence on unsupported shared storage | block |
 | SKILL-31 | Mutate canonical, per-agent native, and allowlisted overlay inputs during snapshot and again between client staging hooks | Every input's A/B/C mismatch or type change aborts before promotion; post-snapshot mutation cannot change stages; manifests carry the recorded identities | Live per-client source reads, torn native input, or mixed canonical revisions | block |
 | SKILL-32 | Seed canonical-name and non-canonical skills, `SKILL.md`, command files, and symlink variants under every selected private overlay; swap an allowlisted regular overlay to a symlink during snapshot | Static artifacts stop before snapshot; overlay index or A/B/C/type mismatch stops before promotion and names the canonical alternative | Agent-specific workflow or followed overlay symlink | block |
 | SKILL-33 | Interrupt in `locking`, `open`, and `needs-repair`, then attempt the documented source rollback | Revert is refused until current recovery/repair clears every journal, lock, and contained recovery directory and validates prior manifests | Removing recovery code while its transaction evidence is live | block |
 | SKILL-34 | Remove a previously version-2-managed native file, common-content child, directory, and skill; interrupt/fail after each removal | Every absent old entry is backed up and omitted, success prunes all, and rollback restores exact prior identities in reverse order | Stale managed path or non-transactional deletion | block |
+| SKILL-35 | Seed truncated/checksum-invalid, path-injected, unknown-class, overlapping parent/child, symlinked, bad-identity, and broken-prior-digest manifests in version 1 and 2 | Validation stops before journal/live mutation and unrelated sentinel paths remain byte-identical; only allowlisted provenance can plan removal | Treating an unverified manifest entry as ownership | block |
+| SKILL-36 | Corrupt both journal generations after each destination-lock ordinal but before any header; also seed one conflicting lock and one live-phase marker | Clean partial-lock cases quarantine evidence and release only matching acquired locks; conflict/live evidence refuses and preserves all locks | Permanent pre-open outage, fabricated missing locks, or managed-path mutation | block |
 
 Static shell checks decide filesystem, metadata, and safety boundaries in CI.
 `scripts/skill-smoke-eval.sh` provides sampled behavioral evidence. It creates
@@ -724,7 +756,11 @@ client compatibility gap rather than hidden behind a warning.
   replaced with two linked, checksummed generations. Closed-schema, transition,
   identity, containment, and symlink validation precede every recovery
   mutation; fully corrupt evidence requires a closed, quarantined reconstruction
-  record and already coherent live identities.
+  record and already coherent live identities. The private root itself must
+  pass the same host-local filesystem gate as every destination.
+- Ownership manifest: closed-schema, digest-chain, safe/non-overlapping path,
+  provenance-allowlist, and per-entry identity validation treats installed
+  manifests as untrusted until they prove removal authority.
 - Concurrency: deterministically ordered per-destination locks serialize every
   overlapping selection regardless of private root; crash-atomic hard-link
   publication exposes only complete lock identities, and stale-lock takeover is
