@@ -61,14 +61,22 @@ gh() {
 			return 1
 		fi
 		printf '%s\n' "$*" >>"$gh_log"
-		: >"$ready_state"
+		if [[ $* == *'--add-label status:blocked'* ]]; then
+			rm -f "$ready_state"
+		else
+			: >"$ready_state"
+		fi
 		return
 	fi
 	if [[ $1 == issue && $2 == view ]]; then
 		case $3 in
 		1)
 			printf '1\n' >>"$blocker_log"
-			printf 'CLOSED\n'
+			if [[ $fake_mode == race && -e $ready_state ]]; then
+				printf 'OPEN\n'
+			else
+				printf 'CLOSED\n'
+			fi
 			;;
 		2)
 			printf '2\n' >>"$blocker_log"
@@ -83,11 +91,17 @@ gh() {
 			return 1
 			;;
 		101)
-			if [[ $* == *'--json labels'* ]]; then
-				if [[ $fake_mode == postread-fail ]]; then
-					printf 'read \033[31mdenied\n' >&2
-					return 1
-				elif [[ $fake_mode == conflict ]]; then
+			if [[ $fake_mode == postread-fail && -e $ready_state ]]; then
+				printf 'read \033[31mdenied\n' >&2
+				return 1
+			elif [[ $* == *'--json number,state,body,labels'* && -e $ready_state ]]; then
+				if [[ $fake_mode == conflict ]]; then
+					printf '%s\n' '{"number":101,"state":"OPEN","body":"Blocked by #1","labels":[{"name":"status:ready"},{"name":"status:blocked"}]}'
+				else
+					printf '%s\n' '{"number":101,"state":"OPEN","body":"Blocked by #1","labels":[{"name":"status:ready"}]}'
+				fi
+			elif [[ $* == *'--json labels'* ]]; then
+				if [[ $fake_mode == conflict ]]; then
 					printf '%s\n' '{"labels":[{"name":"status:ready"},{"name":"status:blocked"}]}'
 				else
 					printf '%s\n' '{"labels":[{"name":"status:ready"}]}'
@@ -151,10 +165,12 @@ rg -q 'open blocker #2 retains #102' "$plan_errors" || fail 'open blocker was no
 rg -q 'malformed reference on #103' "$plan_errors" || fail 'malformed line was not reported'
 
 initial='{"number":101,"state":"OPEN","body":"Blocked by #1","labels":[{"name":"status:blocked"},{"name":"status:in-progress"}]}'
+rm -f "$ready_state"
 : >"$gh_log"
 reconcile_cleared_dependencies apply owner/repo 101 >/dev/null
 [[ $(wc -l <"$gh_log") -eq 1 ]] || fail 'REST-to-GraphQL state normalization failed'
 : >"$gh_log"
+rm -f "$ready_state"
 apply_cleared_dependency owner/repo "$initial" >/dev/null
 edit=$(<"$gh_log")
 [[ $edit == *'--remove-label status:blocked'* ]] || fail 'blocked label was not removed'
@@ -163,12 +179,14 @@ edit=$(<"$gh_log")
 [[ $(wc -l <"$gh_log") -eq 1 ]] || fail 'status swap used more than one edit call'
 
 fake_mode=stale
+rm -f "$ready_state"
 if apply_cleared_dependency owner/repo "$initial" >/dev/null 2>"$tmp_dir/stale"; then
 	fail 'stale dependent snapshot must cancel the transition'
 fi
 rg -q 'stale evaluation' "$tmp_dir/stale" || fail 'stale snapshot was not reported'
 
 fake_mode=changed-body
+rm -f "$ready_state"
 if apply_cleared_dependency owner/repo "$initial" >/dev/null 2>"$tmp_dir/changed"; then
 	fail 'changed dependency body must cancel the transition'
 fi
@@ -176,13 +194,25 @@ rg -q 'dependency snapshot changed' "$tmp_dir/changed" ||
 	fail 'changed dependency body was not reported'
 
 fake_mode=conflict
+rm -f "$ready_state"
 if apply_cleared_dependency owner/repo "$initial" >/dev/null 2>"$tmp_dir/conflict"; then
 	fail 'conflicting post-write status must be reported'
 fi
 rg -q 'conflicting status write' "$tmp_dir/conflict" || fail 'conflict was not actionable'
 
+fake_mode=race
+rm -f "$ready_state"
+: >"$gh_log"
+if apply_cleared_dependency owner/repo "$initial" >/dev/null 2>"$tmp_dir/race"; then
+	fail 'a blocker reopened during the edit must restore blocked status'
+fi
+rg -q 'restored #101 to status:blocked' "$tmp_dir/race" ||
+	fail 'post-write blocker race was not restored'
+rg -q -- '--add-label status:blocked' "$gh_log" || fail 'race did not restore blocked label'
+
 for failure_mode in label-fail edit-fail postread-fail; do
 	fake_mode=$failure_mode
+	rm -f "$ready_state"
 	if apply_cleared_dependency owner/repo "$initial" >/dev/null \
 		2>"$tmp_dir/$failure_mode"; then
 		fail "$failure_mode must fail closed"
