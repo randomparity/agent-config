@@ -41,11 +41,20 @@ one `gh issue edit` call that removes every current `status:` label and adds
 `status:ready`. A failure to ensure the destination label or update the issue is reported
 and does not count as a transition.
 
+The lifecycle contract assumes its documented one-writer-per-transition-edge discipline:
+merge cleanup and recovery never write this edge concurrently. Immediately before the edit,
+the writer re-reads the dependent's state, labels, body, and every blocker. A changed or
+unreadable value cancels the transition and reports a stale evaluation. After the edit it
+reads the labels back and reports failure unless `status:ready` is the only `status:` value.
+This does not claim transactional isolation from an operator editing GitHub concurrently;
+it makes the supported workflow deterministic and detects conflicting status writes.
+
 ## Shared recipe and ownership
 
-`github-tracking` documents a `reconcile_cleared_dependencies` shell recipe. It lists open
-issues once with explicit JSON fields, filters blocked non-epics client-side, parses body
-lines, resolves blockers, and either plans or applies transitions. Its mode is explicit:
+`github-tracking` documents a `reconcile_cleared_dependencies` shell recipe. It exhaustively
+lists open issues with explicit JSON fields and pagination, filters blocked non-epics
+client-side, parses body lines, resolves blockers, and either plans or applies transitions.
+It must not silently truncate the repository at the CLI default page. Its mode is explicit:
 
 - apply mode is owned primarily by `merge-cleanup` after the merged issue is verified
   closed; it evaluates all blocked dependents, which supports multiple dependents and avoids
@@ -80,6 +89,8 @@ as executable shell. It proves:
   not transition;
 - the update is one label edit containing removal of every prior `status:` label plus the
   addition of `status:ready`;
+- a dependent beyond one result page is evaluated, and a changed pre-write snapshot cancels
+  the edit while a conflicting post-write status is reported;
 - plan mode emits the same eligible set without writing, and confirmed apply performs the
   repair.
 
