@@ -18,10 +18,15 @@ it does not add agent-native copies, an ADR, or a migration.
 - Interactive invocation keeps the current behavior: report the observed baseline
   failures, ask whether to proceed or investigate, and wait for the answer.
 - Dispatched invocation exists only when a caller or orchestrator explicitly states that
-  mode. Written caller instructions may resolve the failure choice.
+  mode. Only an applicable caller instruction or repository rule that explicitly says how
+  to handle a failed baseline resolves the choice. Generic dispatch, autonomy, or
+  task-completion language does not grant permission to continue.
 - Without resolving written instructions, a dispatched invocation reports the observed
   failures as a blocker and returns to its caller. It does not ask an unavailable user,
   infer permission, or continue implementation.
+- Normal instruction priority applies when multiple explicit sources address the gate. If
+  that priority does not yield one unambiguous action, the dispatched invocation returns
+  the blocker.
 - The canonical rule and its quick-reference/error guidance agree.
 - Automated proof checks both branches in the canonical source and in the installed
   Claude, Codex, and Bob projections.
@@ -33,11 +38,13 @@ before any gate. Make the baseline-failure step state the two branches explicitl
 the quick reference and failure guidance to repeat the same behavior without adding a new
 mechanism.
 
-Extend `install-test.sh` with a focused contract assertion. It checks the distinctive
-interactive and dispatched instructions in the canonical skill, then applies the same
-assertion after installation to each supported agent target. The existing recursive diff
-continues to prove every installed skills tree is byte-identical to the canonical tree;
-the focused assertions make the lifecycle contract legible when they fail.
+Extend `install-test.sh` with focused transcript fixtures for the cases below. Each fixture
+names its mode and authority input, required report and control transfer, and forbidden
+behavior. Run the same fixture assertions against the canonical skill and each supported
+agent target. The existing recursive diff continues to prove every installed skills tree
+is byte-identical to the canonical tree. These deterministic checks prove the distributed
+instruction contract; they do not claim to measure arbitrary model compliance outside the
+checked transcript cases.
 
 ## Considered approaches
 
@@ -60,18 +67,30 @@ blocker. It must not infer consent, weaken or skip the baseline, or continue imp
 No new model call or latency budget is introduced. Success is the focused deterministic
 contract test plus the repository guardrails.
 
-| Failure mode | Severity | CI evidence |
-|---|---:|---|
-| Dispatched worker waits for a user | 4 | canonical and installed copies contain the return-a-blocker branch |
-| Dispatched worker infers permission and continues | 4 | blocker branch explicitly forbids inference and continuation |
-| Interactive invocation loses its decision gate | 4 | canonical and installed copies retain report, ask, and wait behavior |
-| One agent receives different instructions | 4 | each target is contract-checked and byte-compared with the canonical tree |
+- `WT-BL-00`: any mode and a passing baseline reports ready and continues. Reporting a
+  blocker or asking about failure fails the blocking fixture.
+- `WT-BL-01`: interactive mode and a failed baseline reports the failures, asks whether
+  to proceed or investigate, and waits. Inferred permission, an early return, or
+  implementation before the answer fails the blocking fixture.
+- `WT-BL-02`: dispatched mode, a failed baseline, and no resolving authority reports the
+  observed failures as a blocker and returns to the caller. Asking an unavailable user or
+  continuing fails the blocking fixture.
+- `WT-BL-03`: dispatched mode, a failed baseline, and explicit applicable authority to
+  proceed or investigate follows that named action after reporting the failures.
+  Substituting the other action or inferring broader permission fails the blocking fixture.
+- `WT-BL-04`: dispatched mode, a failed baseline, and only generic task-completion or
+  autonomy language follows `WT-BL-02`. Treating dispatch as permission fails the
+  blocking fixture.
+- `WT-BL-05`: dispatched mode, a failed baseline, and authority that remains ambiguous or
+  conflicting after normal priority follows `WT-BL-02`. Guessing an action fails the
+  blocking fixture.
 
-The observed regression is the dispatched baseline-failure case. The corresponding happy
-path is the existing passing-baseline report. Ambiguous or conflicting written caller
-policy is not permission and therefore falls back to a blocker. Permission/privacy,
-stale-source, unsafe-claim, and looping cases are not reachable: this change introduces
-no data source, authorization boundary, model loop, or generated claim.
+`WT-BL-02` is the observed regression fixture. `WT-BL-00` is the happy path;
+`WT-BL-01` protects the interactive default. The remaining cases bound the only allowed
+policy exception. All are code-checked transcript traits, with installer byte comparison
+covering projection equality. Permission/privacy, stale-source, unsafe-claim, and looping
+cases are not separately reachable: this change introduces no data source, authorization
+boundary, model loop, or generated claim.
 
 ## Verification
 
