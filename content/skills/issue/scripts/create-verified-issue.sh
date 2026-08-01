@@ -59,19 +59,38 @@ if [[ -n $parent ]]; then
 fi
 
 created_output=$(gh "${create_args[@]}")
-issue_url=$(printf '%s\n' "$created_output" | rg -o 'https://github\.com/[^/[:space:]]+/[^/[:space:]]+/issues/[0-9]+' | tail -n 1 || true)
+issue_url=$(printf '%s\n' "$created_output" | rg -o 'https://[^/[:space:]]+/[^/[:space:]]+/[^/[:space:]]+/issues/[0-9]+' | tail -n 1 || true)
 if [[ -z $issue_url ]]; then
 	printf 'issue was created but its durable issue URL could not be resolved; creation was not retried\n' >&2
 	exit 1
 fi
 issue_number=${issue_url##*/}
+issue_path=${issue_url#https://}
+issue_path=${issue_path#*/}
+if [[ $issue_path != "$repo/issues/$issue_number" ]]; then
+	printf 'created issue URL does not match repository %s: %s; creation was not retried\n' \
+		"$repo" "$issue_url" >&2
+	exit 1
+fi
 
 if ! issue_json=$(gh issue view "$issue_number" --repo "$repo" \
 	--json number,title,body,labels,parent,state,url); then
 	printf '%s: read-back failed; creation was not retried\n' "$issue_url" >&2
 	exit 1
 fi
-if ! jq -e 'type == "object" and (.number | type == "number") and (.title | type == "string") and (.body | type == "string") and (.labels | type == "array") and (.url | type == "string")' \
+require_parent=false
+[[ -n $parent ]] && require_parent=true
+if ! jq -e --argjson require_parent "$require_parent" '
+	type == "object"
+	and (.number | type == "number")
+	and (.title | type == "string")
+	and (.body | type == "string")
+	and (.labels | type == "array")
+	and all(.labels[]; type == "object" and (.name | type == "string"))
+	and (.url | type == "string")
+	and (($require_parent | not) or
+		((.parent | type == "object") and (.parent.number | type == "number")))
+' \
 	>/dev/null 2>&1 <<<"$issue_json"; then
 	printf '%s: read-back returned malformed or incomplete JSON\n' "$issue_url" >&2
 	exit 1

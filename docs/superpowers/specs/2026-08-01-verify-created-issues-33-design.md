@@ -81,3 +81,21 @@ assert that every skill create path uses the helper, retains its populated tempo
 file, and contains no direct successful `gh issue create` bypass.
 
 `just verify` remains the aggregate local and CI gate.
+
+## Threat model
+
+The helper crosses two trust boundaries. First, confirmed operator inputs enter a `gh`
+argument vector. The local operator is trusted to choose the repository, title, labels,
+body file, and optional parent; the control is strict option parsing, numeric parent
+validation, a populated regular body file, and array-based argument construction with no
+evaluation or shell command string. GitHub.com and GitHub Enterprise hosts are supported,
+but the returned HTTPS URL must resolve to the requested owner/repository and an issue
+number before it can drive read-back.
+
+Second, GitHub CLI output enters the verifier. The remote GitHub service and local `gh`
+configuration can return missing, malformed, or unexpected data. The control is an
+explicit-field read, complete shape validation for every consumed label and parent member,
+literal comparisons against the confirmed draft, and fail-closed diagnostics that retain
+the durable URL whenever it was resolved. External text is never evaluated or used to form
+a shell command. Retry, repair, and replacement writes are out of scope because issue #33
+requires a single durable creation attempt whose mismatch is surfaced to the operator.
