@@ -183,31 +183,73 @@ guarantee in the branch.
 
 ## Failure-mode map
 
-| Failure mode | Severity | Control |
-|---|---:|---|
-| Generated spec becomes its own authority | 5 | external frozen charter and provenance review |
-| Nested interactive call loses access to the user | 4 | root interaction context propagates downstream |
-| Unattended workflow guesses through a design-changing ambiguity | 4 | return-and-park rule |
-| Repeated review authorization mutates scope | 5 | externally sourced charter stays unchanged through the existing bounded review cycle |
-| Explicitly requested atomic behavior is rejected as scope creep | 4 | explicit user decisions are valid provenance |
-| A reviewed artifact, including an unrelated permission or private-data claim, conflicts with the frozen scope | 5 | the complete pre-design charter is carried into review; explicit user change re-freezes it |
-| Reviewer adds controls for an ungrounded promise | 4 | delete-or-weaken-first challenge rule |
+- **Generated spec becomes its own authority — severity 5.** Control: external frozen
+  charter and provenance review.
+- **Nested interactive call loses access to the user — severity 4.** Control: root
+  interaction context propagates downstream.
+- **Unattended workflow guesses through ambiguity — severity 4.** Control: return and
+  park.
+- **Repeated review authorization mutates scope — severity 5.** Control: the external
+  charter stays unchanged through the existing bounded review cycle.
+- **Explicit atomic behavior is rejected as scope creep — severity 4.** Control: explicit
+  user decisions are valid provenance.
+- **A reviewed artifact conflicts with frozen scope — severity 5.** This includes an
+  unrelated permission or private-data claim. Control: the complete pre-design charter is
+  carried into review; an explicit user change re-freezes it.
+- **Reviewer adds controls for an ungrounded promise — severity 4.** Control: challenge
+  deletes or weakens the promise first.
 
 ## Eval cases
 
 The fixtures are deterministic contract-structure checks over the composed canonical
 skills. They prove that the source clauses and handoff ordering remain present; they do not
 observe or predict a live model's response. Each fixture copies the named skills, confirms
-the stated oracle, removes or reorders one required clause, and must then fail.
+the stated oracle, removes or reorders one required clause, and must then fail. Every case
+is a blocking gate.
 
-| ID | Prompt-contract setup | Deterministic oracle | Required negative mutation | Gate |
-|---|---|---|---|---|
-| SCOPE-01 | One canonical source is requested; a spec proposes transactions | `$design` requires provenance and `$challenge` says delete or weaken an ungrounded promise first | remove the delete-or-weaken rule | block |
-| SCOPE-02 | Atomic installation is explicitly requested | `$design` names an explicit user decision as valid provenance before it names high-risk contract examples | remove explicit-user-decision provenance | block |
-| SCOPE-03 | Interactive `$work-issue` nests `$design` | root sets `interaction: interactive`; nested call carries the complete charter including provenance and can return it in `SCOPE CHECKPOINT` | omit provenance, pass only a charter reference, or restore nesting-based unattended inference | block |
-| SCOPE-04 | Operator repeatedly authorizes review up to the existing cycle cap | `$review-loop` states that review authorization leaves its externally sourced charter unchanged | remove the unchanged-charter clause | block |
-| SCOPE-05 | Unattended root reaches ambiguity | `SCOPE CHECKPOINT` precedes trajectory-note and `status:needs-human` parking instructions | remove or reorder the parking handoff | block |
-| SCOPE-06 | Stale reviewed spec proposes an unrelated permission or private-data claim that conflicts with its pre-design charter | `$review-loop` receives the complete external charter and provenance, and forbids target-derived fallback; `$challenge` treats the ungrounded claim as expansion | omit provenance, pass only an identity, or derive authority from the review target | block |
+### SCOPE-01 — reject an ungrounded transaction guarantee
+
+- Setup: one canonical source is requested; a spec proposes transactions.
+- Oracle: `$design` requires provenance and `$challenge` says to delete or weaken an
+  ungrounded promise first.
+- Negative mutation: remove the delete-or-weaken rule.
+
+### SCOPE-02 — allow explicitly requested atomic behavior
+
+- Setup: atomic installation is explicitly requested.
+- Oracle: `$design` names an explicit user decision as valid provenance before it names
+  high-risk contract examples.
+- Negative mutation: remove explicit-user-decision provenance.
+
+### SCOPE-03 — preserve an interactive nested caller
+
+- Setup: interactive `$work-issue` nests `$design`.
+- Oracle: the root sets `interaction: interactive`; the nested call carries the complete
+  charter and provenance and can return it in `SCOPE CHECKPOINT`.
+- Negative mutation: omit provenance, pass only a reference, or restore nesting-based
+  unattended inference.
+
+### SCOPE-04 — keep review authorization separate from scope
+
+- Setup: the operator repeatedly authorizes review up to the existing cycle cap.
+- Oracle: `$review-loop` says review authorization leaves its external charter unchanged.
+- Negative mutation: remove the unchanged-charter clause.
+
+### SCOPE-05 — park an unattended ambiguity
+
+- Setup: an unattended root reaches a design-changing ambiguity.
+- Oracle: `SCOPE CHECKPOINT` precedes trajectory-note and `status:needs-human` parking
+  instructions.
+- Negative mutation: remove or reorder the parking handoff.
+
+### SCOPE-06 — reject target-derived authority
+
+- Setup: a stale reviewed spec proposes an unrelated permission or private-data claim that
+  conflicts with its pre-design charter.
+- Oracle: `$review-loop` receives the complete external charter and provenance and forbids
+  target-derived fallback; `$challenge` treats the ungrounded claim as expansion.
+- Negative mutation: omit provenance, pass only an identity, or derive authority from the
+  review target.
 
 SCOPE-01 is the observed issue 17 regression. SCOPE-03 is the ambiguous-input case.
 SCOPE-06 covers stale/conflicting generated content, forbidden claims, and the
@@ -221,9 +263,9 @@ distinction; it adds no product behavior beyond the workflow's existing parking 
 A focused shell test under `scripts/` copies the canonical skills into a temporary fixture
 root and checks the contract directly. It asserts pre-design ordering in `$work-issue`,
 the explicit `interaction:` and complete-charter carrier including provenance, the
-`SCOPE CHECKPOINT` return path, the provenance rule, the external review charter, and the delete-or-weaken
-recommendation. For every SCOPE case, the test applies the named negative mutation and
-asserts that the same oracle fails. The test joins the existing `just test` recipe and
+`SCOPE CHECKPOINT` return path, the provenance rule, the external review charter, and the
+delete-or-weaken recommendation. For every SCOPE case, the test applies the named negative
+mutation and asserts that the same oracle fails. The test joins the existing `just test` recipe and
 therefore `just verify`/CI. No new dependency is added, and its report calls the result
 prompt-contract coverage rather than model-behavior coverage.
 
