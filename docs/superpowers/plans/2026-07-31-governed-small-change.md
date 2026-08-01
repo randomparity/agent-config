@@ -75,9 +75,10 @@ Add isolated mutations for at least these three named regressions:
 Add separate mutations that remove campaign evidence/revalidation and post-build phase
 preservation. Add a bounded `SCOPE-ORDER` marker for abbreviated-path selection, assert
 with `assert_ordered_clause` that selection precedes `work-design`, and add a mutation
-that moves the selection marker after `work-design`. Update the exact fixture count. Use
-existing `copy_fixture`, `rewrite_block_line_once`, `move_marker_after`, `assert_rule`,
-`assert_ordered_clause`, and `assert_fixture_fails`; do not add another test framework.
+that moves the ordered selection clause and its owned value after `work-design`. Update
+the exact fixture count. Use existing `copy_fixture`, `rewrite_block_line_once`,
+`move_ordered_clause_after`, `assert_rule`, `assert_ordered_clause`, and
+`assert_fixture_fails`; do not add another test framework.
 
 - [ ] **Step 2: Run the focused test and verify RED**
 
