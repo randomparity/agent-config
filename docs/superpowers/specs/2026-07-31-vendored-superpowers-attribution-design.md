@@ -51,6 +51,23 @@ The attribution notice will define coverage by directory root. That makes every 
 file below a listed root covered even when an agent projection has local helper files or
 differs from the upstream snapshot.
 
+The independent expected inventory is eleven derived families in both Claude and Codex,
+plus the two applicable Bob projections, for 24 roots total:
+
+| Derived family | Claude | Codex | Bob |
+|---|---:|---:|---:|
+| `brainstorming` | yes | yes | no |
+| `writing-plans` | yes | yes | no |
+| `executing-plans` | yes | yes | no |
+| `subagent-driven-development` | yes | yes | no |
+| `test-driven-development` | yes | yes | yes |
+| `systematic-debugging` | yes | yes | no |
+| `finishing-a-development-branch` | yes | yes | no |
+| `using-git-worktrees` | yes | yes | no |
+| `receiving-code-review` | yes | yes | no |
+| `requesting-code-review` | yes | yes | no |
+| `verification-before-completion` | yes | yes | yes |
+
 ## Human-gate audit
 
 The audit distinguishes instructions that can stop or redirect execution from examples
@@ -134,6 +151,11 @@ submission. ADR 0004 owns the durable policy:
   lifecycle exceptions remain governed and tracked separately;
 - later shipping skills retain their own push and merge authorization.
 
+ADR 0004 records a narrow exception to ADR 0001 for the canonical license source. Keeping
+`docs/licenses/superpowers.LICENSE` beside the notice makes their legal relationship
+reviewable while the installer deploys only that named file. It does not establish a
+general deployable `docs/` subtree or compete with an existing canonical or native path.
+
 Extend the existing `install_common_content` entry point in `install.sh`. It installs the
 single canonical `docs/licenses/superpowers.LICENSE` source at
 `licenses/superpowers.LICENSE` under each agent target. Because the path goes through
@@ -163,8 +185,10 @@ the source of deployable agent-native files.
   ADR 0004. Its author must update the inventory in the same change.
 - Agent-specific differences are reviewed for semantic policy coverage. They are not
   normalized merely to make files match.
-- If upstream changes license terms, the re-vendor change must retain the terms applying
-  to existing material and add the new terms required by the incoming snapshot.
+- If upstream changes license terms or required notices, the re-vendor change first checks
+  compatibility with the MIT-only policy. Compatible additional notices are captured with
+  the import. An incompatible term or notice stops the import until a superseding ADR is
+  accepted; the existing snapshot retains the terms already applying to it.
 - A future dispatched call into a recorded human gate must return a blocker unless written
   policy fully decides the choice. It may not treat silence as permission.
 - Debt 0002's review date bounds re-evaluation even if no upstream refresh occurs; an
@@ -176,16 +200,21 @@ the source of deployable agent-native files.
   v6.1.1 license blob.
 - Run the installer test red before the common install step changes, then green after each
   Claude, Codex, and Bob target contains a byte-identical managed license.
-- Enumerate the current derived roots and confirm each appears in the attribution notice.
-- Repeat the issue #13 human-reference sweep and confirm each test, debugging,
-  review-reception, and verification result is classified by debt 0002 or documented as
-  descriptive or inapplicable. Confirm lifecycle skills are explicitly excluded rather
-  than silently treated as covered.
+- Enumerate the current derived roots independently from the source tree and compare the
+  result with the eleven-family, 24-root matrix above and the attribution notice.
+- Sweep these finite issue #13 roots: `test-driven-development` in Claude, Codex, and Bob;
+  `systematic-debugging` and `receiving-code-review` in Claude and Codex; and
+  `verification-before-completion` in Claude, Codex, and Bob. Search every file below
+  those roots case-insensitively for `human`, `user`, `ask`, `permission`, `approval`,
+  `discuss`, `clarif`, `partner`, `proceed`, `wait`, `stop`, `direction`, `unclear`, and
+  `verify`; inspect each match semantically and reconcile it with debt 0002's executable
+  or descriptive classification. Confirm lifecycle roots remain explicitly excluded.
 - Run the decision-record checker for ADR 0004 and debt 0002.
 - Run `just verify`, including public-safety, documentation-adjacent record checks, install
   tests, shell lint and formatting, and workflow checks.
-- Review the final diff to ensure it contains no host-specific or private material and no
-  skill or installer behavior change.
+- Review the final diff to ensure it contains no host-specific or private material, no
+  runtime skill change, and no installer behavior change beyond deploying the one managed
+  license path to each applicable target.
 
 ## Scope and decomposition
 

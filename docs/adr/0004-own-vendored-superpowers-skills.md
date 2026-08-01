@@ -39,6 +39,13 @@ canonical license source. `install.sh` deploys that source as
 `licenses/superpowers.LICENSE` into the Claude, Codex, and Bob configuration targets; it
 does not maintain separately editable projection copies.
 
+This legal artifact is a narrow exception to [ADR 0001][adr-0001]: the canonical source
+remains beside its attribution documentation under `docs/licenses/` even though the
+installer deploys it. The exception does not make `docs/` a general payload tree, add a
+second provider for an existing deployed path, or change agent-native projection
+ownership. It keeps the permission text and the inventory explaining its coverage in one
+reviewable location.
+
 An upstream update is a deliberate re-vendor change. It updates the inventory's exact
 release and commit; verifies the applicable upstream license and additional notices; and
 imports only material compatible with this MIT-only policy while capturing every required
@@ -122,6 +129,7 @@ resolve that debt; only the adaptations and proof named by the record do.
   gives the independently changing residual gates their own lifecycle without making the
   governing re-vendor decision ambiguous.
 
+[adr-0001]: 0001-canonical-content-agent-native-projections.md
 [predecessor-15]: https://github.com/randomparity/claude-config/commit/40570ea3
 [predecessor-18]: https://github.com/randomparity/claude-config/commit/4ab6fdd6
 [issue-23]: https://github.com/randomparity/agent-config/issues/23
