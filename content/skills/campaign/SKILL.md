@@ -191,13 +191,26 @@ structured-verdict contract** (a triage-specific extension of the shared subagen
 report contract in `AGENTS.md`) — return only:
 
 - **verdict** — `close-candidate` | `fix` (with the sub-type `trivial-bugfix` |
-  `non-trivial`),
+  `governed-small-change` | `non-trivial`),
 - **evidence** — the citations behind it (`file:line`, commit SHA, PR number),
 - **rationale** — ≤300 tokens of *why*, so step 4 can author the public close
   comment (and the fix-model choice) from the subagent's own finding rather than
   re-investigating,
 
-and nothing else (no pasted issue bodies, diffs, or file contents). The `fix`
+For a `governed-small-change`, evidence also names the stable decision reference,
+decision kind, authoritative accepted status, governed behavior, and explicit testable
+acceptance criteria. These fields are classification evidence, not authority created by
+campaign.
+
+<!-- SCOPE-RULE:governed-evidence -->
+Campaign carries governed-small-change evidence to work-issue; the subtype name alone never authorizes the abbreviated path.
+<!-- SCOPE-RULE:END:governed-evidence -->
+
+Carry those fields verbatim in the `$work-issue` dispatch prompt. `$work-issue` resolves
+the live decision and issue again; stale, conflicting, incomplete, superseded, or
+non-accepted evidence falls back to `non-trivial` and full design.
+
+Return nothing else (no pasted issue bodies, diffs, or file contents). The `fix`
 sub-type is the complexity estimate that drives fix-time model selection (step 4);
 it is N/A for `close-candidate`. `ready-to-merge` is **not** a triage return — it is
 a reconcile-only manifest state (an existing green + mergeable PR, above). The
@@ -221,10 +234,11 @@ The verdict classifies the issue:
   it is closed — this verification is unchanged. If it confirms, keep the verdict; if
   inconclusive, route to the fix path. Do **not** run `gh issue close` here — closes
   execute together in step 4, after the plan table makes every planned close visible.
-- **`fix`** — its sub-type (`trivial-bugfix` vs `non-trivial`) drives fix-time model
-  selection (step 4). A `trivial-bugfix` from a cheap-model triage is a floor, not a
-  ceiling: step 4 may escalate the fix model if the fix proves subtler than triage
-  judged.
+- **`fix`** — its sub-type (`trivial-bugfix`, `governed-small-change`, or
+  `non-trivial`) drives fix-time model selection (step 4). A `trivial-bugfix` or
+  `governed-small-change` from a cheap-model triage is a floor, not a ceiling: step 4
+  may escalate the fix model if the fix proves subtler than triage judged. The latter
+  classification survives dispatch only when `$work-issue` revalidates all evidence.
 
 ## 4. Plan the Fix Batch
 
