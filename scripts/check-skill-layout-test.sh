@@ -24,16 +24,17 @@ assert_fails() {
 
 write_skill() {
 	local root="$1"
-	local name="$2"
-	local body="${3:-# Test skill}"
+	local inventory="$2"
+	local name="$3"
+	local body="${4:-# Test skill}"
 
-	mkdir -p "$root/content/skills/$name"
+	mkdir -p "$root/$inventory/$name"
 	printf '%s\n' \
 		'---' \
 		"name: $name" \
 		'description: "Test skill."' \
 		'---' \
-		"$body" >"$root/content/skills/$name/SKILL.md"
+		"$body" >"$root/$inventory/$name/SKILL.md"
 }
 
 new_fixture() {
@@ -44,7 +45,8 @@ new_fixture() {
 		"$root/agents/codex/shared" "$root/agents/bob/shared"
 	cp "$implementation" "$root/scripts/check-skill-layout.sh"
 	cp "$reserved" "$root/scripts/reserved-skill-names.txt"
-	write_skill "$root" 'skill-01'
+	write_skill "$root" 'content/skills' 'skill-01'
+	write_skill "$root" 'examples/project-review-skills' 'accessibility-reviewer'
 	printf '%s\n' "$root"
 }
 
@@ -56,7 +58,7 @@ trap 'rm -R "$tmpdir"' EXIT
 case_count=0
 
 output="$(cd "$repo_root" && bash scripts/check-skill-layout.sh)"
-[[ "$output" == 'skills-check: ok (35 canonical skills)' ]] || fail "$output"
+[[ "$output" == 'skills-check: ok (35 canonical skills, 1 project review examples)' ]] || fail "$output"
 
 root="$(new_fixture)"
 mkdir -p "$root/content/skills/skill-01/scripts"
@@ -66,9 +68,9 @@ chmod 755 "$root/content/skills/skill-01/scripts/run.sh"
 [[ -x "$root/content/skills/skill-01/scripts/run.sh" ]] || fail 'guard changed file mode'
 
 root="$(new_fixture)"
-write_skill "$root" 'skill-02'
+write_skill "$root" 'content/skills' 'skill-02'
 output="$(cd "$root" && bash scripts/check-skill-layout.sh)"
-[[ "$output" == 'skills-check: ok (2 canonical skills)' ]] || fail "$output"
+[[ "$output" == 'skills-check: ok (2 canonical skills, 1 project review examples)' ]] || fail "$output"
 
 root="$(new_fixture)"
 mkdir -p "$root/agents/codex/nested"
@@ -88,51 +90,89 @@ root="$(new_fixture)"
 ln -s ../../../content/skills "$root/agents/codex/shared/tooling"
 assert_fails 'native symlinks are forbidden' "$root"
 
-root="$(new_fixture)"
-printf '%s\n' '---' 'name: skill-01' 'summary: wrong' '---' '# Body' \
-	>"$root/content/skills/skill-01/SKILL.md"
-assert_fails 'description must be a one-line JSON string' "$root"
+assert_package_case() {
+	local kind="$1"
+	local inventory="$2"
+	local name="$3"
+	local root target expected matching_count
 
-root="$(new_fixture)"
-printf '%s\n' '---' 'name: wrong' 'description: "Test skill."' '---' '# Body' \
-	>"$root/content/skills/skill-01/SKILL.md"
-assert_fails 'name must match its skill directory' "$root"
+	root="$(new_fixture)"
+	target="$root/$inventory/$name"
+	case "$kind" in
+	malformed-frontmatter)
+		printf '%s\n' '---' "name: $name" 'summary: wrong' '---' '# Body' \
+			>"$target/SKILL.md"
+		expected="$inventory/$name/SKILL.md: description must be a one-line JSON string"
+		;;
+	name-mismatch)
+		printf '%s\n' '---' 'name: wrong' 'description: "Test skill."' '---' '# Body' \
+			>"$target/SKILL.md"
+		expected="$inventory/$name/SKILL.md: name must match its skill directory"
+		;;
+	empty-description)
+		printf '%s\n' '---' "name: $name" 'description: ""' '---' '# Body' \
+			>"$target/SKILL.md"
+		expected="$inventory/$name/SKILL.md: description must contain 1-1024 Unicode scalars"
+		;;
+	empty-body)
+		printf '%s\n' '---' "name: $name" 'description: "Test skill."' '---' \
+			>"$target/SKILL.md"
+		expected="$inventory/$name/SKILL.md: non-empty Markdown must follow frontmatter"
+		;;
+	reserved-name)
+		mv "$target" "$root/$inventory/plan"
+		write_skill "$root" "$inventory" 'plan'
+		expected="$inventory/plan: reserved skill name"
+		;;
+	internal-symlink)
+		ln -s SKILL.md "$target/link.md"
+		expected="$inventory/$name/link.md: symlinks are forbidden"
+		;;
+	non-regular-entry)
+		mkfifo "$target/runtime"
+		expected="$inventory/$name/runtime: only regular files and directories are allowed"
+		;;
+	non-portable-path)
+		printf '%s\n' 'resource' >"$target/café.md"
+		expected="$inventory/$name/café.md: path component is not portable ASCII"
+		;;
+	case-fold-collision)
+		printf '%s\n' 'one' >"$target/Readme.md"
+		printf '%s\n' 'two' >"$target/readme.md"
+		matching_count="$(find "$target" -maxdepth 1 -iname 'readme.md' | wc -l | tr -d ' ')"
+		[[ "$matching_count" -eq 2 ]] || return 0
+		expected="$inventory: ASCII case-fold path collision"
+		;;
+	invalid-utf8)
+		printf '\377' >"$target/SKILL.md"
+		expected="$inventory/$name/SKILL.md: file must be valid UTF-8"
+		;;
+	*) fail "unknown package case: $kind" ;;
+	esac
+	assert_fails "$expected" "$root"
+}
 
-root="$(new_fixture)"
-printf '%s\n' '---' 'name: skill-01' 'description: ""' '---' '# Body' \
-	>"$root/content/skills/skill-01/SKILL.md"
-assert_fails 'description must contain 1-1024 Unicode scalars' "$root"
-
-root="$(new_fixture)"
-printf '%s\n' '---' 'name: skill-01' 'description: "Test skill."' '---' \
-	>"$root/content/skills/skill-01/SKILL.md"
-assert_fails 'non-empty Markdown must follow frontmatter' "$root"
-
-root="$(new_fixture)"
-mv "$root/content/skills/skill-01" "$root/content/skills/plan"
-printf '%s\n' '---' 'name: plan' 'description: "Test skill."' '---' '# Body' \
-	>"$root/content/skills/plan/SKILL.md"
-assert_fails 'content/skills/plan: reserved skill name' "$root"
-
-root="$(new_fixture)"
-ln -s SKILL.md "$root/content/skills/skill-01/link.md"
-assert_fails 'content/skills/skill-01/link.md: symlinks are forbidden' "$root"
-
-root="$(new_fixture)"
-mkfifo "$root/content/skills/skill-01/runtime"
-assert_fails 'only regular files and directories are allowed' "$root"
-
-root="$(new_fixture)"
-printf '%s\n' 'resource' >"$root/content/skills/skill-01/café.md"
-assert_fails 'path component is not portable ASCII' "$root"
-
-root="$(new_fixture)"
-printf '%s\n' 'one' >"$root/content/skills/skill-01/Readme.md"
-printf '%s\n' 'two' >"$root/content/skills/skill-01/readme.md"
-assert_fails 'content/skills: ASCII case-fold path collision' "$root"
+for inventory_name in 'content/skills:skill-01' \
+	'examples/project-review-skills:accessibility-reviewer'; do
+	inventory="${inventory_name%%:*}"
+	name="${inventory_name#*:}"
+	for package_case in malformed-frontmatter name-mismatch empty-description empty-body \
+		reserved-name internal-symlink non-regular-entry non-portable-path \
+		case-fold-collision invalid-utf8; do
+		assert_package_case "$package_case" "$inventory" "$name"
+	done
+done
 
 root="$(new_fixture)"
 printf '%s\n' 'Use ~/.codex/skills here.' >>"$root/content/skills/skill-01/SKILL.md"
 assert_fails 'installed config-root reference is forbidden' "$root"
+
+root="$(new_fixture)"
+mv "$root/examples/project-review-skills" "$root/project-review-skills"
+assert_fails 'examples/project-review-skills: project review tree is missing' "$root"
+
+root="$(new_fixture)"
+printf '%s\n' 'not a package' >"$root/examples/project-review-skills/README.md"
+assert_fails 'examples/project-review-skills/README.md: children must be skill directories' "$root"
 
 printf 'check-skill-layout-test: ok (%d focused failures)\n' "$case_count"
