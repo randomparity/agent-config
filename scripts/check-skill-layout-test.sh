@@ -170,6 +170,38 @@ assert_fails \
 root="$(new_fixture)"
 printf '%s\n' \
 	'' \
+	'-   outer item' \
+	'    - nested item' \
+	'      nested continuation' \
+	'    [Broken outer continuation](missing-outer-continuation.md)' \
+	>>"$root/content/skills/skill-01/SKILL.md"
+assert_fails \
+	'content/skills/skill-01/SKILL.md: broken relative link: missing-outer-continuation.md' \
+	"$root"
+
+root="$(new_fixture)"
+printf '%s\n' \
+	'' \
+	'-' \
+	'    [Broken empty unordered item](missing-empty-unordered.md)' \
+	>>"$root/content/skills/skill-01/SKILL.md"
+assert_fails \
+	'content/skills/skill-01/SKILL.md: broken relative link: missing-empty-unordered.md' \
+	"$root"
+
+root="$(new_fixture)"
+printf '%s\n' \
+	'' \
+	'1.' \
+	'    [Broken empty ordered item](missing-empty-ordered.md)' \
+	>>"$root/content/skills/skill-01/SKILL.md"
+assert_fails \
+	'content/skills/skill-01/SKILL.md: broken relative link: missing-empty-ordered.md' \
+	"$root"
+
+root="$(new_fixture)"
+printf '%s\n' \
+	'' \
 	'- item' \
 	'    [Helper continuation](helper.sh)' \
 	'' \

@@ -173,18 +173,31 @@ markdown_with_indentation_marks() {
       leading_characters = position - 1
       return columns
     }
+    function list_marker_allowed(base, depth) {
+      if (base <= 3) return 1
+      for (depth = container_depth; depth >= 1; depth--) {
+        if (base >= container_indents[depth] &&
+            base - container_indents[depth] <= 3) return 1
+      }
+      return 0
+    }
     function list_content_indent(line, base, candidate, separator, marker, padding) {
       base = leading_columns(line, 0)
       candidate = substr(line, leading_characters + 1)
       separator = match(candidate, /[ \t]/)
-      if (separator == 0) return 0
-      marker = substr(candidate, 1, separator - 1)
+      if (separator == 0) {
+        marker = candidate
+        padding = 1
+      } else marker = substr(candidate, 1, separator - 1)
       if (marker !~ /^[-+*]$/ &&
           (marker !~ /^[0-9]+[.)]$/ || length(marker) > 10)) return 0
-      if (base > 3 && (container_indent == 0 || base < container_indent)) return 0
-      padding = leading_columns(substr(candidate, separator), base + length(marker))
-      padding -= base + length(marker)
-      if (padding > 4) padding = 1
+      if (!list_marker_allowed(base)) return 0
+      if (separator != 0) {
+        padding = leading_columns(substr(candidate, separator), base + length(marker))
+        padding -= base + length(marker)
+        if (padding > 4) padding = 1
+      }
+      list_marker_indent = base
       return base + length(marker) + padding
     }
     {
@@ -192,14 +205,21 @@ markdown_with_indentation_marks() {
       content_indent = list_content_indent($0)
       indented_code = 0
       if (content_indent > 0) {
-        container_indent = content_indent
-      } else if ($0 !~ /^[ \t]*$/) {
-        if (container_indent > 0 && indentation >= container_indent) {
-          indented_code = indentation - container_indent >= 4
-        } else {
-          container_indent = 0
-          indented_code = indentation >= 4
+        while (container_depth > 0 &&
+               list_marker_indent < container_indents[container_depth]) {
+          delete container_indents[container_depth]
+          container_depth--
         }
+        container_indents[++container_depth] = content_indent
+      } else if ($0 !~ /^[ \t]*$/) {
+        while (container_depth > 0 &&
+               indentation < container_indents[container_depth]) {
+          delete container_indents[container_depth]
+          container_depth--
+        }
+        if (container_depth > 0)
+          indented_code = indentation - container_indents[container_depth] >= 4
+        else indented_code = indentation >= 4
       }
       print (indented_code ? "1" : "0") $0
     }
