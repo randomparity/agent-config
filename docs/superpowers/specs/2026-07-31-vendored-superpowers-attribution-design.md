@@ -18,7 +18,8 @@ human-gate concern into one target-owned debt record grounded in the current pro
 
 - Preserve the upstream MIT license text from Superpowers 6.1.1, copyright Jesse Vincent.
 - Distribute local modifications within the covered derived roots under the same MIT
-  terms, as explicitly authorized by the operator.
+  terms, as explicitly confirmed by the repository owner. Future covered-root
+  contributions require the same inbound grant.
 - Attribute every file in each current derived skill root, including local additions and
   modifications beneath those roots.
 - Record the canonical upstream repository, tag `v6.1.1`, and exact commit
@@ -28,8 +29,9 @@ human-gate concern into one target-owned debt record grounded in the current pro
   on the old Claude plugin arrangement.
 - Reserve ADR 0004 for issue #6 and debt 0002 for issue #13. The directory listing is the
   record index; no hand-maintained index is added.
-- Keep the change to repository documentation and attribution. It does not re-vendor skill
-  contents, add a generator, or change installation behavior.
+- Install the canonical license with every Claude, Codex, and Bob target that receives
+  derived skills. Do not create independently edited projection license sources.
+- Do not re-vendor skill contents, add a generator, or change runtime skill behavior.
 - Use both issues' acceptance criteria and the operator's two resolved decisions as the
   approved requirement in dispatched design mode.
 
@@ -83,6 +85,12 @@ keeps the license authoritative, and handles locally added files beneath derived
 Place a license beside every projected skill. This is locally visible but repeats the
 same legal text across 24 roots and creates unnecessary drift and review noise.
 
+### Repository-only license
+
+Leave the license under `docs/licenses/` and depend on users retaining the checkout. This
+does not cover the installer's normal distribution path, which copies derived skill trees
+into agent configuration directories without the repository documentation tree.
+
 ### Canonical vendored tree with generated projections
 
 Move derived files into one canonical tree and generate per-agent copies. This might
@@ -113,6 +121,13 @@ duplicating the inventory. ADR 0004 owns the durable policy:
 - dispatched gates resolve from written policy or return a blocker, never infer permission;
 - later shipping skills retain their own push and merge authorization.
 
+Extend the existing `install_common_content` entry point in `install.sh`. It installs the
+single canonical `docs/licenses/superpowers.LICENSE` source at
+`licenses/superpowers.LICENSE` under each agent target. Because the path goes through
+`install_managed_path`, it participates in the existing source validation, safe-parent,
+drift backup, manifest, and pruning behavior. `install-test.sh` compares each installed
+license byte-for-byte with the canonical source after `--agent all`.
+
 Create debt 0002 for the audited residual TDD, debugging, review-reception, and
 subagent-development gates. It records the projection matrix, sanctioned resolution
 choices, non-regression boundary, predecessor commit, and a 2026-10-31 review date.
@@ -127,6 +142,9 @@ of deployable agent-native files.
 - A missing or altered license is visible as a normal repository diff and fails review;
   the implementation copies the source blob already verified against upstream and the
   predecessor repository.
+- A missing canonical source makes `install_managed_path` fail with its existing
+  actionable missing-source error. Installed drift follows the existing backup and
+  replacement behavior rather than a license-specific path.
 - A future derived root not present in the notice is an incomplete re-vendor change under
   ADR 0004. Its author must update the inventory in the same change.
 - Agent-specific differences are reviewed for semantic policy coverage. They are not
@@ -142,6 +160,8 @@ of deployable agent-native files.
 
 - Compare `docs/licenses/superpowers.LICENSE` byte-for-byte with the verified upstream
   v6.1.1 license blob.
+- Run the installer test red before the common install step changes, then green after each
+  Claude, Codex, and Bob target contains a byte-identical managed license.
 - Enumerate the current derived roots and confirm each appears in the attribution notice.
 - Repeat the human-reference sweep and confirm every result is classified by debt 0002 or
   documented as descriptive or inapplicable.
@@ -154,9 +174,10 @@ of deployable agent-native files.
 ## Scope and decomposition
 
 The operator authorized issue #6 to absorb issue #13 because the general dispatched policy
-and its current residual must be reviewed together. The license, notice, README link, ADR,
-debt record, and design/plan artifacts are one consistency unit and ship in one pull
-request that closes both trackers. Runtime skill adaptations remain deferred to debt 0002.
+and its current residual must be reviewed together. The license, notice, installer path,
+installer test, README link, ADR, debt record, and design/plan artifacts are one consistency
+unit and ship in one pull request that closes both trackers. Runtime skill adaptations
+remain deferred to debt 0002.
 
 [adr-0004]: ../../adr/0004-own-vendored-superpowers-skills.md
 [debt-0002]: ../../debt/0002-non-lifecycle-vendored-skills-retain-human-gates.md
