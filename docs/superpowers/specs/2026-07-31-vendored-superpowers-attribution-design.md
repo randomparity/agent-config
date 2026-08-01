@@ -200,8 +200,9 @@ the source of deployable agent-native files.
   v6.1.1 license blob.
 - Run the installer test red before the common install step changes, then green after each
   Claude, Codex, and Bob target contains a byte-identical managed license.
-- Enumerate the current derived roots independently from the source tree and compare the
-  result with the eleven-family, 24-root matrix above and the attribution notice.
+- Enumerate the current derived roots from the source tree independently of the attribution
+  notice, then compare the result with the provenance-derived eleven-family, 24-root matrix
+  above and the notice.
 - Sweep these finite issue #13 roots: `test-driven-development` in Claude, Codex, and Bob;
   `systematic-debugging` and `receiving-code-review` in Claude and Codex; and
   `verification-before-completion` in Claude, Codex, and Bob. Search every file below
