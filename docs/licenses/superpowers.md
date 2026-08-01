@@ -1,6 +1,6 @@
 # Superpowers-derived skill attribution
 
-This repository maintains agent-native forks of selected skills from
+This repository maintains canonical Agent Skills forks of selected packages from
 [obra/superpowers](https://github.com/obra/superpowers), tag `v6.1.1`, commit
 `d884ae04edebef577e82ff7c4e143debd0bbec99`.
 
@@ -10,40 +10,24 @@ modifications below the covered roots use the same MIT terms.
 
 ## Covered roots
 
-Every file below these roots is covered, including local additions and modifications.
+Every file below these canonical roots is covered, including local additions and
+modifications:
 
-### Claude
+- `content/skills/brainstorming/`
+- `content/skills/writing-plans/`
+- `content/skills/executing-plans/`
+- `content/skills/subagent-driven-development/`
+- `content/skills/test-driven-development/`
+- `content/skills/systematic-debugging/`
+- `content/skills/finishing-a-development-branch/`
+- `content/skills/using-git-worktrees/`
+- `content/skills/receiving-code-review/`
+- `content/skills/requesting-code-review/`
+- `content/skills/verification-before-completion/`
 
-- `agents/claude/shared/skills/brainstorming/`
-- `agents/claude/shared/skills/writing-plans/`
-- `agents/claude/shared/skills/executing-plans/`
-- `agents/claude/shared/skills/subagent-driven-development/`
-- `agents/claude/shared/skills/test-driven-development/`
-- `agents/claude/shared/skills/systematic-debugging/`
-- `agents/claude/shared/skills/finishing-a-development-branch/`
-- `agents/claude/shared/skills/using-git-worktrees/`
-- `agents/claude/shared/skills/receiving-code-review/`
-- `agents/claude/shared/skills/requesting-code-review/`
-- `agents/claude/shared/skills/verification-before-completion/`
-
-### Codex
-
-- `agents/codex/shared/skills/brainstorming/`
-- `agents/codex/shared/skills/writing-plans/`
-- `agents/codex/shared/skills/executing-plans/`
-- `agents/codex/shared/skills/subagent-driven-development/`
-- `agents/codex/shared/skills/test-driven-development/`
-- `agents/codex/shared/skills/systematic-debugging/`
-- `agents/codex/shared/skills/finishing-a-development-branch/`
-- `agents/codex/shared/skills/using-git-worktrees/`
-- `agents/codex/shared/skills/receiving-code-review/`
-- `agents/codex/shared/skills/requesting-code-review/`
-- `agents/codex/shared/skills/verification-before-completion/`
-
-### IBM Bob
-
-- `agents/bob/shared/skills/test-driven-development/`
-- `agents/bob/shared/skills/verification-before-completion/`
+The installer copies the canonical skill tree to Claude, Codex, and IBM Bob and installs
+the canonical license as `licenses/superpowers.LICENSE` in each target. Those installed
+copies are outputs of the covered roots, not independently maintained sources.
 
 ## Contributions and updates
 
@@ -54,13 +38,14 @@ cannot merge.
 
 An upstream refresh is a deliberate re-vendor change. It must record the exact incoming
 release and commit, verify compatible license terms and required notices, preserve local
-adaptations, and update every applicable projection and this inventory together. An
-incompatible term or notice requires a superseding ADR before import.
+adaptations, and update every applicable canonical package and this inventory together.
+An incompatible term or notice requires a superseding ADR before import.
 
 ## Provenance
 
 The predecessor repository recorded the original selection and dispatched lifecycle
 adaptation in [ADR 0015](https://github.com/randomparity/claude-config/commit/40570ea3)
 and [ADR 0018](https://github.com/randomparity/claude-config/commit/4ab6fdd6).
-[ADR 0004](../adr/0004-own-vendored-superpowers-skills.md) is the governing policy in
-this repository.
+[ADR 0005](../adr/0005-own-vendored-superpowers-skills.md) is the governing vendoring
+policy in this repository; [ADR 0004](../adr/0004-canonical-agent-skills.md) owns the
+canonical multi-agent skill layout.

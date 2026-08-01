@@ -307,10 +307,9 @@ automatic marker rewrites, not the required human completions. Run `just verify`
 after creating, superseding, resolving, or migrating a record.
 
 The root package under `.github/scripts/` owns the repository gate. Its checker,
-suite, migrator, and `adr` and `debt` profiles must remain byte-identical to both
-agent projections under `agents/claude/shared/skills/decision-records/assets/`
-and `agents/codex/shared/skills/decision-records/assets/`; `just records` checks
-that invariant. GitHub requires the producer-bound lowercase `verify` check on
+suite, migrator, and `adr` and `debt` profiles must remain byte-identical to the
+canonical copies under `content/skills/decision-records/assets/`; `just records`
+checks that invariant. GitHub requires the producer-bound lowercase `verify` check on
 `main`; issue #16 records the failing-PR enforcement proof and recovery procedure.
 
 ## Source Material
