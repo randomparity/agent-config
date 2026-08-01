@@ -24,6 +24,7 @@ format:
 test:
   ./install-test.sh
   ./install-tools-test.sh
+  ./scripts/install-identity-test.sh
 
 public-safety:
   ./scripts/check-public-safety.sh
