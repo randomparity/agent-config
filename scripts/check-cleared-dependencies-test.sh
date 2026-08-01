@@ -40,14 +40,26 @@ fake_mode=normal
 
 gh() {
 	if [[ $1 == api ]]; then
+		if [[ $fake_mode == api-fail ]]; then
+			printf 'API \033[31mdenied\n' >&2
+			return 1
+		fi
 		printf '%s\n' '[[{"number":101,"state":"open","body":"Blocked by #1","labels":[{"name":"status:blocked"},{"name":"status:in-progress"}]},{"number":102,"state":"open","body":"Blocked by #1\nBlocked by #2","labels":[{"name":"status:blocked"}]},{"number":103,"state":"open","body":"Blocked by #abc","labels":[{"name":"status:blocked"}]},{"number":104,"state":"open","body":"Blocked by #1","labels":[{"name":"status:blocked"},{"name":"epic"}]}],[{"number":106,"state":"open","body":"Blocked by #1","labels":[{"name":"status:blocked"}]}]]'
 		return
 	fi
 	if [[ $1 == label && $2 == create ]]; then
 		[[ $* == *'--repo owner/repo'* ]] || fail 'label create omitted the target repo'
+		if [[ $fake_mode == label-fail ]]; then
+			printf 'label \033[31mdenied\n' >&2
+			return 1
+		fi
 		return
 	fi
 	if [[ $1 == issue && $2 == edit ]]; then
+		if [[ $fake_mode == edit-fail ]]; then
+			printf 'edit \033[31mdenied\n' >&2
+			return 1
+		fi
 		printf '%s\n' "$*" >>"$gh_log"
 		: >"$ready_state"
 		return
@@ -72,7 +84,10 @@ gh() {
 			;;
 		101)
 			if [[ $* == *'--json labels'* ]]; then
-				if [[ $fake_mode == conflict ]]; then
+				if [[ $fake_mode == postread-fail ]]; then
+					printf 'read \033[31mdenied\n' >&2
+					return 1
+				elif [[ $fake_mode == conflict ]]; then
 					printf '%s\n' '{"labels":[{"name":"status:ready"},{"name":"status:blocked"}]}'
 				else
 					printf '%s\n' '{"labels":[{"name":"status:ready"}]}'
@@ -165,6 +180,24 @@ if apply_cleared_dependency owner/repo "$initial" >/dev/null 2>"$tmp_dir/conflic
 	fail 'conflicting post-write status must be reported'
 fi
 rg -q 'conflicting status write' "$tmp_dir/conflict" || fail 'conflict was not actionable'
+
+for failure_mode in label-fail edit-fail postread-fail; do
+	fake_mode=$failure_mode
+	if apply_cleared_dependency owner/repo "$initial" >/dev/null \
+		2>"$tmp_dir/$failure_mode"; then
+		fail "$failure_mode must fail closed"
+	fi
+	if LC_ALL=C rg -q $'\033' "$tmp_dir/$failure_mode"; then
+		fail "$failure_mode leaked a control character"
+	fi
+done
+fake_mode=api-fail
+if reconcile_cleared_dependencies plan owner/repo >/dev/null 2>"$tmp_dir/api-fail"; then
+	fail 'unreadable issue listing must fail closed'
+fi
+if LC_ALL=C rg -q $'\033' "$tmp_dir/api-fail"; then
+	fail 'issue-list error leaked a control character'
+fi
 
 assert_text "$repo_root/content/skills/merge-cleanup/SKILL.md" \
 	'reconcile_cleared_dependencies apply'

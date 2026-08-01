@@ -181,23 +181,25 @@ cleared_dependency_candidate() { # issue-json
 }
 
 ensure_cleared_dependency_label() { # repo
-  local repo=$1 err
+  local repo=$1 err safe
   if ! err=$(gh label create 'status:ready' --repo "$repo" --color 0e8a16 \
     --description 'triaged, eligible for work' 2>&1); then
     [[ $err == *'already exists'* ]] && return 0
-    printf 'cannot create status:ready: %s — grant label-write scope\n' "$err" >&2
+    safe=$(printf '%s' "$err" | cleared_dependency_safe_text)
+    printf 'cannot create status:ready: %s — grant label-write scope\n' "$safe" >&2
     return 1
   fi
 }
 
 apply_cleared_dependency() { # repo issue-json
   local repo=$1 initial=$2 number current body final label status_labels
-  local initial_snapshot current_snapshot snapshot_filter
+  local initial_snapshot current_snapshot snapshot_filter err safe
   local -a remove_args=()
   number=$(jq -r .number <<<"$initial")
   if ! current=$(gh issue view "$number" --repo "$repo" \
-    --json number,state,body,labels); then
-    printf 'unreadable dependent #%s; kept blocked\n' "$number" >&2
+    --json number,state,body,labels 2>&1); then
+    safe=$(printf '%s' "$current" | cleared_dependency_safe_text)
+    printf 'unreadable dependent #%s: %s; kept blocked\n' "$number" "$safe" >&2
     return 1
   fi
   if ! cleared_dependency_candidate "$current"; then
@@ -226,14 +228,26 @@ apply_cleared_dependency() { # repo issue-json
     remove_args+=(--remove-label "$label")
   done < <(jq -r '.labels[].name | select(startswith("status:"))' <<<"$current")
   ensure_cleared_dependency_label "$repo" || return 1
-  if ! gh issue edit "$number" --repo "$repo" "${remove_args[@]}" \
-    --add-label 'status:ready'; then
-    printf 'label update failed for #%s; inspect its status labels\n' "$number" >&2
+  if ! err=$(gh issue edit "$number" --repo "$repo" "${remove_args[@]}" \
+    --add-label 'status:ready' 2>&1); then
+    safe=$(printf '%s' "$err" | cleared_dependency_safe_text)
+    printf 'label update failed for #%s: %s; inspect its status labels\n' \
+      "$number" "$safe" >&2
     return 1
   fi
-  final=$(gh issue view "$number" --repo "$repo" --json labels)
-  status_labels=$(jq -c '[.labels[].name | select(startswith("status:"))]' \
-    <<<"$final")
+  if ! final=$(gh issue view "$number" --repo "$repo" --json labels 2>&1); then
+    safe=$(printf '%s' "$final" | cleared_dependency_safe_text)
+    printf 'verification unreadable for #%s: %s; inspect its status labels\n' \
+      "$number" "$safe" >&2
+    return 1
+  fi
+  if ! status_labels=$(jq -c \
+    '[.labels[].name | select(startswith("status:"))]' <<<"$final" 2>&1); then
+    safe=$(printf '%s' "$status_labels" | cleared_dependency_safe_text)
+    printf 'verification unreadable for #%s: %s; inspect its status labels\n' \
+      "$number" "$safe" >&2
+    return 1
+  fi
   if [[ $status_labels != '["status:ready"]' ]]; then
     printf 'conflicting status write on #%s; expected only status:ready\n' \
       "$number" >&2
@@ -253,13 +267,15 @@ reconcile_cleared_dependencies() { # plan|apply owner/name
     return 2
   }
   pages=$(gh api --paginate --slurp -X GET \
-    "repos/$repo/issues?state=open&per_page=100") || {
-    printf 'cannot list open dependents; no labels changed\n' >&2
+    "repos/$repo/issues?state=open&per_page=100" 2>&1) || {
+    pages=$(printf '%s' "$pages" | cleared_dependency_safe_text)
+    printf 'cannot list open dependents: %s; no labels changed\n' "$pages" >&2
     return 1
   }
   if ! issues=$(jq -ce '[.[][] | select(has("pull_request") | not)]' \
-    <<<"$pages"); then
-    printf 'cannot parse open dependents; no labels changed\n' >&2
+    <<<"$pages" 2>&1); then
+    issues=$(printf '%s' "$issues" | cleared_dependency_safe_text)
+    printf 'cannot parse open dependents: %s; no labels changed\n' "$issues" >&2
     return 1
   fi
   while IFS= read -r issue; do
@@ -273,13 +289,13 @@ reconcile_cleared_dependencies() { # plan|apply owner/name
       [[ $selected == true ]] || continue
     fi
     body=$(jq -r '.body // ""' <<<"$issue")
-    if ! cleared_dependency_body_verdict "$repo" "$number" "$body"; then
-      printf '%s\n' "$cleared_dependency_reason" >&2
-      [[ $cleared_dependency_error == true ]] && failures=1
-      continue
-    fi
     if [[ $mode == plan ]]; then
-      printf 'ready #%s\n' "$number"
+      if cleared_dependency_body_verdict "$repo" "$number" "$body"; then
+        printf 'ready #%s\n' "$number"
+      else
+        printf '%s\n' "$cleared_dependency_reason" >&2
+        [[ $cleared_dependency_error == true ]] && failures=1
+      fi
     else
       apply_cleared_dependency "$repo" "$issue" || failures=1
     fi
