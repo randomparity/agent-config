@@ -40,6 +40,19 @@ validate_native_sources() {
 	done < <(find "$repo_root/agents" ! -path "$repo_root/agents" -print0)
 }
 
+validate_example_skill_locations() {
+	local path
+	local relative
+
+	[[ -d "$examples_root" ]] || return 0
+	while IFS= read -r -d '' path; do
+		relative="${path#"$examples_root/"}"
+		[[ "$relative" =~ ^project-review-skills/[^/]+/SKILL\.md$ ]] ||
+			skill_error "examples/$relative" \
+				'SKILL.md is allowed only under examples/project-review-skills'
+	done < <(find "$examples_root" \( -type f -o -type l \) -name SKILL.md -print0)
+}
+
 validate_relative_path() {
 	local relative="$1"
 	local inventory="$2"
@@ -159,12 +172,14 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "$script_dir/.." && pwd)"
 reserved="$script_dir/reserved-skill-names.txt"
 skills_root="$repo_root/content/skills"
+examples_root="$repo_root/examples"
 project_review_root="$repo_root/examples/project-review-skills"
 workspace="$(mktemp -d "${TMPDIR:-/tmp}/agent-skills-check.XXXXXX")"
 trap 'rm -R "$workspace"' EXIT
 
 validate_reserved_names
 validate_native_sources
+validate_example_skill_locations
 validate_portable_tree "$skills_root" 'content/skills' 'canonical tree is missing'
 validate_portable_tree "$project_review_root" 'examples/project-review-skills' \
 	'project review tree is missing'

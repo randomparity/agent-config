@@ -68,15 +68,43 @@ trap 'rm -R "$tmpdir"' EXIT
 case_count=0
 
 example_skill="$repo_root/examples/project-review-skills/accessibility-reviewer/SKILL.md"
+bob_instructions="$repo_root/examples/bob-project/AGENTS.md"
+legacy_bob_skill="$repo_root/examples/bob-project/.bob/skills/project-context/SKILL.md"
+root="$(new_fixture)"
+mkdir -p "$root/examples/other"
+printf '%s\n' '# Unauthorized example skill' >"$root/examples/other/SKILL.md"
+assert_fails \
+	'examples/other/SKILL.md: SKILL.md is allowed only under examples/project-review-skills' \
+	"$root"
+
+[[ ! -e "$legacy_bob_skill" && ! -L "$legacy_bob_skill" ]] ||
+	fail "expected legacy Bob skill source to be absent: $legacy_bob_skill"
+assert_contains \
+	"Copy \`project-context\` from \`examples/project-review-skills/project-context/\` to \`.bob/skills/project-context/\`." \
+	"$bob_instructions"
+
 assert_contains "\`approve\` when no findings remain and no manual checks remain" "$example_skill"
 assert_contains "\`needs-attention\` when issues need changes" "$example_skill"
 assert_contains "\`needs-manual-check\` when manual checks remain" "$example_skill"
 assert_contains "\`not-applicable\` when the target has no user-facing UI" "$example_skill"
 assert_contains "Do not use \`approve\` when manual checks remain." "$example_skill"
 assert_contains 'policy can be found, stop with an actionable error' "$example_skill"
+assert_contains \
+	"Any source finding takes precedence over outstanding manual checks: return \`needs-attention\`." \
+	"$example_skill"
+assert_contains 'Apply only accessibility requirements named by the project policy.' \
+	"$example_skill"
+assert_contains 'Record the normalized inspected target in every verdict.' "$example_skill"
+assert_contains 'Record the normalized inspected target in every target-resolution error.' \
+	"$example_skill"
+assert_contains 'Use the same base branch or explicit file list as the preceding branch review.' \
+	"$example_skill"
+assert_contains \
+	"Keep outstanding manual checks in the report when source findings return \`needs-attention\`." \
+	"$example_skill"
 
 output="$(cd "$repo_root" && bash scripts/check-skill-layout.sh)"
-[[ "$output" == 'skills-check: ok (35 canonical skills, 1 project review examples)' ]] || fail "$output"
+[[ "$output" == 'skills-check: ok (35 canonical skills, 2 project review examples)' ]] || fail "$output"
 
 root="$(new_fixture)"
 mkdir -p "$root/content/skills/skill-01/scripts"

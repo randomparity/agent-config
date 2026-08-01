@@ -109,18 +109,19 @@ installed. They depend on the reviewed project's targets and declared policy, so
 project adopts the example it needs instead of adding an unfamiliar review workflow to
 every agent installation.
 
-Place a selected review skill in the project's agent-native directory:
+Copy a selected review skill to its exact package path in the project's agent-native directory:
 
-- Claude: `.claude/skills/`
-- Codex: `.agents/skills/`
-- Bob: `.bob/skills/`
+- Claude: `.claude/skills/accessibility-reviewer/`
+- Codex: `.agents/skills/accessibility-reviewer/`
+- Bob: `.bob/skills/accessibility-reviewer/`
 
 For example, a project instruction can integrate the accessibility reviewer as follows:
 
 ```text
-For UI-affecting changes, invoke accessibility-reviewer after normal branch review.
-Disposition defensible findings, rerun the reviewer after behavioral fixes, and treat
-unresolved manual checks according to this project's accessibility policy.
+For UI-affecting changes, invoke accessibility-reviewer after normal branch review with the
+same base branch or explicit file list used by that review. Disposition defensible findings,
+rerun the reviewer after behavioral fixes, and treat unresolved manual checks according to this
+project's accessibility policy.
 ```
 
 ## Private Overlays
@@ -154,7 +155,9 @@ It also writes MCP config to both:
 - `~/.bob/mcp.json`
 - `~/.bob/mcp_settings.json`
 
-Bob project-local examples live under `examples/bob-project/.bob/`.
+Bob project-local settings examples live under `examples/bob-project/.bob/`. Copyable
+project-review skill sources live under `examples/project-review-skills/`, including the
+`project-context` package shown in the Bob project instructions.
 
 ## Verification
 

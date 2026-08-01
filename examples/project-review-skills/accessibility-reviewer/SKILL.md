@@ -7,25 +7,30 @@ description: "Use when reviewing UI changes for accessibility."
 
 ## Target resolution
 
-Resolve the requested UI change to the files, routes, or components under review. If the
-target cannot be resolved, stop with an actionable error that states what target is needed.
+Require the caller to supply the same base branch or explicit file list used by the preceding
+branch review. Use the same base branch or explicit file list as the preceding branch review.
+Normalize that input to the files, routes, or components under review and call it the inspected
+target. If the target cannot be resolved, stop with an actionable error that states what target
+is needed. Record the normalized inspected target in every target-resolution error.
 
 ## Required project policy
 
 Discover and read the project's applicable accessibility policy before reviewing. If no
 policy can be found, stop with an actionable error that identifies the policy location or
-owner needed to continue.
+owner needed to continue. Also read the relevant UI or design-system conventions.
+Apply only accessibility requirements named by the project policy.
 
 ## Applicability
 
-Confirm that the target changes a user-facing interface. Report a not-applicable verdict
-when it does not; otherwise, review only the affected interface and its relevant states.
+Confirm that the inspected target changes a user-facing interface. Report a not-applicable
+verdict when it does not; otherwise, review only the affected interface and its relevant states.
 
 ## Source review
 
 Review semantic structure, keyboard operation and focus, names and labels, form errors,
 color and contrast, media alternatives, motion, zoom and responsive reflow, and status
-messages. Apply the project's policy and the applicable accessibility standard together.
+messages when the project policy names those requirements. Use the relevant UI or design-system
+conventions to understand the target without adding requirements beyond the project policy.
 
 ## Manual checks
 
@@ -43,6 +48,11 @@ Use one verdict:
 - `not-applicable` when the target has no user-facing UI.
 
 Do not use `approve` when manual checks remain.
+Record the normalized inspected target in every verdict.
+Any source finding takes precedence over outstanding manual checks: return `needs-attention`.
+Keep outstanding manual checks in the report when source findings return `needs-attention`.
+Return `needs-manual-check` only when manual checks remain without source findings. Return
+`approve` only when neither source findings nor manual checks remain.
 
 ## Findings
 
