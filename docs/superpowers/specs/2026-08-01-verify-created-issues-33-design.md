@@ -16,13 +16,13 @@ state repair are excluded. There are no unresolved ambiguities. Interaction is u
 
 ## Approaches considered
 
-### Recommended: a small shell verifier called by the skill
+### Recommended: a small verified-create shell boundary called by the skill
 
-Add a focused script that accepts the repository, issue reference, expected title, body
-file, labels, and optional parent. It performs explicit-field GitHub reads, compares the
-durable result with the confirmed draft, and returns a precise failure report. The skill
-invokes it immediately after each creation. This makes the behavior executable and allows
-the required failure modes to be tested without live GitHub writes.
+Add a focused script that accepts the repository, confirmed title, populated body file,
+labels, and optional parent. It creates exactly one issue, performs explicit-field GitHub
+reads, compares the durable result with the confirmed draft, and returns the URL only after
+verification passes. This makes the original create-to-success boundary executable and
+allows the required failure modes to be tested without live GitHub writes.
 
 ### Inline checks in `SKILL.md`
 
@@ -30,30 +30,33 @@ The workflow could document a sequence of `gh` and `jq` commands directly. This 
 file count low, but the partial-decomposition and malformed-response cases would be hard to
 test, and agents could reproduce the sequence inconsistently.
 
-### One end-to-end creator script
+### Put the whole issue workflow in one script
 
-A larger script could own both creation and verification. That would make creation
-transaction-like, but it duplicates the skill's confirmation, triage, recovery, and
-decomposition policy. It is more surface than the defect requires.
+A larger script could own confirmation, triage, recovery, decomposition, creation, and
+verification. That would duplicate the skill's policy and is more surface than the defect
+requires. The selected helper deliberately owns only the single durable write and its
+postcondition.
 
 ## Design
 
-`verify-created-issue.sh` is a postcondition checker, not a creator. It reads the issue
-using `gh issue view` with explicit JSON fields. For sub-issues it separately enumerates
-the intended parent's native sub-issues and confirms that the created issue number is
-present. Expected labels are supplied as repeated arguments so spaces and colons remain
-literal. The populated body file is retained by the caller and supplies the confirmed
-body contract without standard-input shortcuts.
+`create-verified-issue.sh` is the single-create boundary, not the policy workflow. It calls
+`gh issue create` exactly once with `--body-file`, captures the returned durable URL, and
+reads the issue using `gh issue view` with explicit JSON fields. For sub-issues it
+exhaustively enumerates the intended parent's native sub-issues with pagination and confirms
+that the created issue number is present. Expected labels are supplied as repeated
+arguments so spaces and colons remain literal. The populated body file is retained by the
+caller and supplies the confirmed body contract without standard-input shortcuts.
 
 The verifier accumulates all mismatches before failing. It always includes the durable
-issue URL when GitHub returned one and identifies each failed property: title, empty body,
-missing mandatory section, label, or parent. It never calls `gh issue create`, edits an
-issue, or retries creation.
+issue URL and reports expected versus observed title, every missing mandatory section,
+every missing intended label, and the expected versus observed parent relationship. An
+empty or malformed body is named precisely. After its one creation call, the helper never
+edits, retries, or creates a replacement.
 
-The skill's create and decompose paths capture the URL returned by `gh issue create`, then
-invoke the verifier before printing or otherwise treating that URL as success. During
-decomposition, verification runs after each child. If child N fails, the workflow reports
-the partial result and stops; earlier children remain durable and no replacement child is
+The skill's create and decompose paths invoke the helper only after confirmation and treat
+its verified output as the sole success result. During decomposition, the helper runs once
+per child. If child N fails verification, the workflow reports that durable URL and exact
+mismatches, then stops; earlier children remain durable and no replacement child is
 created.
 
 ## Error handling and safety
@@ -67,12 +70,13 @@ be reported as successful or duplicated.
 
 ## Tests
 
-A shell test supplies a fake `gh` executable and fixtures for successful issue and
-sub-issue verification. It covers empty body, missing section, wrong title, missing label,
-wrong parent, malformed read-back data, and successful verification. A workflow contract
-test exercises partial decomposition failure by verifying that the documented loop stops
-at the failed child, reports its durable URL, and does not create a replacement. Tests also
-assert that the skill retains populated temporary body files and uses `--body-file`, and
-that every create path invokes read-back verification before success.
+A shell integration test supplies a fake `gh` executable and runs the actual helper. It
+proves that success is withheld until read-back passes and covers empty body, missing
+section, wrong title, missing label, wrong parent, a child beyond the first parent-response
+page, malformed read-back data, and successful creation. It also runs the documented
+decomposition loop against the helper to prove that partial failure stops later creates,
+reports the failed child's durable URL, and never creates a replacement. Contract checks
+assert that every skill create path uses the helper, retains its populated temporary body
+file, and contains no direct successful `gh issue create` bypass.
 
 `just verify` remains the aggregate local and CI gate.
