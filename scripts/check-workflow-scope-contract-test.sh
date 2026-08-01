@@ -187,6 +187,8 @@ check_contract() {
 		"Build-time scope expansion stops implementation, re-freezes scope, and runs full design without automatically reselecting the abbreviated path." || return 1
 	assert_rule "$campaign" governed-evidence \
 		"Campaign carries governed-small-change evidence to work-issue; the subtype name alone never authorizes the abbreviated path." || return 1
+	assert_rule "$campaign" governed-dispatch-evidence \
+		"A governed-small-change dispatch carries the triage subtype, decision reference, decision kind, authoritative accepted status, governed behavior, and explicit testable acceptance criteria." || return 1
 }
 
 check_durable_contract() {
@@ -316,6 +318,14 @@ run_governed_fixtures() {
 		"Campaign passes only the governed-small-change subtype name."
 	assert_fixture_fails governed-campaign-evidence \
 		"rule governed-evidence missing instruction" "$fixture"
+
+	fixture=$(copy_fixture governed-dispatch-evidence)
+	file=$(skill_path "$fixture" campaign)
+	rewrite_block_line_once "$file" RULE governed-dispatch-evidence \
+		"A governed-small-change dispatch carries the triage subtype, decision reference, decision kind, authoritative accepted status, governed behavior, and explicit testable acceptance criteria." \
+		"A governed-small-change dispatch carries only the triage subtype."
+	assert_fixture_fails governed-dispatch-evidence \
+		"rule governed-dispatch-evidence missing instruction" "$fixture"
 
 	fixture=$(copy_fixture governed-post-build-controls)
 	file=$(skill_path "$fixture" work-issue)
@@ -517,7 +527,7 @@ run_scope_fixtures
 run_governed_fixtures
 run_extractor_tests
 run_review_fixtures
-[[ "$fixture_count" -eq 18 ]] || fail "expected 18 SCOPE fixtures, got $fixture_count"
+[[ "$fixture_count" -eq 19 ]] || fail "expected 19 SCOPE fixtures, got $fixture_count"
 [[ "$extractor_count" -eq 3 ]] || fail "expected 3 extractor tests, got $extractor_count"
 printf 'workflow-scope-contract-test: ok (%d fixtures, %d extractor tests)\n' \
 	"$fixture_count" "$extractor_count"

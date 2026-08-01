@@ -326,6 +326,9 @@ lifecycle transcript. That report, not the transcript, is what bounds the
 orchestrator's per-issue context. Each prompt carries:
 
 - issue number and acceptance criteria,
+<!-- SCOPE-RULE:governed-dispatch-evidence -->
+A governed-small-change dispatch carries the triage subtype, decision reference, decision kind, authoritative accepted status, governed behavior, and explicit testable acceptance criteria.
+<!-- SCOPE-RULE:END:governed-dispatch-evidence -->
 - the **assigned ADR/migration numbers** and **file scope** from the manifest,
 - the guardrail commands, `BASE_BRANCH`, and the ADR-index coupling verdict from
   step 2 — the last so an ADR-producing run knows whether to carry its own index
