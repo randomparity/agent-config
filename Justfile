@@ -47,6 +47,7 @@ test:
   ./install-tools-test.sh
   ./content/skills/issue/scripts/create-verified-issue-test.sh
   ./scripts/check-public-safety-test.sh
+  ./scripts/check-deployed-references-test.sh
   ./scripts/check-workflow-scope-contract-test.sh
   ./scripts/check-cleared-dependencies-test.sh
 
@@ -56,11 +57,14 @@ skills-check:
 public-safety:
   ./scripts/check-public-safety.sh
 
+references-check:
+  ./scripts/check-deployed-references.sh
+
 actions-check:
   actionlint
   zizmor --offline .github/workflows/
 
-verify: tools-check records lint format-check skills-check test public-safety actions-check
+verify: tools-check records lint format-check skills-check test public-safety references-check actions-check
 
 ci: verify
   prek run --all-files
