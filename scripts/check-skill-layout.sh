@@ -17,9 +17,9 @@ validate_reserved_names() {
 		case "$entry" in
 		'' | \#*) continue ;;
 		esac
-		[[ "$entry" =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?$ ]] &&
-			[[ "$entry" != *--* ]] ||
+		if [[ ! "$entry" =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?$ || "$entry" == *--* ]]; then
 			skill_error 'scripts/reserved-skill-names.txt' "invalid name: $entry"
+		fi
 	done <"$reserved"
 }
 
@@ -120,9 +120,10 @@ validate_skill() {
 	local skill_dir="$1"
 	local name="${skill_dir##*/}"
 
-	[[ "$name" =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?$ ]] &&
-		[[ "$name" != *--* && ${#name} -le 64 ]] ||
+	if [[ ! "$name" =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?$ ||
+		"$name" == *--* || ${#name} -gt 64 ]]; then
 		skill_error "content/skills/$name" 'invalid skill name'
+	fi
 	if rg -Fxq "$name" "$reserved"; then
 		skill_error "content/skills/$name" 'reserved skill name'
 	fi
