@@ -10,7 +10,8 @@ The `epic` skill turns a feature idea into the dependency-ordered work set consu
 `campaign`. The durable planning artifact, the boundary between planning and workable
 items, and the ownership of tracker state must remain clear across tracker adapters.
 
-This record migrates predecessor ADR 0002 from `randomparity/claude-config`.
+This record migrates
+[predecessor ADR 0002](https://github.com/randomparity/claude-config/blob/main/docs/adr/0002-epic-command-composes-issue-decompose.md).
 
 ## Decision
 
@@ -20,7 +21,7 @@ never directly workable; its state derives from single-level child issues. Child
 their own readiness, unresolved-question, and ordering-dependency state, and `campaign`
 operates on those children only. Creating the work set does not start execution.
 
-The policy is tracker-neutral: one durable parent, native parent-child relationships,
+The policy is tracker-neutral: one durable parent, durable parent-child relationships,
 independently actionable children, and durable child lifecycle state. The GitHub adapter
 stores the PRD in an `epic`-labelled issue body, uses native sub-issues, omits `status:` from
 the parent, and represents an ordering dependency with `status:blocked` plus `Blocked by

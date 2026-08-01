@@ -10,7 +10,8 @@ Correctly triaged work can remain quiet indefinitely. Reporting that fact merely
 durable tracker state and never reduces the queue, while closing without notice can discard
 work that is still wanted.
 
-This record migrates predecessor ADR 0022 from `randomparity/claude-config`.
+This record migrates
+[predecessor ADR 0022](https://github.com/randomparity/claude-config/blob/main/docs/adr/0022-groom-closes-stale-issues-recoverably.md).
 
 ## Decision
 
