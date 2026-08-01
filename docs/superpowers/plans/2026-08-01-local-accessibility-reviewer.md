@@ -5,10 +5,10 @@
 **Goal:** Document project-local review-skill integration and provide a validated,
 copyable Accessibility Reviewer example that is never globally installed.
 
-**Architecture:** Keep local examples in a separate `examples/project-review-skills/`
-inventory. Extend the existing skill-layout guard to validate that inventory with the same
-portable package rules as global skills, while the installer continues to copy only
-`content/skills/`.
+**Architecture:** ADR 0020 authorizes one non-installed example inventory at
+`examples/project-review-skills/`. The skill-layout guard validates that inventory with
+the same portable package rules as global skills and rejects `SKILL.md` elsewhere under
+`examples/`, while the installer continues to copy only `content/skills/`.
 
 **Tech Stack:** Bash, Agent Skills Markdown/YAML frontmatter, repository shell fixtures,
 `just` guardrails.
@@ -17,10 +17,15 @@ portable package rules as global skills, while the installer continues to copy o
 
 - Branch: `feat/accessibility-reviewer-31`; base: `main`.
 - Keep the example outside `content/skills/` and every `agents/*/shared/` tree.
+- Permit project-review example `SKILL.md` files only under
+  `examples/project-review-skills/`, as recorded by ADR 0020.
 - Do not change `review-loop` behavior or add dependencies.
 - The reviewer is read-only unless a caller separately requests fixes.
 - The reviewer never returns `approve` while a manual check remains unresolved.
 - Missing project accessibility policy stops review instead of selecting a fallback.
+- Apply only requirements named by project policy and read relevant UI conventions.
+- Use deterministic verdict precedence: source findings, then manual checks, then approve.
+- Record the normalized target in every verdict and use the preceding branch-review target.
 - Run `just verify` before every commit; CI runs `just ci`.
 - Rollback is `git revert` of the task's commit; no external state is created.
 
@@ -172,9 +177,104 @@ git add README.md install-test.sh
 git commit -m "docs: explain local review skill integration"
 ```
 
+### Task 3: Enforce the authorized boundary and finish the review contract
+
+**Files:**
+
+- Modify: `AGENTS.md`
+- Modify: `README.md`
+- Modify: `examples/project-review-skills/accessibility-reviewer/SKILL.md`
+- Modify: `scripts/check-skill-layout.sh`
+- Modify: `scripts/check-skill-layout-test.sh`
+
+**Interfaces:**
+
+- Consumes: ADR 0020, the project accessibility policy, relevant UI conventions, and the
+  exact base or file target used by the preceding branch review.
+- Produces: one normalized inspected target and exactly one verdict with precedence
+  `needs-attention` → `needs-manual-check` → `approve`; `not-applicable` also names the
+  target.
+
+- [ ] **Step 1: Add failing boundary and reviewer-contract tests**
+
+Add a fixture at `examples/other/SKILL.md` and expect the skill-layout check to fail with:
+
+```text
+examples/other/SKILL.md: SKILL.md is allowed only under examples/project-review-skills
+```
+
+Extend the existing example-content assertions to require these exact behavioral clauses:
+
+```text
+Any source finding takes precedence over outstanding manual checks: return `needs-attention`.
+Apply only accessibility requirements named by the project policy.
+Record the normalized inspected target in every verdict.
+Use the same base branch or explicit file list as the preceding branch review.
+```
+
+Run: `bash scripts/check-skill-layout-test.sh`
+
+Expected: FAIL because the checker permits another `examples/` skill and the example lacks
+the four contract clauses.
+
+- [ ] **Step 2: Enforce ADR 0020's single example inventory**
+
+Before validating the authorized inventory, scan regular or symlinked files named
+`SKILL.md` below `examples/`. Reject every match outside
+`examples/project-review-skills/<package>/SKILL.md` with the exact diagnostic above. Do
+not reject ordinary example Markdown or agent-native files that are not named `SKILL.md`.
+
+- [ ] **Step 3: Complete the Accessibility Reviewer contract**
+
+Require the caller to supply the same base branch or explicit file list used by the
+preceding branch review. Normalize and report that target in all four verdicts and target
+errors. Read the project's declared accessibility policy plus relevant UI or design-system
+conventions. Apply only requirements named by that policy. Define mixed-result precedence:
+source findings return `needs-attention` while manual checks remain listed; only manual
+checks return `needs-manual-check`; neither returns `approve`.
+
+- [ ] **Step 4: Align repository and integration documentation**
+
+Update `AGENTS.md` to state that reusable installed workflow sources live only under
+`content/skills/`, with ADR 0020's sole non-installed, copyable exception under
+`examples/project-review-skills/`. Preserve the prohibition on agent-native skill and
+command sources.
+
+Update README destinations to the exact package paths:
+
+```text
+.claude/skills/accessibility-reviewer/
+.agents/skills/accessibility-reviewer/
+.bob/skills/accessibility-reviewer/
+```
+
+Update the sample instruction to pass the same base or explicit file list used by the
+preceding branch review.
+
+- [ ] **Step 5: Run focused and full verification**
+
+Run: `bash scripts/check-skill-layout-test.sh`
+
+Expected: PASS, including the unauthorized-example failure and reviewer-contract checks.
+
+Run: `./install-test.sh`
+
+Expected: PASS; the example remains absent from all global destinations.
+
+Run: `just verify`
+
+Expected: PASS with zero warnings.
+
+- [ ] **Step 6: Commit the bounded review integration**
+
+```bash
+git add AGENTS.md README.md examples/project-review-skills/accessibility-reviewer/SKILL.md scripts/check-skill-layout.sh scripts/check-skill-layout-test.sh
+git commit -m "fix: bound project review skill examples"
+```
+
 ## Self-review
 
-- Every spec requirement maps to Task 1 or Task 2.
+- Every spec requirement maps to Task 1, Task 2, or Task 3.
 - No placeholder steps or unresolved signatures remain.
 - The checker extension precedes the example it validates.
 - Focused checks run before the full guardrail in each task.
