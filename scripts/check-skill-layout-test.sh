@@ -71,6 +71,10 @@ example_skill="$repo_root/examples/project-review-skills/accessibility-reviewer/
 bob_instructions="$repo_root/examples/bob-project/AGENTS.md"
 repo_instructions="$repo_root/AGENTS.md"
 legacy_bob_skill="$repo_root/examples/bob-project/.bob/skills/project-context/SKILL.md"
+applicability_line="$(rg -n '^## Applicability$' "$example_skill" | cut -d: -f1)"
+policy_line="$(rg -n '^## Required project policy$' "$example_skill" | cut -d: -f1)"
+[[ "$applicability_line" -lt "$policy_line" ]] ||
+	fail 'accessibility applicability must precede project-policy discovery'
 root="$(new_fixture)"
 mkdir -p "$root/examples/other"
 printf '%s\n' '# Unauthorized example skill' >"$root/examples/other/SKILL.md"

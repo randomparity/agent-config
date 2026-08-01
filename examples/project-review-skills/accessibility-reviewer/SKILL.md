@@ -15,6 +15,11 @@ Also report the accepted base-branch or explicit-file-list forms.
 Create the normalized inspected target only after resolution succeeds.
 Stop an empty or unresolved target before any review work or verdict.
 
+## Applicability
+
+Confirm that the inspected target changes a user-facing interface. Report a not-applicable
+verdict when it does not; otherwise, review only the affected interface and its relevant states.
+
 ## Required project policy
 
 Discover and read the project's applicable accessibility policy before reviewing. If no
@@ -24,11 +29,6 @@ Apply only accessibility requirements named by the project policy.
 If the found policy declares no accessibility baseline or requirements, stop before reviewing.
 Identify the policy and the owner or action needed to declare requirements.
 Do not return `approve` for a policy with no declared accessibility requirements.
-
-## Applicability
-
-Confirm that the inspected target changes a user-facing interface. Report a not-applicable
-verdict when it does not; otherwise, review only the affected interface and its relevant states.
 
 ## Source review
 
