@@ -26,27 +26,37 @@ portable package rules as global skills, while the installer continues to copy o
 
 ---
 
-### Task 1: Validate project-local review examples
+### Task 1: Add and validate the project-local review example
 
 **Files:**
 
 - Modify: `scripts/check-skill-layout-test.sh`
 - Modify: `scripts/check-skill-layout.sh`
+- Create: `examples/project-review-skills/accessibility-reviewer/SKILL.md`
 
 **Interfaces:**
 
 - Consumes: the existing portable path, package name, frontmatter, UTF-8, regular-file,
   no-symlink, and reserved-name validation rules.
-- Produces: validation of direct packages under `examples/project-review-skills/`, reported
-  separately from the canonical global skill count.
+- Produces: the Accessibility Reviewer package and validation of direct packages under
+  `examples/project-review-skills/`, reported separately from the canonical global skill
+  count.
 
 - [ ] **Step 1: Add a valid local-example fixture and a failing frontmatter case**
 
 Add a `write_project_review_skill` fixture helper that writes
 `examples/project-review-skills/<name>/SKILL.md`. Seed `accessibility-reviewer` in every
 fixture. Update the real-repository and two-skill expected summaries to include one
-project-review example. Add a case whose example uses `summary:` instead of `description:`
-and expect:
+project-review example. Add focused cases for:
+
+- a non-directory child directly under `examples/project-review-skills/`;
+- a symlink inside the local example;
+- a non-portable path component inside the local example;
+- a case-folded duplicate path inside the local example;
+- a reserved local example name; and
+- an example using `summary:` instead of `description:`.
+
+For the malformed frontmatter case, expect:
 
 ```text
 examples/project-review-skills/accessibility-reviewer/SKILL.md: description must be a one-line JSON string
@@ -56,10 +66,18 @@ examples/project-review-skills/accessibility-reviewer/SKILL.md: description must
 
 Run: `bash scripts/check-skill-layout-test.sh`
 
-Expected: FAIL because the current checker ignores malformed project-review examples or
-because its summary omits the new inventory.
+Expected: FAIL because the current checker ignores project-review examples and its summary
+omits the new inventory.
 
-- [ ] **Step 3: Generalize the existing validator only as far as the second inventory**
+- [ ] **Step 3: Write the example skill**
+
+Create four-line frontmatter with `name: accessibility-reviewer` and a description that
+triggers for accessibility review of UI changes. Implement sections for target resolution,
+required project-policy discovery, applicability, source review categories, manual-check
+classification, the four verdicts, finding fields, and read-only constraints. State that
+an unresolved target or missing policy stops with an actionable error.
+
+- [ ] **Step 4: Generalize the existing validator only as far as the second inventory**
 
 Change path reporting to derive paths relative to the repository. Add a function that
 requires `examples/project-review-skills/`, validates each direct child with the existing
@@ -70,7 +88,7 @@ config-root scan scoped to installed `content/skills/`. Emit:
 skills-check: ok (<N> canonical skills, <M> project review examples)
 ```
 
-- [ ] **Step 4: Run focused tests and repository guardrails**
+- [ ] **Step 5: Run focused tests and repository guardrails**
 
 Run: `bash scripts/check-skill-layout-test.sh`
 
@@ -80,18 +98,17 @@ Run: `just verify`
 
 Expected: PASS with zero warnings.
 
-- [ ] **Step 5: Commit the structural guard**
+- [ ] **Step 6: Commit the example and structural guard**
 
 ```bash
-git add scripts/check-skill-layout.sh scripts/check-skill-layout-test.sh
-git commit -m "test: validate local review skill examples"
+git add examples/project-review-skills/accessibility-reviewer/SKILL.md scripts/check-skill-layout.sh scripts/check-skill-layout-test.sh
+git commit -m "feat: add local accessibility reviewer example"
 ```
 
-### Task 2: Add and document the Accessibility Reviewer
+### Task 2: Document integration and prove global exclusion
 
 **Files:**
 
-- Create: `examples/project-review-skills/accessibility-reviewer/SKILL.md`
 - Modify: `README.md`
 - Modify: `install-test.sh`
 
@@ -120,15 +137,7 @@ point one assertion at an existing global skill, confirm it fails with `expected
 absent`, then restore the assertion before continuing. This is a test-sensitivity check,
 not a committed mutation.
 
-- [ ] **Step 3: Write the example skill**
-
-Create four-line frontmatter with `name: accessibility-reviewer` and a description that
-triggers for accessibility review of UI changes. Implement sections for target resolution,
-required project-policy discovery, applicability, source review categories, manual-check
-classification, the four verdicts, finding fields, and read-only constraints. State that
-an unresolved target or missing policy stops with an actionable error.
-
-- [ ] **Step 4: Document local placement and workflow integration**
+- [ ] **Step 3: Document local placement and workflow integration**
 
 Add a `Project-local review skills` README section. Explain why these examples are not
 globally installed, list the Claude `.claude/skills/`, Codex `.agents/skills/`, and Bob
@@ -137,7 +146,7 @@ after normal branch review for UI-affecting changes, dispositions defensible fin
 reruns after behavioral fixes, and treats unresolved manual checks according to project
 policy.
 
-- [ ] **Step 5: Run focused and full verification**
+- [ ] **Step 4: Run focused and full verification**
 
 Run: `bash scripts/check-skill-layout-test.sh`
 
@@ -151,11 +160,11 @@ Run: `just verify`
 
 Expected: PASS with zero warnings.
 
-- [ ] **Step 6: Commit the example and documentation**
+- [ ] **Step 5: Commit the integration documentation and proof**
 
 ```bash
-git add README.md install-test.sh examples/project-review-skills/accessibility-reviewer/SKILL.md
-git commit -m "feat: add local accessibility reviewer example"
+git add README.md install-test.sh
+git commit -m "docs: explain local review skill integration"
 ```
 
 ## Self-review
