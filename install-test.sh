@@ -39,6 +39,23 @@ assert_executable() {
 	[[ -x "$1" ]] || fail "expected executable: $1"
 }
 
+assert_canonical_skills() {
+	local destination="$1"
+	local expected_identity
+	local actual_identity
+	local count
+
+	expected_identity="$(identity_path "$REPO/content/skills")"
+	actual_identity="$(identity_path "$destination/skills")"
+	[[ "$actual_identity" == "$expected_identity" ]] ||
+		fail "installed skills differ from canonical tree: $destination/skills"
+	count="$(find "$destination/skills" -mindepth 1 -maxdepth 1 -type d | wc -l)"
+	[[ "$count" -eq 35 ]] ||
+		fail "expected 35 canonical skills in $destination/skills, got $count"
+	assert_file "$destination/skills/simplify-changes/SKILL.md"
+	assert_not_file "$destination/skills/simplify/SKILL.md"
+}
+
 assert_tree_contains() {
 	local dir="$1"
 	local expected="$2"
@@ -71,6 +88,12 @@ seed_stale_manifest() {
 	write_text "$dest/runtime-state.txt" "runtime"
 	write_text "$dest/.agent-config-manifest" "stale-managed.txt"
 }
+
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/install-identity.sh
+# Resolved from the repository root established above.
+# shellcheck disable=SC1091
+source "$REPO/scripts/install-identity.sh"
 
 tmpdir="$(mktemp -d "${TMPDIR:-/tmp}/agent-config-test.XXXXXX")"
 trap 'rm -R "$tmpdir"' EXIT
@@ -111,14 +134,14 @@ AGENT_CONFIG_HOST=test-host ./install.sh --agent all
 
 assert_file "$CLAUDE_CONFIG_DIR/CLAUDE.md"
 assert_file "$CLAUDE_CONFIG_DIR/settings.json"
-assert_file "$CLAUDE_CONFIG_DIR/skills/test-driven-development/SKILL.md"
+assert_canonical_skills "$CLAUDE_CONFIG_DIR"
 assert_file "$CLAUDE_CONFIG_DIR/languages/bash.md"
 assert_executable "$CLAUDE_CONFIG_DIR/statusline.sh"
 assert_json_value "$CLAUDE_CONFIG_DIR/settings.json" ".env.AGENT_CONFIG_TEST" "claude"
 
 assert_file "$CODEX_CONFIG_DIR/AGENTS.md"
 assert_file "$CODEX_CONFIG_DIR/config.toml"
-assert_file "$CODEX_CONFIG_DIR/skills/work-issue/SKILL.md"
+assert_canonical_skills "$CODEX_CONFIG_DIR"
 assert_file "$CODEX_CONFIG_DIR/references/orchestration.md"
 assert_toml_contains "$CODEX_CONFIG_DIR/config.toml" 'agent_config_test = "codex"'
 
@@ -128,7 +151,7 @@ assert_file "$BOB_CONFIG_DIR/custom_modes.yaml"
 assert_file "$BOB_CONFIG_DIR/mcp.json"
 assert_file "$BOB_CONFIG_DIR/mcp_settings.json"
 assert_file "$BOB_CONFIG_DIR/rules/global-development-standards.md"
-assert_file "$BOB_CONFIG_DIR/skills/test-driven-development/SKILL.md"
+assert_canonical_skills "$BOB_CONFIG_DIR"
 assert_json_value "$BOB_CONFIG_DIR/settings.json" ".agentConfigTest.bob" "true"
 assert_json_value "$BOB_CONFIG_DIR/mcp.json" '.mcpServers["example-docs"].command' "npx"
 assert_json_value "$BOB_CONFIG_DIR/mcp_settings.json" '.mcpServers["example-docs"].command' "npx"

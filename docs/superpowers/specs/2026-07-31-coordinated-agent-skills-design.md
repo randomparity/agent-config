@@ -18,7 +18,7 @@ coordinated and must not be able to drift.
 
 The repository currently has three ownership paths:
 
-- `agents/codex/shared/skills/` contains 36 workflows and supporting files.
+- `agents/codex/shared/skills/` contains 35 workflows and supporting files.
 - `agents/claude/shared/skills/` contains 14 overlapping workflows, while 21
   more workflows are duplicated as legacy files under `commands/`.
 - `agents/bob/shared/skills/` contains two copies of Codex skills.

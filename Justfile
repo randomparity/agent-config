@@ -26,6 +26,9 @@ test:
   ./install-tools-test.sh
   ./scripts/install-identity-test.sh
 
+skills-check:
+  ./scripts/check-skill-layout.sh
+
 public-safety:
   ./scripts/check-public-safety.sh
 
@@ -33,7 +36,7 @@ actions-check:
   actionlint
   zizmor --offline .github/workflows/
 
-verify: tools-check lint format-check test public-safety actions-check
+verify: tools-check lint format-check skills-check test public-safety actions-check
 
 ci: verify
   prek run --all-files

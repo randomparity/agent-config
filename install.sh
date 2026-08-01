@@ -421,8 +421,7 @@ install_claude() {
 	install_managed_path "$dest_dir" "$settings_tmp" "settings.json"
 	install_managed_path "$dest_dir" "$REPO/agents/claude/shared/CLAUDE.md" "CLAUDE.md"
 	install_managed_path "$dest_dir" "$REPO/agents/claude/shared/statusline.sh" "statusline.sh"
-	install_managed_path "$dest_dir" "$REPO/agents/claude/shared/commands" "commands"
-	install_managed_path "$dest_dir" "$REPO/agents/claude/shared/skills" "skills"
+	install_managed_path "$dest_dir" "$REPO/content/skills" "skills"
 	install_common_content "$dest_dir"
 	maybe_configure_claude_mcp
 	finish_agent claude "$dest_dir"
@@ -446,7 +445,7 @@ install_codex() {
 
 	install_managed_path "$dest_dir" "$config_tmp" "config.toml"
 	install_managed_path "$dest_dir" "$REPO/agents/codex/shared/AGENTS.md" "AGENTS.md"
-	install_managed_path "$dest_dir" "$REPO/agents/codex/shared/skills" "skills"
+	install_managed_path "$dest_dir" "$REPO/content/skills" "skills"
 	install_common_content "$dest_dir"
 	finish_agent codex "$dest_dir"
 }
@@ -483,7 +482,7 @@ install_bob() {
 	install_managed_path "$dest_dir" "$bob_modes" "settings/custom_modes.yaml"
 	install_managed_path "$dest_dir" "$bob_modes" "custom_modes.yaml"
 	install_managed_path "$dest_dir" "$REPO/agents/bob/shared/rules" "rules"
-	install_managed_path "$dest_dir" "$REPO/agents/bob/shared/skills" "skills"
+	install_managed_path "$dest_dir" "$REPO/content/skills" "skills"
 	install_common_content "$dest_dir"
 	finish_agent bob "$dest_dir"
 }
