@@ -59,6 +59,16 @@ operator-merge path only:
   close it; strip its `status:` labels; post a `WORK:TRAJECTORY` comment on the issue with
   `outcome: merged via PR #N`, guardrail status, and any surprises.
 
+### Release cleared dependents
+
+After verifying the merged issue is closed, run the `github-tracking` skill's canonical
+recipe in Bash and call `reconcile_cleared_dependencies apply <owner/name>`. This is the primary
+owner of the cleared-dependency `status:blocked → status:ready` edge. Report every readied
+dependent and every retained dependent with its actionable reason. Do not limit the scan to
+the merged issue's prose or comments: the recipe exhaustively evaluates canonical whole-line
+`Blocked by #N` records on all open blocked, non-epic issues. A per-dependent failure does
+not prevent other dependents from being evaluated.
+
 ## After a merge (yours or the user's)
 
 1. Switch to `BASE_BRANCH`.

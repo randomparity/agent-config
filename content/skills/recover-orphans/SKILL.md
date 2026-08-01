@@ -30,21 +30,31 @@ actively working the same repo. Read → plan → one confirmation → apply.
    (d) the `status:` label's age exceeds the threshold (default 60 min), read via the
        skill's timeline recipe. **Empty timeline result = stale-unknown → do NOT reset;
        surface for a human.** Fail closed, never clobber.
-4. **Surface, don't reset, `blocked`/`needs-human`.** List them in the plan table as *held*
-   with their parked-phase note (from `WORK:TRAJECTORY`; for a birth-blocked issue with no
-   trajectory note, the `Blocked by #<n>` body line is the parked-state record); a human
-   owns their exit edge. Only clean up if a merged PR already closed the underlying work.
+4. **Reconcile blocked dependencies; hold other parked work.** Run the
+   `github-tracking` recipe in Bash and call
+   `reconcile_cleared_dependencies plan <owner/name>`. Add every returned issue to the
+   reconciliation table as `status:blocked → status:ready (all canonical blockers closed)`.
+   This is the repair owner for a primary merge-cleanup edge that was interrupted or omitted.
+   List all other `blocked`/`needs-human` issues as *held* with their parked-phase note (from
+   `WORK:TRAJECTORY`; for a birth-blocked issue with no trajectory note, the
+   `Blocked by #<n>` body line is the parked-state record). Open, missing, malformed, or
+   unreadable blockers stay held with the recipe's actionable reason. A human owns every
+   other exit edge. Only clean up if a merged PR already closed the underlying work.
 5. **Strip stale labels from closed issues.** Same colon-label caveat — list and filter
    client-side: `gh issue list --repo <owner/name> --state closed --json number,labels
    --limit 500`, keep those still carrying any `status:` value → plan: remove the residual
    `status:` label (closed-state is authoritative).
 6. **Plan → confirm → apply.** Present the full reconciliation table (`#issue → action`).
    List any branch before touching it. After one explicit confirmation, apply per issue;
-   a per-issue failure does not abort the sweep.
+   pass all and only the confirmed cleared-dependency issue numbers to
+   `reconcile_cleared_dependencies apply <owner/name> <number>...`, then verify every
+   reported transition. Re-evaluation may retain an issue whose state changed after
+   planning. A per-issue failure does not abort the sweep.
 
 ## Hard constraints
 
 - Between-runs reconciler; do not run concurrently with active `$work-issue`/`$campaign`.
 - Explicit `--json` fields on every `gh` read.
-- Fail closed on stale-unknown; never auto-move `blocked`/`needs-human`.
+- Fail closed on stale-unknown; move `blocked` only through a confirmed canonical
+  cleared-dependency repair, and never auto-move `needs-human`.
 - One confirmation before any write; list branches before acting on them.

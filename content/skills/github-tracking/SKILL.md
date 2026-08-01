@@ -55,9 +55,191 @@ Rules:
   dependency, and `$epic`'s adoption path may move an adopted sub-issue onto the same
   edge (posting a `WORK:TRAJECTORY` note first if the adoptee was in-flight). The
   `Blocked by` line is the parked-state record in lieu of a `WORK:TRAJECTORY` note;
-  `$recover-orphans` treats an open blocked issue carrying it as correctly held, not
-  anomalous, and `$triage-issues` never status-swaps it. Exit stays the standard human
-  edge (re-triage after the blocker closes, or `$work-issue`).
+  `$recover-orphans` treats an open blocked issue carrying it as correctly held while any
+  blocker is open or cannot be resolved. Exit is the canonical cleared-dependency edge
+  below; explicit `$triage-issues` and `$work-issue` remain manual fallback edges.
+- **Cleared-dependency exit edge.** An open, non-epic issue carrying `status:blocked` moves
+  to `status:ready` only when its body has at least one canonical whole-line
+  `Blocked by #N` record and every referenced issue resolves closed. `$merge-cleanup` is
+  the primary owner after a verified merge and closure. `$recover-orphans` owns the same
+  repair edge behind its plan-and-confirm gate. A canonical line is case-sensitive, has no
+  leading or trailing content, and contains decimal digits after `#`. A line beginning
+  exactly `Blocked by #` but failing that grammar is malformed and holds the issue blocked;
+  other prose and every comment are ignored. Open, missing, malformed, or unreadable
+  references fail closed and produce an actionable report.
+
+### Recipe: reconcile cleared dependencies
+
+Run this recipe in Bash, never source it into zsh; the array and regular-expression behavior
+is intentionally Bash-specific. Then call
+`reconcile_cleared_dependencies plan <owner/name>` to print the repair set without writes,
+or `reconcile_cleared_dependencies apply <owner/name>` to perform the primary post-merge
+edge. Recovery passes the confirmed issue numbers after the repository name so apply mode
+cannot widen the approved plan. GitHub's REST pagination is exhaustive; do not replace it
+with the bounded default of `gh issue list`. The apply path re-reads each dependent and its
+blockers immediately before its single status-label edit, then verifies the result. The
+state machine's one-writer-per-edge rule serializes supported workflow writers; the readback
+detects a conflicting status write. A degraded read or write returns nonzero after every
+dependent has been evaluated, so callers can report partial success accurately.
+
+```bash
+# BEGIN CLEARED-DEPENDENCY RECIPE
+#!/usr/bin/env bash
+
+cleared_dependency_reason=
+cleared_dependency_error=false
+
+cleared_dependency_body_verdict() { # repo number body
+  local repo=$1 number=$2 body=$3 line blocker state
+  local -a blockers=()
+  cleared_dependency_reason=
+  cleared_dependency_error=false
+  while IFS= read -r line; do
+    if [[ $line =~ ^Blocked\ by\ \#([0-9]+)$ ]]; then
+      blockers+=("${BASH_REMATCH[1]}")
+    elif [[ $line == 'Blocked by #'* ]]; then
+      cleared_dependency_reason="malformed reference on #$number: $line"
+      cleared_dependency_error=true
+      return 1
+    fi
+  done <<<"$body"
+  if ((${#blockers[@]} == 0)); then
+    cleared_dependency_reason="no canonical references on #$number"
+    return 1
+  fi
+  for blocker in "${blockers[@]}"; do
+    if ! state=$(gh issue view "$blocker" --repo "$repo" --json state --jq .state \
+      2>&1); then
+      if [[ $state == *'not found'* || $state == *'Could not resolve'* ]]; then
+        cleared_dependency_reason="missing blocker #$blocker for #$number"
+      else
+        cleared_dependency_reason="unreadable blocker #$blocker for #$number: $state"
+      fi
+      cleared_dependency_error=true
+      return 1
+    fi
+    if [[ $state != CLOSED ]]; then
+      cleared_dependency_reason="open blocker #$blocker retains #$number"
+      return 1
+    fi
+  done
+}
+
+cleared_dependency_candidate() { # issue-json
+  jq -e '
+    (.state | ascii_upcase) == "OPEN" and
+    (any(.labels[]?.name; . == "status:blocked")) and
+    (all(.labels[]?.name; . != "epic"))
+  ' >/dev/null <<<"$1"
+}
+
+ensure_cleared_dependency_label() { # repo
+  local repo=$1 err
+  if ! err=$(gh label create 'status:ready' --repo "$repo" --color 0e8a16 \
+    --description 'triaged, eligible for work' 2>&1); then
+    [[ $err == *'already exists'* ]] && return 0
+    printf 'cannot create status:ready: %s — grant label-write scope\n' "$err" >&2
+    return 1
+  fi
+}
+
+apply_cleared_dependency() { # repo issue-json
+  local repo=$1 initial=$2 number current body final label status_labels
+  local initial_snapshot current_snapshot snapshot_filter
+  local -a remove_args=()
+  number=$(jq -r .number <<<"$initial")
+  if ! current=$(gh issue view "$number" --repo "$repo" \
+    --json number,state,body,labels); then
+    printf 'unreadable dependent #%s; kept blocked\n' "$number" >&2
+    return 1
+  fi
+  if ! cleared_dependency_candidate "$current"; then
+    printf 'stale evaluation for #%s; state, labels, or epic status changed\n' \
+      "$number" >&2
+    return 1
+  fi
+  snapshot_filter='{
+    state: (.state | ascii_upcase),
+    body,
+    status: ([.labels[].name | select(startswith("status:"))] | sort),
+    epic: any(.labels[].name; . == "epic")
+  }'
+  initial_snapshot=$(jq -Sc "$snapshot_filter" <<<"$initial")
+  current_snapshot=$(jq -Sc "$snapshot_filter" <<<"$current")
+  if [[ $initial_snapshot != "$current_snapshot" ]]; then
+    printf 'stale evaluation for #%s; dependency snapshot changed\n' "$number" >&2
+    return 1
+  fi
+  body=$(jq -r '.body // ""' <<<"$current")
+  if ! cleared_dependency_body_verdict "$repo" "$number" "$body"; then
+    printf '%s\n' "$cleared_dependency_reason" >&2
+    return 1
+  fi
+  while IFS= read -r label; do
+    remove_args+=(--remove-label "$label")
+  done < <(jq -r '.labels[].name | select(startswith("status:"))' <<<"$current")
+  ensure_cleared_dependency_label "$repo" || return 1
+  if ! gh issue edit "$number" --repo "$repo" "${remove_args[@]}" \
+    --add-label 'status:ready'; then
+    printf 'label update failed for #%s; inspect its status labels\n' "$number" >&2
+    return 1
+  fi
+  final=$(gh issue view "$number" --repo "$repo" --json labels)
+  status_labels=$(jq -c '[.labels[].name | select(startswith("status:"))]' \
+    <<<"$final")
+  if [[ $status_labels != '["status:ready"]' ]]; then
+    printf 'conflicting status write on #%s; expected only status:ready\n' \
+      "$number" >&2
+    return 1
+  fi
+  printf 'readied #%s\n' "$number"
+}
+
+reconcile_cleared_dependencies() { # plan|apply owner/name
+  local mode=$1 repo=$2 pages issues issue number body target selected failures=0
+  local -a targets=()
+  shift 2
+  targets=("$@")
+  [[ $mode == plan || $mode == apply ]] || {
+    printf 'usage: reconcile_cleared_dependencies plan|apply owner/name\n' >&2
+    return 2
+  }
+  pages=$(gh api --paginate --slurp -X GET \
+    "repos/$repo/issues?state=open&per_page=100") || {
+    printf 'cannot list open dependents; no labels changed\n' >&2
+    return 1
+  }
+  if ! issues=$(jq -ce '[.[][] | select(has("pull_request") | not)]' \
+    <<<"$pages"); then
+    printf 'cannot parse open dependents; no labels changed\n' >&2
+    return 1
+  fi
+  while IFS= read -r issue; do
+    cleared_dependency_candidate "$issue" || continue
+    number=$(jq -r .number <<<"$issue")
+    if ((${#targets[@]} > 0)); then
+      selected=false
+      for target in "${targets[@]}"; do
+        [[ $number == "$target" ]] && selected=true
+      done
+      [[ $selected == true ]] || continue
+    fi
+    body=$(jq -r '.body // ""' <<<"$issue")
+    if ! cleared_dependency_body_verdict "$repo" "$number" "$body"; then
+      printf '%s\n' "$cleared_dependency_reason" >&2
+      [[ $cleared_dependency_error == true ]] && failures=1
+      continue
+    fi
+    if [[ $mode == plan ]]; then
+      printf 'ready #%s\n' "$number"
+    else
+      apply_cleared_dependency "$repo" "$issue" || failures=1
+    fi
+  done < <(jq -c '.[]' <<<"$issues")
+  return "$failures"
+}
+# END CLEARED-DEPENDENCY RECIPE
+```
 
 ### Recipe: ensure-create a label (distinguish already-exists from real failure)
 
