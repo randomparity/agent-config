@@ -148,6 +148,12 @@ check_contract() {
 	assert_rule "$review" review-does-not-expand \
 		"Additional review authorizes scrutiny, not scope expansion; keep the charter unchanged." ||
 		return 1
+	assert_rule "$review" deferral-authority \
+		"A new deferral may change exclusions or surface only when the frozen charter authorizes it." ||
+		return 1
+	assert_rule "$review" deferral-authority \
+		"When docs/debt is outside surface, return SCOPE CHECKPOINT or park; never write a record." ||
+		return 1
 	assert_rule "$challenge" ungrounded-scope-expansion \
 		"Treat an ungrounded normative guarantee as material scope expansion." || return 1
 	assert_rule "$challenge" delete-ungrounded \
@@ -331,6 +337,14 @@ run_review_fixtures() {
 		"$conflicting_identity"
 	assert_fixture_fails carrier-conflict \
 		"carrier design-review template mismatch" "$fixture"
+
+	fixture=$(copy_fixture deferral-outside-surface)
+	file=$(skill_path "$fixture" review-loop)
+	rewrite_block_line_once "$file" RULE deferral-authority \
+		"When docs/debt is outside surface, return SCOPE CHECKPOINT or park; never write a record." \
+		"Write the deferral record as automatically in scope."
+	assert_fixture_fails deferral-outside-surface \
+		"rule deferral-authority missing instruction" "$fixture"
 }
 
 run_extractor_tests() {
@@ -387,7 +401,7 @@ check_contract "$canonical_root"
 run_scope_fixtures
 run_extractor_tests
 run_review_fixtures
-[[ "$fixture_count" -eq 8 ]] || fail "expected 8 SCOPE fixtures, got $fixture_count"
+[[ "$fixture_count" -eq 9 ]] || fail "expected 9 SCOPE fixtures, got $fixture_count"
 [[ "$extractor_count" -eq 3 ]] || fail "expected 3 extractor tests, got $extractor_count"
 printf 'workflow-scope-contract-test: ok (%d fixtures, %d extractor tests)\n' \
 	"$fixture_count" "$extractor_count"

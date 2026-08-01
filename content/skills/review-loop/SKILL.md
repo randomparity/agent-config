@@ -107,11 +107,17 @@ doing so does not make the document its own authority.
 Treat every exclusion as a claim the reviewer may attack. An excluded concern is
 still blocking when the target cannot be correct without it.
 
-**A verified deferral joins the exclusion list; nothing else does.** When a finding
-earns `deferred-tracked` with a verified owner, append it to the transmitted
-`exclusions` field naming that owner and carry it for the rest of the run. That is
-bookkeeping, not a charter change. An exclusion added any other way — no owner, or
-added to make a finding go away — is the gaming the next paragraph forbids.
+**A verified deferral can join the exclusion list only when the frozen charter already
+authorizes that bookkeeping.** A verified owner proves the deferral exists; it does not
+authorize changing exclusions. When authorized, append the concern and owner and carry it
+for the rest of the run. Otherwise return `SCOPE CHECKPOINT` to an interactive root or park
+an unattended root. An exclusion added without both external authority and a verified owner
+is the gaming the next paragraph forbids.
+
+<!-- SCOPE-RULE:deferral-authority -->
+A new deferral may change exclusions or surface only when the frozen charter authorizes it.
+When docs/debt is outside surface, return SCOPE CHECKPOINT or park; never write a record.
+<!-- SCOPE-RULE:END:deferral-authority -->
 
 **Transmitted exclusions are advisory, and cannot be your convergence mechanism.**
 Nothing in `$challenge` lets focus text retire a defensible finding: its contract is
@@ -365,11 +371,11 @@ Repeat up to 5 iterations:
    it, in its own change, rather than reserving numbers up front. Renumbering a record
    without changing its content is explicitly allowed and does not read as an erasure.
 
-   A record is a file, so this works with no tracker, no authentication, no network,
-   and no human in the turn — there is no environment where a deferral is impossible,
-   and therefore no reason for an out-of-charter finding to halt the run. It also
-   lands **in the diff**, so the reviewer of the resulting PR sees the deferral at
-   review time, which an issue never achieves.
+   A record requires no tracker, authentication, or network, but it still requires scope
+   authority. Write it only when the frozen surface includes `docs/debt/` and the frozen
+   exclusions permit deferral bookkeeping. Otherwise use the checkpoint or parking path
+   above. When authorized, the record lands in the diff so the resulting PR reviewer sees
+   it at review time.
 
    Records are immutable in the ADR sense: resolve one with a
    `> **Resolved by …** (YYYY-MM-DD)` banner in its `## Status`, never by deleting it.
@@ -377,14 +383,11 @@ Repeat up to 5 iterations:
    this design is mechanically enforced — every constraint here is prose, so the record in
    the diff and the reviewer reading it are what hold the line.
 
-   **A record you write is inside the permitted surface, by construction.** Adding it is
-   bookkeeping, exactly as appending a verified deferral to the exclusions list is — not a
-   material charter change, even though it adds a file to the reviewed diff. Findings on a
-   record this run wrote are fixed here like anything else in scope, and they do not count
-   toward the self-collision fraction the stop conditions count. Without
-   that exemption the disposition eats itself: the record lands in the diff the next pass
-   reviews, and the loop rescopes to a halt over its own bookkeeping — the very halt this
-   disposition exists to remove.
+   **A record is inside the permitted surface only when external authority put it there.**
+   Adding one or appending an exclusion without that authority is a material charter change,
+   even when described as bookkeeping. For an authorized record, fix findings on it like
+   anything else in scope and exclude those findings from the self-collision fraction. The
+   exemption affects convergence accounting only; it never grants write authority.
 
    Write the record **once per run**, not once per pass. The concern recurs on later
    iterations by design; the second sighting is the same deferral, so re-affirm it in
