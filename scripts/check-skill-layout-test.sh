@@ -158,6 +158,26 @@ printf '%s\n' \
 (cd "$root" && bash scripts/check-skill-layout.sh)
 
 root="$(new_fixture)"
+printf '%s\n' \
+	'' \
+	'- item' \
+	'    [Broken continuation](missing-list-continuation.md)' \
+	>>"$root/content/skills/skill-01/SKILL.md"
+assert_fails \
+	'content/skills/skill-01/SKILL.md: broken relative link: missing-list-continuation.md' \
+	"$root"
+
+root="$(new_fixture)"
+printf '%s\n' \
+	'' \
+	'- item' \
+	'    [Helper continuation](helper.sh)' \
+	'' \
+	'      [Nested code](missing-list-code.md)' \
+	>>"$root/content/skills/skill-01/SKILL.md"
+(cd "$root" && bash scripts/check-skill-layout.sh)
+
+root="$(new_fixture)"
 assert_portable_userland "$root"
 
 root="$(new_fixture)"

@@ -158,10 +158,58 @@ validate_frontmatter() {
 		skill_error "$relative" 'non-empty Markdown must follow frontmatter'
 }
 
-markdown_visible_text() {
+markdown_with_indentation_marks() {
 	local markdown="$1"
 
 	awk '
+    function leading_columns(line, initial, position, character, columns) {
+      columns = initial
+      for (position = 1; position <= length(line); position++) {
+        character = substr(line, position, 1)
+        if (character == " ") columns++
+        else if (character == "\t") columns += 4 - (columns % 4)
+        else break
+      }
+      leading_characters = position - 1
+      return columns
+    }
+    function list_content_indent(line, base, candidate, separator, marker, padding) {
+      base = leading_columns(line, 0)
+      candidate = substr(line, leading_characters + 1)
+      separator = match(candidate, /[ \t]/)
+      if (separator == 0) return 0
+      marker = substr(candidate, 1, separator - 1)
+      if (marker !~ /^[-+*]$/ &&
+          (marker !~ /^[0-9]+[.)]$/ || length(marker) > 10)) return 0
+      if (base > 3 && (container_indent == 0 || base < container_indent)) return 0
+      padding = leading_columns(substr(candidate, separator), base + length(marker))
+      padding -= base + length(marker)
+      if (padding > 4) padding = 1
+      return base + length(marker) + padding
+    }
+    {
+      indentation = leading_columns($0, 0)
+      content_indent = list_content_indent($0)
+      indented_code = 0
+      if (content_indent > 0) {
+        container_indent = content_indent
+      } else if ($0 !~ /^[ \t]*$/) {
+        if (container_indent > 0 && indentation >= container_indent) {
+          indented_code = indentation - container_indent >= 4
+        } else {
+          container_indent = 0
+          indented_code = indentation >= 4
+        }
+      }
+      print (indented_code ? "1" : "0") $0
+    }
+  ' "$markdown"
+}
+
+markdown_visible_text() {
+	local markdown="$1"
+
+	markdown_with_indentation_marks "$markdown" | awk '
     function without_indent(line, count) {
       count = 0
       while (count < 3 && substr(line, count + 1, 1) == " ") count++
@@ -237,6 +285,8 @@ markdown_visible_text() {
       }
     }
     {
+      indented_code = substr($0, 1, 1) == "1"
+      $0 = substr($0, 2)
       if (fence_character != "") {
         if (closes_fence($0)) {
           fence_character = ""
@@ -244,15 +294,14 @@ markdown_visible_text() {
         }
         next
       }
-      if (code_length == 0 &&
-          (substr($0, 1, 4) == "    " || substr($0, 1, 1) == "\t")) next
+      if (code_length == 0 && indented_code) next
       if (code_length == 0 && opens_fence($0)) next
       visible_line($0)
       if (code_length == 0) printf "\n"
       else pending = pending "\n"
     }
     END { if (code_length != 0) printf "%s", pending }
-  ' "$markdown"
+  '
 }
 
 markdown_link_tokens() {
