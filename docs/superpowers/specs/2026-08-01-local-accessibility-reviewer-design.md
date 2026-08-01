@@ -11,9 +11,10 @@
   Accessibility Reviewer; keep it outside global installation; pass repository verification.
 - Provenance: issue #31, the operator's 2026-08-01 example selection, repository
   instructions, and the necessary local/global separation.
-- Exclusions: no globally installed Accessibility Reviewer and no change to `review-loop`.
-- Surface: `examples/`, directly related README documentation, and verification needed to
-  prove local placement and global-install exclusion.
+- Exclusions: no globally installed Accessibility Reviewer, no change to `review-loop`,
+  and no additional example-skill inventories.
+- Surface: `examples/project-review-skills/`, directly related README and AGENTS policy,
+  ADR 0020, and verification needed to prove local placement and global-install exclusion.
 - Ambiguities: none.
 
 ## Context
@@ -23,6 +24,11 @@ Codex, and IBM Bob. Issue #31 asks for a different lifecycle: a review skill own
 individual project because its checks depend on that project's product requirements. The
 example must teach both the skill contract and how project instructions insert the review
 into the existing workflow without making a project-specific policy global.
+
+[ADR 0020](../../adr/0020-non-installed-project-review-examples.md) records the operator's
+decision to allow one separately validated, non-installed example inventory. Repository
+instructions must name this exception rather than claiming every real `SKILL.md` belongs
+under the globally installed tree.
 
 The selected example is an Accessibility Reviewer. It reviews user-interface changes
 against the target project's declared accessibility requirements. When the project does
@@ -58,8 +64,10 @@ source with agent-specific destination documentation.
 Create `examples/project-review-skills/accessibility-reviewer/SKILL.md` with portable
 four-line frontmatter and a read-only review workflow. The reviewer:
 
-1. resolves the user-supplied files or base branch before reviewing;
-2. reads the target project's accessibility policy and relevant UI conventions;
+1. resolves the user-supplied files or base branch, records the normalized target, and
+   uses the same target as the preceding branch review;
+2. reads the target project's accessibility policy and relevant UI or design-system
+   conventions;
 3. examines semantics, keyboard operation, focus behavior, names and labels, contrast and
    non-color cues, zoom/reflow, motion, status announcements, and validation errors when
    those concerns are present in the target;
@@ -70,10 +78,12 @@ four-line frontmatter and a read-only review workflow. The reviewer:
    concrete remediation; and
 6. remains read-only unless a caller separately asks for fixes.
 
-The skill must not claim conformance from source inspection alone. `approve` requires no
-source finding and no outstanding manual check. When only runtime, assistive-technology,
-or human inspection can decide a requirement, the skill returns `needs-manual-check` and
-identifies the required evidence; the caller applies the target project's shipping policy.
+The skill applies only requirements named by the project policy; it never selects an
+additional accessibility standard. It must not claim conformance from source inspection
+alone. Verdict precedence is deterministic: any source finding returns `needs-attention`;
+otherwise any outstanding runtime or human verification returns `needs-manual-check`;
+otherwise an applicable review returns `approve`. `not-applicable` reports the normalized
+inspected target. The caller applies the target project's shipping policy to manual checks.
 Empty or unresolvable targets produce an actionable error instead of silently reviewing
 unrelated files.
 
@@ -86,10 +96,11 @@ this repository's global installation. Document these destinations:
 - Codex: `.agents/skills/accessibility-reviewer/`
 - IBM Bob: `.bob/skills/accessibility-reviewer/`
 
-Show a short project-instruction snippet that invokes the local reviewer after the normal
-branch review for UI-affecting changes, requires disposition of defensible findings, and
-reruns the reviewer after behavioral fixes. State that projects should select only the
-reviewers their own requirements justify.
+Show a short project-instruction snippet that invokes the local reviewer with the same
+base or file target as the normal branch review for UI-affecting changes, requires
+disposition of defensible findings, and reruns the reviewer after behavioral fixes. List
+the exact package destinations, including `accessibility-reviewer/`. State that projects
+should select only the reviewers their own requirements justify.
 
 ### Verification
 
@@ -114,6 +125,8 @@ install.
 - Unresolvable review target: stop with the unresolved input and suggested valid forms.
 - Unsupported agent placement: the example remains ordinary Agent Skills content; the
   documentation promises only the three repository-supported destinations.
+- Mixed source findings and manual checks: return `needs-attention`; report the manual
+  checks alongside findings so they are not lost.
 - Global install regression: installer and layout tests fail if the example is copied into
   the globally managed skill tree or destination.
 
