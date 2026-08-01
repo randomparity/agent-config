@@ -93,9 +93,11 @@ Each supported root resolves and states `interaction: interactive` when a human 
 in the active turn, or `interaction: unattended` only when an orchestrator or background
 task explicitly says no human is reachable. Every nested skill call carries that exact
 field, the charter's durable identity, and the complete frozen outcome, completion
-criteria, exclusions, permitted surface, and ambiguity list. Nesting never recomputes
-them. The identity is the `WORK:SCOPE` comment for issue work or the quoted direct user
-request for standalone design.
+criteria, provenance map, exclusions, permitted surface, and ambiguity list. The
+provenance map ties each outcome, criterion, and later explicit user decision to its
+issue, comment, or quoted direct-user source. Nesting never recomputes these fields. The
+identity is the `WORK:SCOPE` comment for issue work or the quoted direct user request for
+standalone design.
 
 When a nested skill finds a design-changing ambiguity, it returns this prompt-level block
 to its caller instead of resolving the question:
@@ -106,6 +108,7 @@ interaction: <interactive or unattended, unchanged from the root>
 scope identity: <frozen WORK:SCOPE comment or quoted direct request>
 outcome: <frozen requested outcome>
 completion criteria: <frozen completion criteria>
+provenance: <source for each outcome, criterion, and later explicit user decision>
 exclusions: <frozen exclusions>
 surface: <frozen permitted change surface>
 ambiguities: <frozen unresolved ambiguity list>
@@ -117,8 +120,9 @@ An interactive root asks the returned question, records the answer in provenance
 re-freezes before continuing. An unattended root records the same block in
 `WORK:TRAJECTORY` and parks as `status:needs-human`. This is an instruction and return
 contract between skills, not a runtime state store or policy engine. A missing,
-unresolvable, or incomplete charter returns this checkpoint (or parks an unattended root);
-a nested skill never falls back to deriving authority from the artifact under review.
+unresolvable, or incomplete charter—including absent provenance—returns this checkpoint
+(or parks an unattended root); a nested skill never falls back to deriving authority from
+the artifact under review.
 
 ### Trace normative guarantees
 
@@ -200,10 +204,10 @@ the stated oracle, removes or reorders one required clause, and must then fail.
 |---|---|---|---|---|
 | SCOPE-01 | One canonical source is requested; a spec proposes transactions | `$design` requires provenance and `$challenge` says delete or weaken an ungrounded promise first | remove the delete-or-weaken rule | block |
 | SCOPE-02 | Atomic installation is explicitly requested | `$design` names an explicit user decision as valid provenance before it names high-risk contract examples | remove explicit-user-decision provenance | block |
-| SCOPE-03 | Interactive `$work-issue` nests `$design` | root sets `interaction: interactive`; nested call carries the complete charter and can return it in `SCOPE CHECKPOINT` | pass only a charter reference or restore nesting-based unattended inference | block |
+| SCOPE-03 | Interactive `$work-issue` nests `$design` | root sets `interaction: interactive`; nested call carries the complete charter including provenance and can return it in `SCOPE CHECKPOINT` | omit provenance, pass only a charter reference, or restore nesting-based unattended inference | block |
 | SCOPE-04 | Operator repeatedly authorizes review up to the existing cycle cap | `$review-loop` states that review authorization leaves its externally sourced charter unchanged | remove the unchanged-charter clause | block |
 | SCOPE-05 | Unattended root reaches ambiguity | `SCOPE CHECKPOINT` precedes trajectory-note and `status:needs-human` parking instructions | remove or reorder the parking handoff | block |
-| SCOPE-06 | Stale reviewed spec proposes an unrelated permission or private-data claim that conflicts with its pre-design charter | `$review-loop` receives the complete external charter and forbids target-derived fallback; `$challenge` treats the ungrounded claim as expansion | pass only an identity or derive authority from the review target | block |
+| SCOPE-06 | Stale reviewed spec proposes an unrelated permission or private-data claim that conflicts with its pre-design charter | `$review-loop` receives the complete external charter and provenance, and forbids target-derived fallback; `$challenge` treats the ungrounded claim as expansion | omit provenance, pass only an identity, or derive authority from the review target | block |
 
 SCOPE-01 is the observed issue 17 regression. SCOPE-03 is the ambiguous-input case.
 SCOPE-06 covers stale/conflicting generated content, forbidden claims, and the
@@ -216,8 +220,8 @@ distinction; it adds no product behavior beyond the workflow's existing parking 
 
 A focused shell test under `scripts/` copies the canonical skills into a temporary fixture
 root and checks the contract directly. It asserts pre-design ordering in `$work-issue`,
-the explicit `interaction:` and complete-charter carrier, the `SCOPE CHECKPOINT` return
-path, the provenance rule, the external review charter, and the delete-or-weaken
+the explicit `interaction:` and complete-charter carrier including provenance, the
+`SCOPE CHECKPOINT` return path, the provenance rule, the external review charter, and the delete-or-weaken
 recommendation. For every SCOPE case, the test applies the named negative mutation and
 asserts that the same oracle fails. The test joins the existing `just test` recipe and
 therefore `just verify`/CI. No new dependency is added, and its report calls the result
