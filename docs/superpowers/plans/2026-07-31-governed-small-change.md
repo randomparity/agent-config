@@ -50,7 +50,7 @@
   `decision reference`, `decision kind`, `accepted status`, and `governed behavior`;
   and fail-closed transitions to `SCOPE CHECKPOINT` plus full `$design`.
 
-- [ ] **Step 1: Add failing contract assertions**
+- [x] **Step 1: Add failing contract assertions**
 
 Extend `check_contract` to resolve `build-tdd` and `campaign`, then assert bounded rules
 with exact single-line instructions covering:
@@ -80,7 +80,7 @@ the exact fixture count. Use existing `copy_fixture`, `rewrite_block_line_once`,
 `move_ordered_clause_after`, `assert_rule`, `assert_ordered_clause`, and
 `assert_fixture_fails`; do not add another test framework.
 
-- [ ] **Step 2: Run the focused test and verify RED**
+- [x] **Step 2: Run the focused test and verify RED**
 
 Run:
 
@@ -91,7 +91,7 @@ Run:
 Expected: non-zero with the first missing governed-small-change rule or carrier assertion,
 not a shell syntax or fixture-harness error.
 
-- [ ] **Step 3: Add the minimal canonical workflow rules**
+- [x] **Step 3: Add the minimal canonical workflow rules**
 
 In `content/skills/work-issue/SKILL.md`:
 
@@ -121,7 +121,7 @@ In `content/skills/campaign/SKILL.md`:
 - state that `$work-issue` revalidates them and falls back to `non-trivial` when stale,
   conflicting, or incomplete.
 
-- [ ] **Step 4: Run the focused test and verify GREEN**
+- [x] **Step 4: Run the focused test and verify GREEN**
 
 Run:
 
@@ -131,14 +131,14 @@ Run:
 
 Expected: exit 0 with the updated fixture total and zero fixture failures.
 
-- [ ] **Step 5: Prove each fixture bites**
+- [x] **Step 5: Prove each fixture bites**
 
 Temporarily reverse one new exact rule in the copied fixture construction so the mutated
 fixture matches canonical text, run the focused test, and confirm it fails because that
 mutation unexpectedly passed. Restore the fixture mutation and rerun to green. Do not
 alter canonical skill text for this proof.
 
-- [ ] **Step 6: Run repository guardrails**
+- [x] **Step 6: Run repository guardrails**
 
 Run:
 
@@ -149,7 +149,7 @@ git diff --check
 
 Expected: both exit 0 with zero warnings.
 
-- [ ] **Step 7: Review the diff and commit**
+- [x] **Step 7: Review the diff and commit**
 
 Confirm the staged implementation delta contains only the four task files, prompt rules
 match ADR 0007, campaign carries evidence rather than authority, and no post-build phase
@@ -169,8 +169,8 @@ created.
 
 ## Completion checkpoint
 
-- [ ] Every issue 26 criterion maps to Task 1.
-- [ ] No incomplete step, placeholder, agent-native skill copy, or new dependency exists.
-- [ ] The plan, ADR, and spec contain every design decision needed after compaction.
-- [ ] Branch `feat/governed-small-change-26`, base `main`, and guardrail `just verify`
+- [x] Every issue 26 criterion maps to Task 1.
+- [x] No incomplete step, placeholder, agent-native skill copy, or new dependency exists.
+- [x] The plan, ADR, and spec contain every design decision needed after compaction.
+- [x] Branch `feat/governed-small-change-26`, base `main`, and guardrail `just verify`
   remain recoverable from this plan.
