@@ -29,6 +29,11 @@ The scan is an inline workflow stage, not a human approval gate. Its attention v
 work to disposition, not a reason by itself to park. Any human-only client command remains
 an optional hand-off action and is never claimed as agent parity.
 
+If a scan fix changes behavior, adversarial review covers that fix and the scan runs once
+more. The workflow permits at most one such round trip. Findings that would require another
+round are recorded as unresolved in the review summary and carried to hand-off rather than
+restarting the loop or parking indefinitely.
+
 ## Consequences
 
 Security analysis shapes the design before implementation and checks the resulting diff
@@ -41,6 +46,10 @@ unresolved dispositions remain visible at hand-off.
 
 - **Run a threat scan on every branch.** Routine empty scans add cost and teach operators
   to ignore the stage.
+- **Retain only the existing conditional security hedge.** A general instruction to apply
+  security judgment produces no focused ship-path evidence or disposition contract.
+- **Reuse adversarial review with security focus.** Focus text does not provide the distinct
+  trust-boundary inventory and single-shot security verdict the hand-off needs.
 - **Require a human-only security command.** Agents cannot reliably invoke client-side
   built-ins, so the workflow would deadlock.
 - **Park on every attention verdict.** Findings require disposition, but the verdict alone
