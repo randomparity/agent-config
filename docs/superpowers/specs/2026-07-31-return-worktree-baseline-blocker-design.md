@@ -78,4 +78,3 @@ no data source, authorization boundary, model loop, or generated claim.
 - Run the focused installer test red before changing the skill and green afterward.
 - Run `just verify` with zero warnings.
 - Review the branch against ADR 0005 and issue #23's acceptance criteria.
-
