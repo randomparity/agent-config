@@ -13,16 +13,20 @@ Start by understanding the current project context, then ask questions one at a 
 Do NOT invoke any implementation skill, write any code, scaffold any project, or take any implementation action until you have presented a design and the user has approved it. This applies to EVERY project regardless of perceived simplicity. In dispatched mode (below) the approved requirement arrives with your instructions, and the gate is satisfied by it — read that section before treating this gate as a stop.
 </HARD-GATE>
 
-## Dispatched mode — no human in the turn
+## Dispatched workflow mode — sequencing, not interaction
 
 **You are in dispatched mode when your instructions came from a curated skill (`$design`, `$work-issue`) or from an orchestrator that dispatched you — not from a human typing in this turn.** Otherwise assume a human is present and follow the rest of this skill as written. Do not try to infer the mode: your caller states it. Mode is a property of the run, not of the skill, so every skill you invoke downstream inherits it. Name the resolved mode when you announce the skill.
 
-There is nobody to interview or to approve anything, so every gate below that waits on a user is suspended and something else stands in its place:
+Dispatched mode controls workflow sequencing. It does not establish whether a human is
+reachable. Inherit the separate root `interaction` value and the complete frozen scope
+charter from the caller. Never infer unattended interaction from nesting.
+
+The caller owns approval gates, so each gate below has a dispatched replacement:
 
 | Gate as written | In dispatched mode |
 |---|---|
-| `HARD-GATE` — user approves the design | The issue body and its acceptance criteria **are** the approved requirement. Treat linked specs, ADRs and prior issue comments as part of it. |
-| Checklist 3 — ask clarifying questions one at a time | Nobody to ask. Resolve ambiguity from the issue and the codebase, and **write the assumption into the spec** so a reader can find and reject it. Stop as blocked only when proceeding under any assumption would make the work useless or unsafe. |
+| `HARD-GATE` — user approves the design | The frozen external charter **is** the approved requirement. Its provenance identifies the issue, direct request, linked decisions, and later user answers that authorize it. |
+| Checklist 3 — ask clarifying questions one at a time | Return every design-changing ambiguity through `SCOPE CHECKPOINT`. The interactive root asks; the unattended root parks. Record only non-design-changing assumptions in the spec. |
 | Checklist 5 — approval after each design section | Write the sections. There is no per-section approval. |
 | Checklist 8 / **User Review Gate** — ask the user to review the spec, "Wait for the user's response" | `$design` step 3 replaces it: an adversarial `$review-loop` over the spec file. Do not wait. |
 | Checklist 2 / **Visual Companion** offer | Never applies — it requires a browser a human is looking at. Do not offer it. |
@@ -31,6 +35,28 @@ There is nobody to interview or to approve anything, so every gate below that wa
 **Do not invoke `writing-plans` yourself.** `$design` owns the sequence: step 1 is this skill, step 2 adversarially reviews the ADR, step 3 adversarially reviews the spec, and only step 4 invokes `writing-plans`. Chaining straight to `writing-plans` from here skips both review gates. Your terminal state in dispatched mode is a spec (and, where the decision warrants one, an ADR) written, committed, and reported to the caller by path.
 
 Everything else in this skill still applies: exploring project context, the scope check and decomposition advice, proposing and weighing 2-3 approaches, designing for isolation and clarity, the spec self-review, and YAGNI. Dispatched mode removes the waiting, not the thinking.
+
+### Scope checkpoint return
+
+Carry all charter values unchanged. A missing, incomplete, or unresolvable field takes this
+same path and never derives authority from the proposed design:
+
+<!-- SCOPE-CARRIER:brainstorming-checkpoint -->
+SCOPE CHECKPOINT
+interaction: <unchanged root value>
+scope identity: <external scope identity, never reviewed target>
+outcome: <frozen external outcome>
+completion criteria: <frozen external completion criteria>
+provenance: <external source for every outcome, criterion, and user decision>
+exclusions: <frozen external exclusions>
+surface: <frozen permitted surface>
+ambiguities: <frozen ambiguity list>
+question: <one design-selecting question>
+why design-changing: <affected scope field or normative guarantee>
+<!-- SCOPE-CARRIER:END:brainstorming-checkpoint -->
+
+An interactive caller asks the returned question and re-freezes the charter with the
+answer and provenance. An unattended caller parks for human input.
 
 ## Anti-Pattern: "This Is Too Simple To Need A Design"
 
@@ -81,7 +107,9 @@ digraph brainstorming {
 
 **The terminal state is invoking writing-plans.** Do NOT invoke frontend-design or any other implementation skill. The ONLY skill you invoke after brainstorming is writing-plans.
 
-**In dispatched mode, two nodes above do not exist.** The "User approves design?" and "User reviews spec?" diamonds have nobody to evaluate them — treat both as taken, and the terminal state as returning to your caller rather than invoking `writing-plans`. See Dispatched mode.
+**In dispatched mode, the caller owns two nodes above.** The "User approves design?" and
+"User reviews spec?" diamonds are replaced by the caller's external charter and review
+steps. Return to the caller rather than invoking `writing-plans`. See Dispatched mode.
 
 ## The Process
 
@@ -147,7 +175,8 @@ After the spec review loop passes, ask the user to review the written spec befor
 
 Wait for the user's response. If they request changes, make them and re-run the spec review loop. Only proceed once the user approves.
 
-**In dispatched mode, skip this gate** — nobody will answer, and an adversarial review of the spec file runs in the caller instead (`$design` step 3).
+**In dispatched mode, skip this gate** — the caller owns it, and an adversarial review of
+the spec file runs there instead (`$design` step 3).
 
 **Implementation:**
 
@@ -164,7 +193,10 @@ Wait for the user's response. If they request changes, make them and re-run the 
 - **Incremental validation** - Present design, get approval before moving on
 - **Be flexible** - Go back and clarify when something doesn't make sense
 
-The first, second and fifth of these describe a conversation. In dispatched mode there is none: the issue carries the requirement, assumptions go in the spec where a reviewer can reject them, and validation is the caller's adversarial review of the written spec. YAGNI and exploring alternatives apply unchanged.
+The first, second and fifth of these describe a conversation. In dispatched mode the caller
+owns that conversation: the frozen charter carries the requirement, design-changing
+ambiguity returns through `SCOPE CHECKPOINT`, and validation is the caller's adversarial
+review of the written spec. YAGNI and exploring alternatives apply unchanged.
 
 ## Visual Companion
 
