@@ -50,6 +50,8 @@ required local guardrail is meaningful during issue 17 work.
   durable, named needs-repair state that blocks later installs.
 - A process interruption after promotion is detected and rolled back before the
   next installer run changes any destination.
+- A durable `needs-repair` transaction has one explicit, validated repair path;
+  no operator must edit or delete journal/lock files by hand.
 - Shared skills do not depend on an installed agent's private config-root name.
 - Agent-specific configuration that does not use Agent Skills remains native.
 - The installer adds no new dependency or network operation.
@@ -113,6 +115,9 @@ is pinned to upstream Agent Skills commit
   checked-in union of documented built-in, bundled, and mode-command names for
   Claude, Codex, or Bob;
 - bundled resources are addressed relative to the skill directory;
+- every packaged runtime dependency lives inside that skill directory; shared
+  skills never resolve installer-owned sibling `languages/`, `references/`, or
+  agent-native content by path;
 - installed config roots for Claude, Codex, and Bob are never named by shared
   workflow execution; target-repository paths remain repository-relative;
 - canonical skill packages contain regular files and directories only, with no
@@ -144,52 +149,73 @@ non-canonical user skill directories. Later removals are pruned per managed
 skill name. Unmanaged files outside managed names are unchanged.
 
 The legacy manifest contains only whole-tree `skills` and, for Claude,
-`commands` entries; it does not identify children. For the one-time migration,
-the new installer classifies only names in the new canonical inventory as
-legacy-managed skills. It creates one byte- and mode-preserving snapshot of the
-old `skills/` tree per client, records that snapshot once in the journal, and
-then replaces only those canonical-name children. Children with other names are
-preserved in place and are not added to the new manifest. A canonical-name
+`commands` entries; it does not identify children. This change therefore checks
+in `scripts/legacy-skill-ownership.json` before moving the old sources. For each
+agent it records every old managed skill/command name and the tree identity of
+its shipped bytes, file types, and executable modes. The installer trusts
+neither a whole-tree manifest nor a matching name by itself.
+
+For the one-time migration, a child whose identity matches the historical
+ledger is proven managed. A non-canonical name absent from the ledger is proven
+unrelated and preserved. Every other present child is ambiguous: this includes
+a current canonical name with user-replaced bytes and a historically managed,
+now-removed name with drift. Installation stops before staging and requires an
+explicit repeatable `--legacy-resolution agent:name=replace|remove|preserve`.
+`replace` is valid for a canonical-name collision and backs it up before
+installing the canonical package; `remove` is valid for a former managed name
+and backs it up before pruning; `preserve` is valid only for a non-canonical
+name and leaves it unmanaged. The chosen resolutions are copied into the
+transaction journal so interruption recovery never asks again mid-transaction.
+
+After classification, the installer creates one byte- and mode-preserving
+snapshot of the old `skills/` tree per client, records that snapshot once in the
+journal, and then replaces or removes only the resolved children. A canonical
 child missing from the snapshot has prior state `absent`; one present in the
 snapshot has prior state `legacy-snapshot:<name>`. All per-name operations
 reference that shared immutable snapshot rather than creating overlapping
 backups. Rollback removes newly absent names and restores present names from the
 snapshot without replacing the enclosing tree, so unrelated children survive.
 
-Claude command migration uses the checked-in legacy-command inventory captured
-by this change. A command from that inventory is removed only when the old
-manifest owns `commands`; the commands tree is snapshotted once and each
-recorded file is restored independently on rollback. Any same-name command not
-covered by both that legacy inventory and old whole-tree ownership is an
-unmanaged collision. Other command files remain in place. The new manifest
-contains neither a whole-tree `skills` nor `commands` entry.
+Claude command migration uses the same historical ownership ledger and
+resolution rules. The commands tree is snapshotted once and each resolved file
+is restored independently on rollback. Other command files remain in place.
+The new manifest contains neither a whole-tree `skills` nor `commands` entry.
 
-Before installing any client, inspect existing skill names against the old
-manifest. A same-name directory that is neither a legacy managed tree nor a
-per-skill managed entry is an unmanaged collision and stops installation.
-Before installing Claude, apply the same rule to command filenames that match
-canonical skill names. Non-colliding unmanaged skills and commands remain
-outside the repository-managed workflow namespace. Project, enterprise, and
-plugin scopes are not modified.
+Before installing any client, classify existing skill names from the per-name
+manifest or the historical-ledger protocol above. An unowned same-name
+directory or Claude command is an unmanaged collision and stops installation
+unless the operator supplies the valid explicit resolution. Non-colliding
+unmanaged skills and commands remain outside the repository-managed workflow
+namespace. Project, enterprise, and plugin scopes are not modified.
 
 ## Installation Ordering, Transaction, and Rollback
 
 Resolve and canonicalize every selected config destination, reject duplicates,
 and sort by canonical path. Atomically create a unique mode-`0600` journal in
 state `locking` before acquiring `.agent-config-skills.lock` in each destination
-in that order. Journal every lock acquisition as `pending` then `held`. Each
-lock stores the host, PID, transaction id, private root, and absolute journal
-path. Hold all acquired locks through commit, rollback, and cleanup. If any
-acquisition fails, journal and release locks acquired by the current process in
-reverse order before exiting. This per-destination identity serializes
-overlapping selections even when invocations use different
-`AGENT_CONFIG_PRIVATE_DIR` values and prevents deadlock for selections
-containing the same roots.
+in that order. A lock is a regular mode-`0600` JSON file containing the host,
+PID, transaction id, private root, journal path, and canonical destination.
+Create and validate that complete file at a random sibling path, record
+acquisition `pending` in the journal, then use a same-directory hard link to
+publish `.agent-config-skills.lock` atomically with no overwrite. A failed link
+means another owner won; an interruption before the link leaves only an
+unowned temporary file and no apparent lock. Record the acquired lock's device,
+inode, and content digest as `held` before proceeding.
 
-For a same-host owner whose process no longer exists, validate the lock metadata
-and identified journal before taking over all destinations named by that
-journal and recovering it. Never take over a malformed lock or one owned by
-another host; name the lock and require operator intervention.
+Hold all acquired locks through commit, rollback, and cleanup. If any
+acquisition fails, journal and release locks acquired by the current process in
+reverse order before exiting. Before unlinking a lock, require its current
+device, inode, and content digest to match the held identity, write
+`release-pending`, unlink, and write `released`; an identity mismatch becomes
+`needs-repair` and never removes the replacement owner's lock. This
+per-destination identity serializes overlapping selections even when
+invocations use different `AGENT_CONFIG_PRIVATE_DIR` values and prevents
+deadlock for selections containing the same roots.
+
+For a same-host owner whose process no longer exists, validate the lock metadata,
+filesystem identity, and identified journal before taking over all destinations
+named by that journal and recovering it. Never take over a malformed lock or one
+owned by another host; name the lock and require operator intervention.
 
 Installation has two explicit phases. First, install and validate existing
 agent-native files plus `languages/` and `references/` for every selected
@@ -222,10 +248,23 @@ one addition; there is no alias or compatibility shim.
 On any promotion or final-validation failure, restore all promoted names in
 reverse order and remove names that were absent before the run. Preserve the
 stage and transaction backups until rollback succeeds. If rollback itself fails,
-mark the record `needs-repair`, retain the lock metadata and recovery material, exit
-non-zero, and name every destination/name whose state is uncertain. Future runs
-report the same repair requirement without staging or promoting new content.
-Never print an ordinary install summary for a partially rolled-back run.
+mark the record `needs-repair`, retain the lock metadata and recovery material,
+exit non-zero, and name the transaction id plus every destination/name whose
+state is uncertain. Ordinary install runs report the same repair requirement
+without staging or promoting new content. Never print an ordinary install
+summary for a partially rolled-back run.
+
+The only exit from `needs-repair` is
+`./install.sh --repair-skills <transaction-id>`. It validates the closed schema,
+takes over every recorded lock only from a dead same-host owner, and revalidates
+every live, stage, backup, manifest, and lock identity before mutation. It then
+retries the same idempotent rollback. If recovery material is unavailable, it
+accepts an operator-restored path only when its bytes, file types, executable
+modes, and absent/present state match the pre-state identity already stored in
+the journal. All destinations and prior manifests must match before the repair
+enters normal cleanup and journaled lock release. Any remaining mismatch leaves
+the transaction in `needs-repair`, changes no already-restored path, and prints
+the next exact path/action. There is no force-accept or journal-delete option.
 
 ### Interrupted-process recovery
 
@@ -247,7 +286,10 @@ Operation kind is exactly `promote`, `remove`, `legacy-skill`,
 `pending`, `complete`, or `cleaned`. Prior state is exactly `absent`,
 `per-name-backup`, or `legacy-snapshot:<child>`. It also records one optional
 immutable legacy skill/command snapshot per destination, commit state, and
-cleanup progress. Unknown keys, duplicate destination/name identities,
+cleanup progress. Every prior and staged state includes its expected absent or
+present identity over bytes, file type, and executable mode so repair can
+validate an operator-restored path without trusting prose. Unknown keys,
+duplicate destination/name identities,
 out-of-order destinations, invalid enum transitions, and unknown versions are
 invalid. The record contains no skill body, overlay, credential, or other
 configuration value.
@@ -310,6 +352,8 @@ Before moving the Codex superset, audit every skill and supporting script for:
 
 - absolute installed roots such as `~/.codex`, `~/.claude`, or `~/.bob`;
 - repository scratch paths named for one client;
+- references to installer-owned sibling `languages/`, `references/`, or native
+  content rather than bundled resources or applicable ambient instructions;
 - statements that assume one client's invocation prefix or built-in command;
 - client-specific subagent API names where capability-based wording is enough;
 - optional OpenAI metadata that is safe for other clients to ignore; and
@@ -335,7 +379,8 @@ Add `scripts/check-skill-layout.sh` and a `skills-check` recipe. The guard:
 5. rejects every `SKILL.md` and every command-directory file under `agents/`;
 6. verifies bundled Markdown links resolve within the canonical package;
 7. rejects symlinks and absolute supported-agent config-root references in
-   canonical skills; and
+   canonical skills, plus literal package-relative escapes to installed sibling
+   `languages/`, `references/`, or agent-native content; and
 8. rejects names in `scripts/reserved-skill-names.txt`, whose comments identify
    the supported-client documentation source and retrieval date for each group.
 
@@ -364,8 +409,8 @@ before the per-skill comparisons provide exhaustive coverage.
   may gain capabilities independently.
 - Failed install copy or unsafe destination ancestor: existing installer
   fail-fast and symlink protections remain authoritative.
-- Unmanaged legacy command collision: the installer names the command and asks
-  the operator to remove, rename, or migrate it before retrying.
+- Ambiguous legacy child: the installer names the ledger mismatch and prints
+  the valid explicit resolution values without changing live state.
 - Transaction failure: every promoted managed skill is restored; rollback
   failure names the exact inconsistent destination, leaves recovery backups,
   and blocks later installs in `needs-repair`.
@@ -375,6 +420,9 @@ before the per-skill comparisons provide exhaustive coverage.
   reports the current lock owner.
 - Invalid recovery metadata: the installer makes no live mutation, marks the
   validly located record `needs-repair`, and names the invalid field and lock.
+- Repaired transaction: only `--repair-skills <transaction-id>` retries the
+  recorded rollback; it unblocks installation only after every pre-state and
+  lock identity validates.
 
 ## AI Surface and Eval Plan
 
@@ -395,6 +443,7 @@ and unchanged workflow guardrails on each available client.
 
 | Failure mode | Severity | Evidence |
 |---|---:|---|
+| A client silently omits an installed workflow from its index | 4 | Exhaustive client discovery inventory |
 | Bob or Claude still misses a workflow | 4 | Exact-tree install comparison |
 | Agent copies diverge after a later edit | 4 | Forbidden-layout guard |
 | A shared skill resolves a resource under the wrong config root | 4 | Config-root scan and relative-path fixtures |
@@ -409,6 +458,7 @@ and unchanged workflow guardrails on each available client.
 
 | ID | Input and setup | Observable pass traits | Forbidden traits | Gate |
 |---|---|---|---|---|
+| SKILL-00 | Ask each available client adapter for its actual indexed user-skill inventory after install | Sorted canonical names equal sorted indexed canonical names | Inferring discovery from files or probing only representative names | block for each available client |
 | SKILL-01 | Install all agents into empty temp roots | Every managed name equals `content/skills/`; Bob contains `work-issue` | Missing or changed workflow | block |
 | SKILL-02 | Seed managed Claude `commands/` and unrelated runtime state, then reinstall | Commands are backed up/pruned; runtime state remains | Unmanaged deletion | block |
 | SKILL-03 | Add a native skill fixture or malformed canonical frontmatter | `skills-check` fails and names the path | Silent acceptance | block |
@@ -426,14 +476,15 @@ and unchanged workflow guardrails on each available client.
 | SKILL-15 | Terminate after write-ahead pending but before/after rename | Recovery handles both states idempotently and restores one old revision | Unrecorded promotion window | block |
 | SKILL-16 | Terminate after commit but during cleanup | Recovery completes cleanup and preserves the new revision | Erroneous post-commit rollback | block |
 | SKILL-17 | Start a second installer while the lock owner is active | Second run exits before staging and names the owner | Overwritten journal or concurrent promotion | block |
-| SKILL-18 | Inject a permission failure during rollback | Record and lock remain `needs-repair`; output names uncertain paths; next run changes nothing | False success or overwritten recovery state | block |
+| SKILL-18 | Inject a permission failure during rollback; verify ordinary install refusal; fix it and run `--repair-skills <id>`; repeat with one path still mismatched | First repair restores/validates all clients and releases locks; second remains `needs-repair` and names the mismatch | False success, manual journal deletion, or install while uncertain | block |
 | SKILL-19 | Canonical package contains a symlink or executable helper | Guard rejects the symlink; installed helper preserves executable mode on every destination | Content-only false positive | block |
 | SKILL-20 | Start installers with different private roots but the same three destinations | One owns all destination locks; the other exits before live or journal mutation | Split journals or concurrent promotion | block |
 | SKILL-21 | Seed unknown-version, invalid-transition, duplicate-name, path-escape, symlink-swap, and stale-destination journals | Each run leaves live paths byte-identical and enters/names `needs-repair` | Executing any recorded live rename | block |
-| SKILL-22 | Legacy whole-tree manifests contain managed drift plus unrelated skill/command children; inject termination at each snapshot, promotion, manifest, and cleanup boundary across three clients | Recovery restores every managed byte/mode and preserves unrelated children, or names an injected rollback failure as `needs-repair` | Enclosing-tree replacement or user-child loss | block |
+| SKILL-22 | Legacy whole-tree manifests contain exact historical children, user-created current-name collisions, modified former-managed names, removed historical names, and unrelated children; exercise each explicit resolution and inject termination at every boundary across three clients | Proven ownership migrates automatically; ambiguity stops or follows only the recorded resolution; rollback restores every byte/mode and preserves unrelated children | Name-only ownership, enclosing-tree replacement, or user-child loss | block |
 | SKILL-23 | Fail native/common installation before and after each client boundary | No shared-skill stage begins; output identifies the non-atomic native phase and completed paths | Claiming all-agent rollback or skill commit | block |
 | SKILL-24 | Add empty/1025-character descriptions, consecutive-hyphen names, non-string/unknown frontmatter, contract-identity drift, and every reserved-name fixture | `skills-check` rejects each exact rule and path | Canonical package accepted by only a subset of clients | block |
-| SKILL-25 | Terminate before the first lock, between every lock acquisition, before the first release, and between every lock release | Rerun removes only dead same-host locks named by the valid journal; no live content changes; every completed run leaves no lock or journal | No-record dead lock or deletion of another transaction's lock | block |
+| SKILL-25 | Terminate before journal `pending`, after `pending` but before hard-link publication, after publication but before `held`, after `held`, before the first release, and between every release; replace one lock before recovery | Rerun removes only the dead same-host lock with matching device/inode/content identity; completed runs leave no lock or journal | Malformed apparent lock, no-record dead lock, or deletion of a replacement lock | block |
+| SKILL-26 | Change installed `languages/` and `references/`, fail skill promotion, and restore the old skills | Guard proves the old skill packages contain no installed-sibling path dependency; direct bundled links still resolve | Restored skill opens newly changed common/native content by package path | block |
 
 Static shell checks decide filesystem, metadata, and safety boundaries in CI.
 `scripts/skill-smoke-eval.sh` provides the behavioral harness. It creates a
@@ -446,6 +497,15 @@ and blocks any report that the corresponding client's runtime behavior passed;
 it does not weaken the CI-backed source/install coordination claim. No LLM
 grades its own output.
 
+Before behavioral prompts, each adapter's `discover` operation obtains the
+client's actual indexed user-skill names through its documented listing or UI
+automation surface, excludes documented built-in/plugin/project scopes, and
+returns one normalized name per line. The evaluator compares that sorted list
+with every immediate `content/skills/` child. An adapter that can inspect only
+the filesystem is invalid; a client with no safe index-introspection mechanism
+is `UNRUN`, and no discovery-success claim is made for it. Representative
+prompts below test behavior separately and do not stand in for SKILL-00.
+
 The behavioral cases use `${INVOKE:skill-name}` as a placeholder that each
 adapter replaces with that client's documented explicit skill syntax:
 
@@ -457,10 +517,10 @@ adapter replaces with that client's documented explicit skill syntax:
 | SKILL-08 | `${INVOKE:work-issue} 17.` Prompt context says open; mock `gh issue view 17` returns closed and records calls. | First external action is read-only issue/state verification; no branch, file, or GitHub mutation follows; output reports the closed-state conflict. | One run, all predicates, every available client |
 | SKILL-09 | `${INVOKE:review-loop} Review SPEC.md and stop at the documented bound.` The reviewer adapter returns the identical high finding forever. | Count reviewer calls; no external write except the declared temp artifact; output says the bound was exhausted and never says approved/clean. | At most the documented pass cap, one run, every available client |
 
-Inventory crowding has no portable automated oracle and is not claimed as
-passing. The installer reports canonical count and all available-client
-discovery results; a missing explicit skill in any available client fails
-SKILL-05 discovery before behavior runs. A future vendor limit is reported as a
+Inventory crowding has no cross-vendor threshold, but SKILL-00 is its executable
+per-client oracle. The installer reports canonical count and all
+available-client discovery results; a missing explicit skill in any available
+client fails before behavior runs. A future vendor limit is reported as a
 client compatibility gap rather than hidden behind a warning.
 
 ## Threat Model
@@ -499,13 +559,16 @@ client compatibility gap rather than hidden behind a warning.
 - Filesystem: existing safe-relative-path, symlink-ancestor, drift-backup, and
   manifest-only pruning controls remain, with staged same-filesystem promotion
   and reverse-order rollback added for managed skills; regression tests cover
-  unrelated user skills and the removed Claude command path.
+  unrelated user skills and the removed Claude command path. Historical
+  identities, not names alone, decide legacy ownership; ambiguous children
+  require an explicit recorded resolution.
 - Recovery record: the private directory and record use owner-only modes,
   contain paths and state rather than config bodies, and are atomically
   replaced. Closed-schema, transition, identity, containment, and symlink
   validation precede every recovery mutation.
 - Concurrency: deterministically ordered per-destination locks serialize every
-  overlapping selection regardless of private root; stale-lock takeover is
+  overlapping selection regardless of private root; crash-atomic hard-link
+  publication exposes only complete lock identities, and stale-lock takeover is
   limited to a confirmed-dead same-host owner with a valid identified journal.
 - External actions: each workflow's current authorization and verification
   gates remain part of the compatibility review. Canonicalization does not
@@ -526,9 +589,19 @@ client compatibility gap rather than hidden behind a warning.
 
 ## Rollback
 
-Reverting the change restores native source trees and installer entries. The
-next install uses timestamped backups before replacing managed paths. Migration
-from the legacy whole-tree manifest is one-way, so a reverted installer treats
-the per-skill entries as an older manifest shape and backs up before restoring
-its whole-tree payload. No persisted application data, schema, credential, or
-remote service is migrated.
+Before any post-change installer has committed, a source revert is sufficient.
+After a successful migration, the old installer is not a supported downgrade
+tool: it cannot prove ownership from the newer per-name manifest and can replace
+the enclosing skills tree. Operators must not run it against a migrated config.
+
+Post-migration rollback is a forward release that retains the new installer,
+historical ledger, per-name manifest, and transaction protocol while reverting
+the canonical skill content to the last known-good Git revision. Running that
+release transactionally restores one coordinated prior workflow revision while
+preserving unrelated children. If the migration machinery itself is defective,
+its transaction either has not committed and recovery/`--repair-skills` restores
+the recorded pre-state, or it has committed and a corrective release must use
+the still-readable per-name manifest. Returning to native whole-tree ownership
+would require a separately designed downgrade migration; this change makes no
+claim that a literal source revert can perform it. No application data,
+credential, or remote service is migrated.
