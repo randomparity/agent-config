@@ -167,18 +167,24 @@ unrelated check when replacing the stale context, and stop if policy changes
 between the read and write:
 
 ```bash
+set -euo pipefail
+
 required_url="repos/$repo_name/branches/main/protection/required_status_checks"
 current_required=$(gh api "$required_url")
 stale_context=verify
 replacement_context=verify # replace with the successful run's exact name
 replacement_app_id=15368    # replace with that run's app_id
 
-jq -e --arg stale "$stale_context" --arg replacement "$replacement_context" \
+if ! jq -e --arg stale "$stale_context" \
+  --arg replacement "$replacement_context" \
   '([.checks[] | select(.context == $stale)] | length == 1) and
    ([.checks[] | select(
       .context == $replacement and .context != $stale)] | length == 0)' \
-  <<<"$current_required"
-replacement=$(jq \
+  <<<"$current_required"; then
+  printf '%s\n' 'stale or replacement context is ambiguous; inspect and retry' >&2
+  exit 1
+fi
+if ! replacement=$(jq \
   --arg stale "$stale_context" \
   --arg context "$replacement_context" \
   --argjson app_id "$replacement_app_id" \
@@ -189,7 +195,10 @@ replacement=$(jq \
       then {context: $context, app_id: $app_id}
       else .
       end]
-  }' <<<"$current_required")
+  }' <<<"$current_required"); then
+  printf '%s\n' 'could not build the replacement policy; nothing was written' >&2
+  exit 1
+fi
 
 live_required=$(gh api "$required_url")
 current_snapshot=$(jq -cS '{strict, checks}' <<<"$current_required")
@@ -203,13 +212,20 @@ gh api --method PATCH "$required_url" --input - <<<"$replacement"
 updated_required=$(gh api "$required_url")
 updated_snapshot=$(jq -cS '{strict, checks}' <<<"$updated_required")
 expected_snapshot=$(jq -cS . <<<"$replacement")
-[[ "$updated_snapshot" == "$expected_snapshot" ]]
+if [[ "$updated_snapshot" != "$expected_snapshot" ]]; then
+  printf '%s\n' 'required-check read-back differs; inspect before another write' >&2
+  exit 1
+fi
 ```
 
 Confirm the replacement PR becomes unblocked. Do not clear all required checks as
 a workaround: that recreates the unprotected merge path. Patching this endpoint
 preserves other branch-protection features; constructing and asserting the complete
-required-check list preserves other required checks.
+required-check list preserves other required checks when one administrator owns the
+write window. The endpoint has no conditional-write step verified by this workflow,
+so coordinate a short maintenance window and do not run this recipe concurrently with
+another policy edit. The before/after snapshots detect observed drift but cannot make
+an unconditional PATCH race-free; retain them for reconciliation if another edit occurs.
 
 ## Decision Records
 
