@@ -79,13 +79,14 @@ canonical tree, each source classification applies to Claude, Codex, and Bob:
 |---|---|
 | `test-driven-development/SKILL.md` | executable gates |
 | `test-driven-development/testing-anti-patterns.md` | descriptive quotes |
-| `systematic-debugging/SKILL.md` | executable gate |
+| `systematic-debugging/SKILL.md` | executable gates |
 | `receiving-code-review/SKILL.md` | mixed; executable gates and descriptive examples |
 | `verification-before-completion/SKILL.md` | descriptive history |
 | `using-git-worktrees/SKILL.md` | lifecycle; outside debt 0002 |
 
 The TDD gates require human permission for exceptions and send an unknown test strategy
-to the human. Systematic debugging requires discussion after three failed fixes.
+to the human. Systematic debugging sends an uncertain worker to unspecified help and
+requires discussion after three failed fixes.
 Review-reception stops for clarification or direction on unclear and unverifiable
 feedback, on conflicts with prior human decisions, and for architectural escalation; its
 example speakers and quoted preferences are descriptive. Verification's single phrase

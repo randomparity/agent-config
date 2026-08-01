@@ -15,8 +15,8 @@ unavailable human:
 
 - `content/skills/test-driven-development/SKILL.md` makes test-first exceptions
   conditional on human permission and sends an unknown test strategy to the human.
-- `content/skills/systematic-debugging/SKILL.md` requires human discussion after three
-  failed fixes.
+- `content/skills/systematic-debugging/SKILL.md` directs an uncertain worker to ask for
+  unspecified help and requires human discussion after three failed fixes.
 - `content/skills/receiving-code-review/SKILL.md` stops for clarification when feedback is
   unclear, requests direction when external feedback cannot be verified, stops for human
   discussion when feedback conflicts with prior decisions, and routes architectural
@@ -55,7 +55,8 @@ vendored package. No caller or skill may add a new dispatched path to a named ex
 gate without asserting the mode and defining whether written policy resolves it or the
 caller receives a blocker. A dispatched worker may not treat an absent human as
 permission to skip or weaken a test, continue after the debugging stop, guess at unclear
-or unverifiable review feedback, or override a prior architectural decision.
+or unverifiable review feedback, wait for unspecified debugging help, or override a prior
+architectural decision.
 
 ## What would resolve it
 
