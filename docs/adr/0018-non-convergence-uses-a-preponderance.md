@@ -24,10 +24,11 @@ accounting exemption grants no authority to create or widen the record.
 Independent limits still bound iterations and rescope cycles. A non-convergent exit
 reports unresolved findings and does not present the run as approved.
 
-A stable pass may instead exit as converged with deferrals when no finding is both new and
-not a self-collision, and the preceding pass made no target change. This preserves the
-requirement that a review pass observe the state that will ship. Proportional remedies may
-record a consequence or an owned deferral, but never suppress a material finding.
+A stable pass may instead exit without approval when no finding is both new and not a
+self-collision, and the preceding pass made no target change. This preserves the requirement
+that a review pass observe the state that will ship. Already-disposed findings may include
+owned deferrals or findings rejected with evidence. Proportional remedies may record a
+consequence, but never suppress a material finding.
 
 ## Consequences
 
@@ -44,5 +45,5 @@ use the same accounting rule wherever the review loop exists.
   oscillation and would evade the exit.
 - **Rely only on the iteration cap.** The cap bounds cost but hides the observed failure to
   converge.
-- **Require an approve verdict despite owned deferrals.** A recurring, already-owned
-  concern would consume the cap even after the target stabilized.
+- **Require an approve verdict despite already-disposed findings.** A recurring owned or
+  evidentially rejected concern would consume the cap even after the target stabilized.
