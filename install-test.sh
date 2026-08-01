@@ -10,6 +10,14 @@ assert_file() {
 	[[ -f "$1" ]] || fail "expected file: $1"
 }
 
+assert_same_file() {
+	local expected="$1"
+	local actual="$2"
+
+	cmp -s "$expected" "$actual" ||
+		fail "expected identical files: $expected and $actual"
+}
+
 assert_not_file() {
 	[[ ! -e "$1" ]] || fail "expected path to be absent: $1"
 }
@@ -18,6 +26,41 @@ assert_contains() {
 	local file="$1"
 	local expected="$2"
 	grep -Fq "$expected" "$file" || fail "expected $file to contain: $expected"
+}
+
+assert_worktree_baseline_transcripts() {
+	local skill_file="$1"
+
+	# WT-BL-00: a passing baseline remains ready to implement.
+	assert_contains "$skill_file" '**If tests pass:** Report ready.'
+	# WT-BL-01: interactive failure preserves the human decision gate.
+	assert_contains "$skill_file" '**Interactive mode:**'
+	assert_contains "$skill_file" \
+		'Report the failures, ask whether to proceed or investigate, and wait.'
+	# WT-BL-02: unresolved dispatched failure returns control as a blocker.
+	assert_contains "$skill_file" '**Dispatched mode without resolving authority:**'
+	assert_contains "$skill_file" \
+		'Report the failures as a blocker and return to the caller.'
+	# WT-BL-03: only authority that addresses the failed baseline resolves the gate.
+	assert_contains "$skill_file" '**Dispatched mode with resolving authority:**'
+	assert_contains "$skill_file" \
+		'An applicable caller instruction or repository rule must explicitly address the failed baseline.'
+	assert_contains "$skill_file" \
+		'Report the failures, then follow the explicit applicable instruction or repository rule.'
+	# WT-BL-04: generic dispatch does not imply permission to continue.
+	assert_contains "$skill_file" \
+		'Generic dispatch, autonomy, or task-completion language does not resolve the gate.'
+	# WT-BL-05: unresolved ambiguity or conflict follows the blocker branch.
+	assert_contains "$skill_file" \
+		'If instruction priority does not yield one unambiguous action, return the blocker.'
+}
+
+assert_line() {
+	local file="$1"
+	local expected="$2"
+
+	grep -Fxq -- "$expected" "$file" ||
+		fail "expected $file to contain line: $expected"
 }
 
 assert_json_value() {
@@ -104,6 +147,9 @@ REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 tmpdir="$(mktemp -d "${TMPDIR:-/tmp}/agent-config-test.XXXXXX")"
 trap 'rm -R "$tmpdir"' EXIT
 
+assert_worktree_baseline_transcripts \
+	"$REPO/content/skills/using-git-worktrees/SKILL.md"
+
 export HOME="$tmpdir/home"
 export CLAUDE_CONFIG_DIR="$tmpdir/home/.claude"
 export CODEX_CONFIG_DIR="$tmpdir/home/.codex"
@@ -141,6 +187,11 @@ AGENT_CONFIG_HOST=test-host ./install.sh --agent all
 assert_file "$CLAUDE_CONFIG_DIR/CLAUDE.md"
 assert_file "$CLAUDE_CONFIG_DIR/settings.json"
 assert_canonical_skills "$CLAUDE_CONFIG_DIR"
+assert_worktree_baseline_transcripts \
+	"$CLAUDE_CONFIG_DIR/skills/using-git-worktrees/SKILL.md"
+assert_same_file \
+	"docs/licenses/superpowers.LICENSE" \
+	"$CLAUDE_CONFIG_DIR/licenses/superpowers.LICENSE"
 assert_file "$CLAUDE_CONFIG_DIR/languages/bash.md"
 assert_executable "$CLAUDE_CONFIG_DIR/statusline.sh"
 assert_json_value "$CLAUDE_CONFIG_DIR/settings.json" ".env.AGENT_CONFIG_TEST" "claude"
@@ -148,6 +199,11 @@ assert_json_value "$CLAUDE_CONFIG_DIR/settings.json" ".env.AGENT_CONFIG_TEST" "c
 assert_file "$CODEX_CONFIG_DIR/AGENTS.md"
 assert_file "$CODEX_CONFIG_DIR/config.toml"
 assert_canonical_skills "$CODEX_CONFIG_DIR"
+assert_worktree_baseline_transcripts \
+	"$CODEX_CONFIG_DIR/skills/using-git-worktrees/SKILL.md"
+assert_same_file \
+	"docs/licenses/superpowers.LICENSE" \
+	"$CODEX_CONFIG_DIR/licenses/superpowers.LICENSE"
 assert_file "$CODEX_CONFIG_DIR/references/orchestration.md"
 assert_toml_contains "$CODEX_CONFIG_DIR/config.toml" 'agent_config_test = "codex"'
 
@@ -158,9 +214,21 @@ assert_file "$BOB_CONFIG_DIR/mcp.json"
 assert_file "$BOB_CONFIG_DIR/mcp_settings.json"
 assert_file "$BOB_CONFIG_DIR/rules/global-development-standards.md"
 assert_canonical_skills "$BOB_CONFIG_DIR"
+assert_worktree_baseline_transcripts \
+	"$BOB_CONFIG_DIR/skills/using-git-worktrees/SKILL.md"
+assert_same_file \
+	"docs/licenses/superpowers.LICENSE" \
+	"$BOB_CONFIG_DIR/licenses/superpowers.LICENSE"
 assert_json_value "$BOB_CONFIG_DIR/settings.json" ".agentConfigTest.bob" "true"
 assert_json_value "$BOB_CONFIG_DIR/mcp.json" '.mcpServers["example-docs"].command' "npx"
 assert_json_value "$BOB_CONFIG_DIR/mcp_settings.json" '.mcpServers["example-docs"].command' "npx"
+
+assert_line "$CLAUDE_CONFIG_DIR/.agent-config-manifest" \
+	"licenses/superpowers.LICENSE"
+assert_line "$CODEX_CONFIG_DIR/.agent-config-manifest" \
+	"licenses/superpowers.LICENSE"
+assert_line "$BOB_CONFIG_DIR/.agent-config-manifest" \
+	"licenses/superpowers.LICENSE"
 
 assert_not_file "$CLAUDE_CONFIG_DIR/stale-managed.txt"
 assert_not_file "$CODEX_CONFIG_DIR/stale-managed.txt"
@@ -177,9 +245,16 @@ assert_executable "$mode_drift"
 assert_canonical_skills "$CODEX_CONFIG_DIR"
 
 write_text "$CLAUDE_CONFIG_DIR/CLAUDE.md" "local drift before reinstall"
+write_text "$CLAUDE_CONFIG_DIR/licenses/superpowers.LICENSE" \
+	"local license drift before reinstall"
 AGENT_CONFIG_HOST=test-host ./install.sh --agent claude
 
 assert_contains "$CLAUDE_CONFIG_DIR/CLAUDE.md" "# Global Development Standards"
 assert_tree_contains "$CLAUDE_CONFIG_DIR/.agent-config-backups" "local drift before reinstall"
+assert_same_file \
+	"docs/licenses/superpowers.LICENSE" \
+	"$CLAUDE_CONFIG_DIR/licenses/superpowers.LICENSE"
+assert_tree_contains "$CLAUDE_CONFIG_DIR/.agent-config-backups" \
+	"local license drift before reinstall"
 
 printf 'install-test: ok\n'

@@ -6,7 +6,7 @@ Issue 24 prevents design workflows from strengthening a user's requirement witho
 explicit authority. The workflow must preserve the distinction between permission to
 review a design and permission to expand the product contract.
 
-This design is governed by [ADR 0005](../../adr/0005-external-scope-authority.md).
+This design is governed by [ADR 0006](../../adr/0006-external-scope-authority.md).
 
 ## Frozen scope and assumptions
 

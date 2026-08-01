@@ -1,4 +1,4 @@
-# 0005 — External Scope Authority for Design Workflows
+# 0006 — External Scope Authority for Design Workflows
 
 ## Status
 
