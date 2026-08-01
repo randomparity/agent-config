@@ -338,7 +338,7 @@ examples/bob-project/AGENTS.md
 examples/bob-project/.bob/custom_modes.yaml
 examples/bob-project/.bob/mcp.json
 examples/bob-project/.bob/rules/project-standards.md
-examples/bob-project/.bob/skills/project-context/SKILL.md
+examples/project-review-skills/project-context/SKILL.md
 ```
 
 Use only `/path/to/project`, `${EXA_API_KEY}`, and placeholder MCP server names.
