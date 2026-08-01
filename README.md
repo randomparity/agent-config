@@ -313,6 +313,12 @@ canonical copies under `content/skills/decision-records/assets/`; `just records`
 checks that invariant. GitHub requires the producer-bound lowercase `verify` check on
 `main`; issue #16 records the failing-PR enforcement proof and recovery procedure.
 
+The ADR profile normally warns when `docs/adr/README.md` contains a hand-maintained
+numbered index because the directory is the index. An adopting repository whose own
+required CI enforces ADR-to-index agreement sets `ADR_INDEX_POLICY: required` beside
+`RECORD_PROFILES` in its records workflow; that declaration suppresses only the
+conflicting index warning.
+
 ## Source Material
 
 This repo was designed from the existing local Claude Code and Codex config

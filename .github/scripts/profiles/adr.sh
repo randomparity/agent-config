@@ -120,6 +120,7 @@ profile_migrate_markers() {
 profile_check_directory() {
   local readme="$RECORD_DIR/README.md"
   [ -f "$readme" ] || return 0
+  [ "${ADR_INDEX_POLICY:-directory}" = required ] && return 0
   if grep -qE '^\|[[:space:]]*\[?[0-9]{4}' "$readme"; then
     warn_full "W-INDEX-TABLE: $readme: numbered record rows duplicate the directory index"
   fi
