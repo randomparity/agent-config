@@ -19,6 +19,16 @@ committing host-specific configuration.
 - `examples/hosts/` shows private overlay shapes with placeholder values only.
 - `examples/bob-project/` shows Bob project-local `.bob/` conventions.
 
+## Vendored software
+
+Selected agent skills are maintained forks of MIT-licensed Superpowers 6.1.1. See the
+[attribution inventory](docs/licenses/superpowers.md) and
+[license](docs/licenses/superpowers.LICENSE) for the exact source snapshot and covered
+roots.
+
+By submitting a change below a covered root, a contributor offers that change under the
+canonical MIT terms and represents that they have authority to grant those rights.
+
 ## Install
 
 Bootstrap local tooling:
