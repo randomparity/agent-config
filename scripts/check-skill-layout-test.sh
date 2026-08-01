@@ -60,7 +60,10 @@ new_fixture() {
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 implementation="$repo_root/scripts/check-skill-layout.sh"
 reserved="$repo_root/scripts/reserved-skill-names.txt"
-tmpdir="$(mktemp -d "$repo_root/.skill-layout-test.XXXXXX")"
+tmp_base="${TMPDIR:-/tmp}"
+tmpdir="$(mktemp -d "$tmp_base/skill-layout-test.XXXXXX")"
+[[ "$tmpdir" == "$tmp_base"/skill-layout-test.* ]] ||
+	fail "fixtures must be created under $tmp_base"
 trap 'rm -R "$tmpdir"' EXIT
 case_count=0
 
@@ -109,7 +112,7 @@ assert_package_case() {
 	local kind="$1"
 	local inventory="$2"
 	local name="$3"
-	local root target expected
+	local root target expected matching_count
 
 	root="$(new_fixture)"
 	target="$root/$inventory/$name"
@@ -154,6 +157,8 @@ assert_package_case() {
 	case-fold-collision)
 		printf '%s\n' 'one' >"$target/Readme.md"
 		printf '%s\n' 'two' >"$target/readme.md"
+		matching_count="$(find "$target" -maxdepth 1 -iname 'readme.md' | wc -l | tr -d ' ')"
+		[[ "$matching_count" -eq 2 ]] || return 0
 		expected="$inventory: ASCII case-fold path collision"
 		;;
 	invalid-utf8)
