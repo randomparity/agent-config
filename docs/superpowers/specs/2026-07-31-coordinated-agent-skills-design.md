@@ -256,6 +256,14 @@ Every client stage copies canonical common content and skills from that one
 snapshot, never from the live worktree, and final validation requires all
 selected clients' canonical paths to match B.
 
+Apply the same A/B/C protocol independently to every per-agent native source
+tree and each allowlisted private-overlay file. Overlay identities use `lstat`
+with no following, include absent/present/type state, and require a regular file
+when present. Also compare the selected overlay root's relative path/type index
+before and after snapshotting so an added workflow artifact or regular-to-
+symlink swap aborts before promotion. Record every input and snapshot identity
+in the journal and version-2 manifest.
+
 The source-snapshot directory and private inputs use mode `0700`/`0600`, remain
 under the private transaction root, and are deleted after committed or
 rolled-back cleanup. Raw overlays are never moved into timestamped destination
@@ -285,13 +293,16 @@ deadlock for selections containing the same roots.
 Supported destinations are host-local filesystems. Before creating a journal,
 query the OS filesystem type and reject network/shared types (including NFS,
 SMB/CIFS, AFP, and SSH/FUSE network mounts); an unknown type stops with the
-destination and detected value. Hostname is display-only. The execution
-identity is the OS machine identity plus boot identity and, when present, PID
-namespace identity (Linux: machine-id, boot-id, and PID-namespace inode; macOS:
-IOPlatformUUID and `kern.boottime`). The process identity also records its OS
-start token, not PID alone. Automatic liveness probing or takeover is allowed
-only when the complete execution identity matches and that exact PID/start token
-is gone. A different execution identity, malformed metadata, or unsupported
+destination and detected value. Hostname is display-only. Stable machine
+identity is Linux machine-id or macOS IOPlatformUUID. The runtime epoch
+separately records boot identity and, when present, PID namespace identity
+(Linux: boot-id and PID-namespace inode; macOS: `kern.boottime`). The process
+identity also records its OS start token, not PID alone. When stable machine
+identity and runtime epoch match, automatic liveness probing or takeover
+requires that exact PID/start token to be gone. When stable machine identity
+matches but boot identity differs, the recorded process is conclusively from a
+prior boot and validated takeover is allowed. A different stable machine
+identity, a same-boot namespace mismatch, malformed metadata, or unsupported
 storage topology requires the repair path and is never inferred dead from a
 hostname/PID collision.
 
@@ -321,11 +332,15 @@ identity across clients with canonical snapshot identity B. Only then mark the
 transaction committed and let normal timestamped drift backups retain replaced
 content.
 
-Reconcile removals from the old per-skill manifest before promotion. A managed
-name absent from the new canonical inventory is moved to a transaction backup
-and omitted from the new manifest. It participates in the same reverse-order
-rollback as additions and updates. A rename is represented as one removal plus
-one addition; there is no alias or compatibility shim.
+Reconcile every entry in the old manifest against the staged version-2 manifest
+before promotion. Any previously managed native file, common-content path,
+skill name, command, or subtree absent from the new manifest becomes an
+identity-bearing write-ahead `remove` operation: move it to a transaction
+backup, omit it from the new manifest, and restore it in reverse order on
+rollback. Per-name ownership/collision rules remain special only for user skill
+and command namespaces; other old managed paths are already proven owned by the
+manifest. A rename is represented as one removal plus one addition; there is no
+alias or compatibility shim.
 
 On any promotion or final-validation failure, restore all promoted names in
 reverse order and remove names that were absent before the run. Preserve the
@@ -338,8 +353,8 @@ summary for a partially rolled-back run.
 
 The only exit from `needs-repair` is
 `./install.sh --repair-skills <transaction-id>`. It validates the closed schema,
-takes over every recorded lock only from the matching dead execution identity,
-and revalidates
+takes over every recorded lock only on the matching stable machine after either
+a boot change or proof that the exact runtime/process identity is dead, and revalidates
 every live, stage, backup, manifest, and lock identity before mutation. It then
 retries the same idempotent rollback. If recovery material is unavailable, it
 accepts an operator-restored path only when its bytes, file types, executable
@@ -430,9 +445,9 @@ leave an operation pending but never unrecorded; recovery treats pending as
 possibly applied and restores it idempotently.
 
 When a destination lock already exists, validate its identified record before
-taking over a dead matching execution/process identity. An interrupted
-`locking` record has not
-entered the live-content phase: release any possibly acquired locks
+taking over on the matching stable machine after a prior boot or a proven-dead
+exact runtime/process identity. An interrupted `locking` record has not entered
+the live-content phase: release any possibly acquired locks
 idempotently and delete the record after all are absent. For an `open` record,
 first take over all destinations named by that record, then restore the recorded
 pre-install state in reverse operation order. Validate every restored name,
@@ -603,15 +618,16 @@ is reported separately as sampled evidence, never as a deterministic guarantee.
 | SKILL-22 | Legacy whole-tree manifests contain exact historical children, user-created current-name collisions, modified former-managed names, removed historical names, and unrelated children; exercise each explicit resolution and inject termination at every boundary across three clients | Proven ownership migrates automatically; ambiguity stops or follows only the recorded resolution; rollback restores every byte/mode and preserves unrelated children | Name-only ownership, enclosing-tree replacement, or user-child loss | block |
 | SKILL-23 | Fail promotion before and after every native/common path and client boundary | Every selected client's complete managed filesystem and sole manifest return to their prior identity | Manifest/filesystem skew or a partial client revision | block |
 | SKILL-24 | Add empty/1025-scalar descriptions, combining characters, duplicate/unknown keys, quoted names, block descriptions, escapes, comments, malformed UTF-8, consecutive-hyphen/reserved names, and nested case-fold, non-ASCII, trailing-dot, overlength, and contract-identity fixtures under multiple locales | `skills-check` accepts only the deterministic frontmatter/path subset and rejects each invalid rule/path identically across locales | Hand-parsed ambiguity or a package accepted by only a subset of clients/filesystems | block |
-| SKILL-25 | Terminate before journal `pending`, after `pending` but before hard-link publication, after publication but before `held`, after `held`, before the first release, and between every release; replace one lock before recovery | Rerun removes only the dead matching execution/process lock with matching device/inode/content identity; completed runs leave no lock, sibling, or journal | Malformed apparent lock, no-record dead lock, leaked sibling, or deletion of a replacement lock | block |
+| SKILL-25 | Terminate before journal `pending`, after `pending` but before hard-link publication, after publication but before `held`, after `held`, before the first release, and between every release; replace one lock before recovery | Rerun removes only a matching-stable-machine prior-boot or proven-dead exact-process lock with matching device/inode/content identity; completed runs leave no lock, sibling, or journal | Malformed apparent lock, no-record dead lock, leaked sibling, or deletion of a replacement lock | block |
 | SKILL-26 | Change `languages/`, `references/`, native files, and skills, then fail after mixed-path promotion | Rollback restores one prior identity for every managed path and manifest in all selected clients | Old skills paired with new common/native content | block |
 | SKILL-27 | Corrupt both journal generations; delete one destination's lock/header before its first live operation; then exercise incomplete, live process-start, mismatched execution/scope, and complete reconstruction records after restoring coherent state/evidence | Missing scope evidence and unsafe records refuse without loss; a complete matching scope is quarantined, validated, and releases only matching locks | Inferring omitted destinations, manual evidence deletion, or accepting inconsistent state | block |
 | SKILL-28 | Preserve an unrelated legacy skill containing an unreadable file, symlink, large asset, and sentinel secret while replacing one proven-managed sibling | Install succeeds without the unrelated sentinel appearing under transaction or timestamped backups; managed symlinks are copied no-follow; special files stop before mutation | Reading/copying unrelated content or following a symlink | block |
 | SKILL-29 | Compute fixed absent, empty-directory, executable, Unicode-path, and symlink identity fixtures under every supported host | Every host matches checked-in `tree-v1-git-blob` goldens and rejects unknown identity/object formats | Platform-dependent or delimiter-ambiguous identity | block |
-| SKILL-30 | Present identical hostnames/PIDs with different boot or PID-namespace identities and target known network/unknown filesystem types | No automatic takeover occurs; unsupported destinations stop before journal/lock creation; matching local execution/start identity still recovers | Hostname-only takeover or mutation on unsupported shared storage | block |
-| SKILL-31 | Mutate canonical source during snapshot and again between each client staging hook | A/B/C mismatch aborts before promotion; post-snapshot mutation cannot change stages; all committed manifests and canonical paths carry one B identity | Per-client source reads or mixed canonical revisions | block |
-| SKILL-32 | Seed canonical-name and non-canonical skills, `SKILL.md`, command files, and symlink variants under every selected private overlay | Install stops before source snapshot and names each forbidden private artifact plus canonical alternative | Agent-specific managed workflow from an overlay | block |
+| SKILL-30 | Present identical hostnames/PIDs with different stable-machine, boot, or PID-namespace identities and target known network/unknown filesystem types | Same stable machine plus prior boot recovers; different stable machine or same-boot namespace refuses; unsupported destinations stop before journal/lock creation | Hostname/PID-only takeover or mutation on unsupported shared storage | block |
+| SKILL-31 | Mutate canonical, per-agent native, and allowlisted overlay inputs during snapshot and again between client staging hooks | Every input's A/B/C mismatch or type change aborts before promotion; post-snapshot mutation cannot change stages; manifests carry the recorded identities | Live per-client source reads, torn native input, or mixed canonical revisions | block |
+| SKILL-32 | Seed canonical-name and non-canonical skills, `SKILL.md`, command files, and symlink variants under every selected private overlay; swap an allowlisted regular overlay to a symlink during snapshot | Static artifacts stop before snapshot; overlay index or A/B/C/type mismatch stops before promotion and names the canonical alternative | Agent-specific workflow or followed overlay symlink | block |
 | SKILL-33 | Interrupt in `locking`, `open`, and `needs-repair`, then attempt the documented source rollback | Revert is refused until current recovery/repair clears every journal, lock, and contained recovery directory and validates prior manifests | Removing recovery code while its transaction evidence is live | block |
+| SKILL-34 | Remove a previously version-2-managed native file, common-content child, directory, and skill; interrupt/fail after each removal | Every absent old entry is backed up and omitted, success prunes all, and rollback restores exact prior identities in reverse order | Stale managed path or non-transactional deletion | block |
 
 Static shell checks decide filesystem, metadata, and safety boundaries in CI.
 `scripts/skill-smoke-eval.sh` provides sampled behavioral evidence. It creates
@@ -712,8 +728,9 @@ client compatibility gap rather than hidden behind a warning.
 - Concurrency: deterministically ordered per-destination locks serialize every
   overlapping selection regardless of private root; crash-atomic hard-link
   publication exposes only complete lock identities, and stale-lock takeover is
-  limited to a matching execution identity with a confirmed-dead process-start
-  token and valid identified journal. Network/shared destinations are rejected.
+  limited to a matching stable machine plus either a prior boot or confirmed-
+  dead exact runtime/process identity with a valid journal. Network/shared
+  destinations are rejected.
 - External actions: each workflow's current authorization and verification
   gates remain part of the compatibility review. Canonicalization does not
   widen GitHub token scopes or shell permissions.
