@@ -25,10 +25,10 @@ example must teach both the skill contract and how project instructions insert t
 into the existing workflow without making a project-specific policy global.
 
 The selected example is an Accessibility Reviewer. It reviews user-interface changes
-against the target project's declared accessibility requirements and, when the project
-does not declare a standard, uses WCAG 2.2 Level AA as its stated review baseline. It does
-not replace automated accessibility tests or the existing adversarial and security review
-stages.
+against the target project's declared accessibility requirements. When the project does
+not declare a baseline, the reviewer stops and asks the project owner to supply one rather
+than silently selecting policy. It does not replace automated accessibility tests or the
+existing adversarial and security review stages.
 
 ## Considered approaches
 
@@ -65,12 +65,17 @@ four-line frontmatter and a read-only review workflow. The reviewer:
    those concerns are present in the target;
 4. distinguishes source evidence from items that require browser, assistive-technology,
    or human verification;
-5. reports a verdict plus prioritized findings with evidence, user impact, applicable
-   requirement, and a concrete remediation; and
+5. reports one of `approve`, `needs-attention`, `needs-manual-check`, or `not-applicable`,
+   plus prioritized findings with evidence, user impact, applicable requirement, and a
+   concrete remediation; and
 6. remains read-only unless a caller separately asks for fixes.
 
-The skill must not claim conformance from source inspection alone. Empty or unresolvable
-targets produce an actionable error instead of silently reviewing unrelated files.
+The skill must not claim conformance from source inspection alone. `approve` requires no
+source finding and no outstanding manual check. When only runtime, assistive-technology,
+or human inspection can decide a requirement, the skill returns `needs-manual-check` and
+identifies the required evidence; the caller applies the target project's shipping policy.
+Empty or unresolvable targets produce an actionable error instead of silently reviewing
+unrelated files.
 
 ### Integration documentation
 
@@ -100,12 +105,12 @@ install.
 
 ## Failure behavior and edge cases
 
-- Missing target-project accessibility policy: use the documented baseline and disclose
-  that fallback in the report.
+- Missing target-project accessibility policy: stop and request a declared baseline; the
+  example does not choose product policy for its adopter.
 - Non-UI change: return `not-applicable` with the inspected target rather than inventing
   findings.
-- Evidence requiring runtime inspection: label it `manual-check`; do not turn uncertainty
-  into a pass or fail.
+- Evidence requiring runtime inspection: return `needs-manual-check`, identify the check
+  and expected evidence, and leave the shipping decision to project instructions.
 - Unresolvable review target: stop with the unresolved input and suggested valid forms.
 - Unsupported agent placement: the example remains ordinary Agent Skills content; the
   documentation promises only the three repository-supported destinations.
