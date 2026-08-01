@@ -24,7 +24,6 @@ format:
 test:
   ./install-test.sh
   ./install-tools-test.sh
-  ./scripts/install-identity-test.sh
 
 skills-check:
   ./scripts/check-skill-layout.sh

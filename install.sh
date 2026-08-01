@@ -5,11 +5,6 @@ REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
 TMP_FILES=()
 
-# shellcheck source=scripts/install-identity.sh
-# Resolved from the repository root established above.
-# shellcheck disable=SC1091
-source "$REPO/scripts/install-identity.sh"
-
 usage() {
 	cat >&2 <<'EOF'
 Usage: ./install.sh --agent claude|codex|bob|all
@@ -163,18 +158,46 @@ remove_dest() {
 payload_differs() {
 	local src="$1"
 	local dest="$2"
-	local source_identity
-	local destination_identity
+	local diff_status
+	local source_executables
+	local destination_executables
 
-	if ! source_identity="$(identity_path "$src")"; then
-		printf 'install: could not compute payload identity: %s\n' "$src" >&2
-		exit 1
+	if [[ -d "$src" && ! -L "$src" ]]; then
+		[[ -d "$dest" && ! -L "$dest" ]] || return 0
+		if diff -rq "$src" "$dest" >/dev/null 2>&1; then
+			diff_status=0
+		else
+			diff_status="$?"
+		fi
+		case "$diff_status" in
+		0) ;;
+		1) return 0 ;;
+		*)
+			printf 'install: could not compare payload: %s\n' "$dest" >&2
+			exit 1
+			;;
+		esac
+		source_executables="$(
+			cd "$src"
+			find . -type f \( -perm -100 -o -perm -010 -o -perm -001 \) -print |
+				LC_ALL=C sort
+		)"
+		destination_executables="$(
+			cd "$dest"
+			find . -type f \( -perm -100 -o -perm -010 -o -perm -001 \) -print |
+				LC_ALL=C sort
+		)"
+		[[ "$source_executables" != "$destination_executables" ]]
+		return
 	fi
-	if ! destination_identity="$(identity_path "$dest")"; then
-		printf 'install: could not compute payload identity: %s\n' "$dest" >&2
-		exit 1
+
+	[[ -f "$dest" && ! -L "$dest" ]] || return 0
+	cmp -s "$src" "$dest" || return 0
+	if [[ -x "$src" ]]; then
+		[[ ! -x "$dest" ]]
+	else
+		[[ -x "$dest" ]]
 	fi
-	[[ "$source_identity" != "$destination_identity" ]]
 }
 
 backup_path() {

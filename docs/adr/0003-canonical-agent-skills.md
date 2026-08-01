@@ -6,169 +6,56 @@ Accepted
 
 ## Context
 
-The repository currently owns workflow skills independently under the Claude,
-Codex, and Bob native payloads. The inventories already drift: Codex has the
-complete workflow set, Claude has a smaller mixture of skills and legacy custom
-commands, and Bob has only two skills.
+The repository previously stored reusable workflows independently under the
+Claude, Codex, and Bob native payloads. Their inventories drifted: Codex had the
+complete set, Claude had a mixture of skills and legacy commands, and Bob had two
+skills.
 
-Claude Code, Codex, and IBM Bob now consume the open Agent Skills directory
-format: a skill directory containing `SKILL.md` plus optional supporting files.
-Claude custom commands and skills also provide the same invocation surface, so
-keeping command copies no longer provides a distinct capability.
-
-ADR 0001 assigns skill adapters and ambiguous deployed paths to native payloads
-until a renderer defines precedence. It did not account for a workflow format
-that all supported agents share. This decision supersedes ADR 0001 only for
-Agent Skills ownership and precedence; ADR 0001 continues to govern native
-settings, instructions, modes, MCP files, and other agent-specific formats.
+All three supported clients consume Agent Skills directories containing a
+`SKILL.md` file plus optional resources. Maintaining separate implementations no
+longer provides a useful adapter boundary.
 
 ## Decision
 
-Own every reusable workflow skill once under `content/skills/`. Install every
-canonical directory under `skills/` for Claude, Codex, and Bob with identical
-file content, file type, and executable mode. Canonical skills contain no
-symlinks. Remove per-agent skill trees and Claude custom-command copies.
+Own every reusable workflow once under `content/skills/`. Install that exact tree
+as `skills/` for Claude, Codex, and Bob. Remove native skill trees and Claude
+command copies from `agents/<agent>/shared/`.
 
-The portable contract is a strict subset of the Agent Skills specification at
-upstream commit `38a2ff82958afee88dadf4831509e6f7e9d8ef4e`, specification
-blob `20cf9f6b672391e3295733c7863480905de6b887`. A checked-in
-`scripts/agent-skills-contract.json` records that identity and the exact rules
-consumed by the repository guard. A skill is a directory whose `SKILL.md`
-contains a YAML mapping followed by non-empty Markdown. The mapping has exactly
-two string fields: `name` and `description`; the name matches the parent
-directory, and the description contains 1–1024 Unicode scalar values. The
-package uses relative bundled-resource paths, never names a supported client's
-installed config root, and contains no behavior-bearing vendor frontmatter.
-Target repository paths remain repository-relative. A skill may require an
-external product or capability only when it names that requirement and stops
-actionably when the host cannot provide it.
+Canonical packages use a portable Agent Skills subset:
 
-Canonical names are 1–64 lowercase ASCII letters, digits, or hyphens; they do
-not begin or end with a hyphen, contain consecutive hyphens, collide under ASCII
-case folding, or match the checked-in union of documented built-in, bundled,
-and mode-command names for supported clients. The repository guard owns that
-reserved-name inventory and its source/retrieval annotations. Every available
-client's discovery smoke test checks the same names. A vendor-added collision
-is a compatibility failure until the inventory and canonical name are updated,
-not a passing runtime variant.
+- each immediate directory contains `SKILL.md`;
+- frontmatter contains only a matching `name` and a JSON-quoted `description`;
+- names and paths use a portable ASCII subset and avoid documented client command
+  collisions;
+- packages contain only regular files and directories, with no symlinks; and
+- shared workflow instructions do not depend on an installed client config root.
 
-Keep agent-specific settings, instruction roots, modes, MCP configuration, and
-other formats under `agents/<agent>/shared/`. A canonical skill may contain an
-optional vendor metadata file when it does not change the shared workflow;
-clients that do not understand that optional file ignore it.
+Repository verification rejects native workflow sources and malformed canonical
+packages. Installer tests deploy every supported client into temporary roots and
+compare each installed skill tree with `content/skills/`, including executable
+file modes.
 
-An invocable workflow artifact is a `SKILL.md` or a file under a client command
-directory. Native instruction and mode files may reference skills or define
-durable client policy, but they are not alternate implementations of a named
-workflow. Add a repository guard that rejects any invocable workflow artifact
-under `agents/`. Installation tests compare every deployed skill tree with the
-canonical source, so missing or extra files and content, type, link, or
-executable-mode changes fail verification.
-
-Exact-copy tests prove source and inventory coordination, not identical model
-behavior. Verification also validates the portable subset and smoke-tests skill
-discovery and safe invocation in every supported client available on the test
-host. An unavailable proprietary client is reported as an unrun arm. Client
-version floors remain outside this installer because it does not install or
-upgrade the clients themselves.
-
-The installer owns each canonical skill name, not the complete user-level
-`skills/` destination. It preserves unrelated user-installed skill directories,
-backs up managed-name drift before replacement, and verifies every managed
-directory against the canonical source. A same-name skill or legacy Claude
-command that is not in the old manifest is a collision and stops with an
-actionable error rather than silently deleting user content. Managed legacy
-commands are backed up and pruned. Project, enterprise, plugin, and other
-higher- or lower-precedence skill scopes remain outside this user-level
-installer.
-
-Names owned by the previous manifest but absent from the canonical inventory
-remain managed removals. The installer backs them up, prunes them from every
-selected client in the same transaction as additions and updates, and restores
-them if that transaction rolls back.
-
-Shared-skill installation is a transaction across the selected clients. The
-installer validates and stages every canonical skill before changing a live
-destination, promotes staged directories atomically within each destination,
-then validates all selected clients. A promotion or validation failure restores
-every changed skill directory; a rollback failure reports the inconsistent
-destinations explicitly and leaves the transaction record and lock in a
-needs-repair state. No later install proceeds until the operator restores the
-named paths or makes rollback possible. This transaction applies to
-`--agent all` and to a single selected client.
-
-Before acquiring the first destination lock, the installer atomically creates a
-unique mode-`0600` transaction record in state `locking`. It then acquires an
-exclusive lock inside every resolved destination in deterministic path order
-and holds all locks through commit, rollback, and cleanup. Each lock identifies
-that unique record and private root, so invocations using different private
-roots still serialize when they share a destination. A competing installer
-stops actionably. A dead same-host lock may be taken over only after validating
-and consulting its identified transaction record; an owner on another host
-requires operator intervention.
-
-The record lives under the private root, outside this repository. It identifies
-selected destinations plus lock, stage, backup, promotion, removal, manifest,
-commit, and cleanup state without storing configuration content. Each lock or
-live rename uses write-ahead ordering: first persist the pending state, then
-perform the operation, then persist completion. Recovery treats a pending
-operation as possibly applied and restores it idempotently from recorded state.
-
-Recovery treats the record as untrusted local input. It validates the exact
-format version and state vocabulary, unique destination/name identities,
-transaction-derived stage and backup locations, destination containment, and
-non-symlink ancestors before any live mutation. A malformed, stale, or
-path-escaping record becomes `needs-repair` without executing a recorded
-rename or removal.
-
-After all destinations validate, the installer atomically publishes every new
-ownership manifest and marks the transaction committed. Recovery rolls back
-only an uncommitted record. A committed record resumes transaction-backup
-cleanup idempotently and never restores the old revision. After cleanup, lock
-release is itself journaled in deterministic reverse order. The record is
-deleted only after every destination lock is recorded released and confirmed
-absent. An interrupted `locking` record has made no live content mutation and
-releases any recorded locks idempotently; an interrupted terminal record
-finishes releasing its remaining locks before deletion.
+The existing installer remains a sequential managed-path installer. It preserves
+its current timestamped drift backups and newline manifest used to prune paths it
+previously managed. Installing `all` is not a distributed transaction: a failure
+may leave some clients updated before others, and rerunning the installer is the
+reconciliation path.
 
 ## Consequences
 
-- A workflow edit has one source and reaches all supported agents on the next
-  install.
-- Claude retains direct slash invocation through its skill interface without a
-  parallel command source.
-- Agent-specific prose inside a shared skill must be either generalized or
-  explicitly scoped to an optional external capability such as Codex Fleet.
-- Vendor releases may still change discovery or model behavior independently;
-  byte identity prevents repository drift but cannot prevent vendor drift.
-- “Supported” in this repository means that current vendor documentation
-  accepts the portable package and the installer deploys it correctly. It does
-  not promise identical model behavior or own a client release lifecycle.
-- Ordinary install errors and process interruption are recoverable from the
-  transaction record. Storage, permission, or backup failures can still prevent
-  rollback and leave live clients inconsistent; the installer detects and names
-  that operator-repair state but cannot make an unwritable filesystem atomic.
-- Adding a client that supports Agent Skills requires an installer target,
-  portable-contract validation, an exact-copy test for every managed name, and
-  a discovery/safe-invocation smoke-test arm. It does not create a new workflow
-  projection.
-- Existing manifests prune removed Claude commands during reinstall and replace
-  each previously managed per-agent skill with its canonical directory while
-  preserving unrelated user skills.
-- Removing or renaming a canonical skill removes the old managed name from all
-  selected clients transactionally; its backup remains available under the
-  installer's timestamped backup tree.
+- A workflow edit has one repository source and one review surface.
+- Claude, Codex, and Bob receive the same checked-in workflow inventory.
+- Adding a native skill or command copy fails verification.
+- Vendor discovery and model behavior may still differ; this repository controls
+  installed workflow files, not client releases.
+- The installer does not add locks, journals, repair commands, historical
+  ownership ledgers, or cross-filesystem rollback machinery.
 
-## Considered & Rejected
+## Considered and Rejected
 
-- Generate native skill projections from templates. Rejected because all three
-  clients already accept the same directory format; a renderer would add a
-  transformation layer without adding compatibility.
-- Keep per-agent skill sources and compare or regenerate them in CI. Rejected
-  because duplicated checked-in outputs remain competing ownership surfaces and
-  invite agent-only edits.
-- Install the Codex tree into Bob and leave Claude separate. Rejected because it
-  fixes one missing copy while preserving the drift mechanism that caused the
-  issue.
-- Keep the current layout and manually synchronize it. Rejected because the
-  current inventory proves manual coordination does not hold.
+- **Keep per-agent copies.** This is the drift mechanism issue 17 reported.
+- **Generate native projections.** All clients already accept the shared format,
+  so a renderer would add another representation without adding capability.
+- **Cross-client transaction protocol.** Atomic promotion, durable recovery, and
+  repair state are disproportionate to a local configuration installer. The
+  current operation is idempotent and can be rerun.
