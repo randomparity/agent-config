@@ -14,7 +14,8 @@
 - Exclusions: no globally installed Accessibility Reviewer, no change to `review-loop`,
   and no additional example-skill inventories.
 - Surface: `examples/project-review-skills/`, directly related README and AGENTS policy,
-  ADR 0020, and verification needed to prove local placement and global-install exclusion.
+  migration of the existing Bob `project-context` example, ADR 0020, and verification
+  needed to prove local placement and global-install exclusion.
 - Ambiguities: none.
 
 ## Context
@@ -29,6 +30,15 @@ into the existing workflow without making a project-specific policy global.
 decision to allow one separately validated, non-installed example inventory. Repository
 instructions must name this exception rather than claiming every real `SKILL.md` belongs
 under the globally installed tree.
+
+Move `examples/bob-project/.bob/skills/project-context/SKILL.md` into
+`examples/project-review-skills/project-context/SKILL.md`. Normalize only its description
+from commit `f05038fbaa58f34b55f65c7902cb92628e653e53` to exactly
+`description: "Load project-specific context from public project files."`; every other
+byte, including delimiters and newlines, stays equal to that commit's
+`examples/bob-project/.bob/skills/project-context/SKILL.md` blob. Update Bob guidance to
+copy the package from the canonical example inventory; do not retain a shim or duplicate
+source.
 
 The selected example is an Accessibility Reviewer. It reviews user-interface changes
 against the target project's declared accessibility requirements. When the project does
@@ -130,14 +140,21 @@ ADR 0020's exception cannot widen silently.
   checks alongside findings so they are not lost.
 - Global install regression: installer and layout tests fail if the example is copied into
   the globally managed skill tree or destination.
+- Legacy Bob source: the old `.bob/skills/project-context/SKILL.md` path is absent and the
+  canonical package differs only by the authorized description quoting.
 
 ## Acceptance tests
 
 - `scripts/check-skill-layout-test.sh` proves a valid example passes and malformed
   project-review frontmatter fails, and rejects `SKILL.md` in every other `examples/`
-  subtree.
+  subtree. It also asserts the legacy Bob skill path is absent and Bob guidance names
+  `examples/project-review-skills/project-context/` as the source and
+  `.bob/skills/project-context/` as the destination.
+- Before committing the move, read the exact source commit and path above, replace only
+  line 3 with the exact approved description, then compare the complete normalized result
+  byte-for-byte with `examples/project-review-skills/project-context/SKILL.md`.
 - `install-test.sh` proves all three installed global skill trees exclude
-  `accessibility-reviewer`.
+  `accessibility-reviewer` and `project-context`.
 - `just verify` passes, including shell lint, formatting, skill layout, installation,
   public-safety, deployed-reference, and Actions checks.
 

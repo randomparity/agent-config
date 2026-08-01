@@ -184,8 +184,11 @@ git commit -m "docs: explain local review skill integration"
 - Modify: `AGENTS.md`
 - Modify: `README.md`
 - Modify: `examples/project-review-skills/accessibility-reviewer/SKILL.md`
+- Create: `examples/project-review-skills/project-context/SKILL.md`
+- Delete: `examples/bob-project/.bob/skills/project-context/SKILL.md`
 - Modify: `scripts/check-skill-layout.sh`
 - Modify: `scripts/check-skill-layout-test.sh`
+- Modify: `install-test.sh`
 
 **Interfaces:**
 
@@ -212,12 +215,13 @@ Record the normalized inspected target in every verdict.
 Record the normalized inspected target in every target-resolution error.
 Use the same base branch or explicit file list as the preceding branch review.
 Keep outstanding manual checks in the report when source findings return `needs-attention`.
+Copy `project-context` from `examples/project-review-skills/project-context/` to `.bob/skills/project-context/`.
 ```
 
 Run: `bash scripts/check-skill-layout-test.sh`
 
 Expected: FAIL because the checker permits another `examples/` skill and the example lacks
-the six contract clauses.
+the seven contract clauses.
 
 - [ ] **Step 2: Enforce ADR 0020's single example inventory**
 
@@ -225,6 +229,28 @@ Before validating the authorized inventory, scan regular or symlinked files name
 `SKILL.md` below `examples/`. Reject every match outside
 `examples/project-review-skills/<package>/SKILL.md` with the exact diagnostic above. Do
 not reject ordinary example Markdown or agent-native files that are not named `SKILL.md`.
+
+Move the tracked Bob `project-context` package to
+`examples/project-review-skills/project-context/SKILL.md`. Change only line 3 to
+`description: "Load project-specific context from public project files."`; preserve every
+other byte.
+Delete the old source path; do not leave a shim. Add installer absence assertions for
+`project-context/SKILL.md` beside the Accessibility Reviewer assertions for all agents.
+Add focused assertions that the old path is absent and Bob guidance contains the exact
+source and destination clause above. Before commit, run:
+
+```bash
+(
+  migration_tmp=$(mktemp -d "${TMPDIR:-/tmp}/project-context-migration.XXXXXX")
+  trap 'rm -R "$migration_tmp"' EXIT
+  git show f05038fbaa58f34b55f65c7902cb92628e653e53:examples/bob-project/.bob/skills/project-context/SKILL.md > "$migration_tmp/project-context.base"
+  sed '3s/.*/description: "Load project-specific context from public project files."/' \
+    "$migration_tmp/project-context.base" > "$migration_tmp/project-context.normalized"
+  cmp "$migration_tmp/project-context.normalized" examples/project-review-skills/project-context/SKILL.md
+)
+```
+
+Expected: `cmp` exits 0 with no output.
 
 - [ ] **Step 3: Complete the Accessibility Reviewer contract**
 
@@ -253,6 +279,9 @@ Update README destinations to the exact package paths:
 Update the sample instruction to pass the same base or explicit file list used by the
 preceding branch review.
 
+Update Bob example guidance to copy `project-context` from
+`examples/project-review-skills/`; remove claims that the Bob tree owns a skill source.
+
 - [ ] **Step 5: Run focused and full verification**
 
 Run: `bash scripts/check-skill-layout-test.sh`
@@ -261,7 +290,7 @@ Expected: PASS, including the unauthorized-example failure and reviewer-contract
 
 Run: `./install-test.sh`
 
-Expected: PASS; the example remains absent from all global destinations.
+Expected: PASS; both project-review examples remain absent from all global destinations.
 
 Run: `just verify`
 
@@ -270,7 +299,7 @@ Expected: PASS with zero warnings.
 - [ ] **Step 6: Commit the bounded review integration**
 
 ```bash
-git add AGENTS.md README.md examples/project-review-skills/accessibility-reviewer/SKILL.md scripts/check-skill-layout.sh scripts/check-skill-layout-test.sh
+git add AGENTS.md README.md install-test.sh examples/bob-project/.bob/skills/project-context/SKILL.md examples/project-review-skills/accessibility-reviewer/SKILL.md examples/project-review-skills/project-context/SKILL.md scripts/check-skill-layout.sh scripts/check-skill-layout-test.sh
 git commit -m "fix: bound project review skill examples"
 ```
 

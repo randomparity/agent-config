@@ -19,6 +19,11 @@ that directory are copyable project-local examples, not globally managed workflo
 installer must never copy them. The skill-layout guard validates their portable package
 shape and reports their inventory separately from canonical skills.
 
+Move the pre-existing Bob-native `project-context` example into this inventory. Bob
+documentation points adopters at the canonical example instead of retaining a second
+`SKILL.md` source below `examples/bob-project/`. Normalize only its plain-scalar
+`description` to the quoted JSON-string form required by the shared package validator.
+
 Repository instructions distinguish these examples from reusable global workflow sources.
 Each adopting project owns its copied skill and its invocation policy; this repository
 does not synchronize or update adopted copies.
@@ -29,6 +34,13 @@ Projects get executable examples for Claude Code, Codex, and IBM Bob without exp
 global behavior. The repository owns one additional validated inventory and must keep
 installer exclusion tests. Example consumers copy rather than reference the repository,
 so later improvements do not propagate automatically.
+
+The old Bob-native `project-context` source path is removed without a shim. Repository
+documentation moves consumers to the canonical example path in the same change; external
+references to the old example path must update explicitly.
+
+The migrated package changes one non-semantic frontmatter line; every other byte remains
+equal to the pinned pre-migration blob.
 
 No other `examples/` subtree may define `SKILL.md`, and agent-native shared trees remain
 forbidden from defining skills or commands.
@@ -43,3 +55,7 @@ forbidden from defining skills or commands.
   drift and obscure which example is canonical.
 - **Allow arbitrary skill examples anywhere under `examples/`.** Rejected because an
   unbounded exception would recreate multiple workflow-source trees.
+- **Exempt or retain the legacy Bob-native skill.** Rejected because coexistence would
+  preserve a second source and defeat the single-inventory boundary.
+- **Leave the repository unchanged.** Rejected because the existing Bob-native source and
+  the requested Accessibility Reviewer cannot both satisfy the single-source policy.
