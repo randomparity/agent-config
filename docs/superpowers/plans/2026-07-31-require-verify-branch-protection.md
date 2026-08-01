@@ -25,7 +25,10 @@ shell assertions with `jq`, and repository guardrail `just verify`.
 - Never issue a merge command for the deliberately failing proof PR.
 - Before rollback, restore only if live policy exactly matches this run's expected write.
 - Keep tokens, private paths, host data, and runtime artifacts out of the repository.
-- Run `just verify` before each repository commit and before shipping.
+- Run `just verify` before every persistent feature-branch commit and before shipping.
+- The operator-authorized failing proof has one bounded exception: its exact temporary
+  fixture commit uses `--no-verify` because the proof must fail the same gate the hook runs.
+  Never reuse that exception on the feature branch or any other file.
 
 ---
 
@@ -139,6 +142,19 @@ and open a PR titled `test: prove verify blocks merge`:
 This deliberately malformed debt record must fail the decision-record gate.
 ```
 
+The normal pre-commit hook runs `just verify`, so the exact proof commit must bypass
+that hook once:
+
+```bash
+git -C "$proof_worktree" add docs/debt/9999-branch-protection-proof.md
+git -C "$proof_worktree" commit --no-verify \
+  -m "test: make verify fail for protection proof"
+```
+
+This exception is authorized only for branch `proof/verify-required-16` and that one
+fixture path. Immediately push it and use the CI observation in Step 5 to prove the
+intended record-gate failure. Every persistent commit remains green and hook-verified.
+
 The PR body states that it is a temporary, known-failing enforcement proof for #16
 and must not be merged.
 
@@ -184,6 +200,23 @@ if git ls-remote --exit-code --heads origin refs/heads/proof/verify-required-16;
   git push origin --delete proof/verify-required-16
 fi
 if git worktree list --porcelain | rg -F "worktree $proof_worktree"; then
+  proof_status=$(git -C "$proof_worktree" status --short --untracked-files=all)
+  if [[ -n "$proof_status" ]]; then
+    unexpected=$(printf '%s\n' "$proof_status" |
+      rg -v '^(A |\?\?) docs/debt/9999-branch-protection-proof\.md$')
+    if [[ -n "$unexpected" ]]; then
+      print -u2 -- "refusing proof cleanup with unexpected changes: $unexpected"
+      exit 1
+    fi
+    if git -C "$proof_worktree" ls-files --error-unmatch \
+      docs/debt/9999-branch-protection-proof.md; then
+      git -C "$proof_worktree" restore --staged -- \
+        docs/debt/9999-branch-protection-proof.md
+    fi
+    if [[ -e "$proof_worktree/docs/debt/9999-branch-protection-proof.md" ]]; then
+      trash "$proof_worktree/docs/debt/9999-branch-protection-proof.md"
+    fi
+  fi
   git worktree remove "$proof_worktree"
 fi
 if git show-ref --verify --quiet refs/heads/proof/verify-required-16; then
@@ -194,14 +227,19 @@ fi
 Verify cleanup after those operations:
 
 ```bash
-gh pr view "$proof_pr" --json state,headRefName,url
+if [[ -n ${proof_pr:-} ]]; then
+  gh pr view "$proof_pr" --json state,headRefName,url
+else
+  print -- 'proof PR cleanup: not-created'
+fi
 git ls-remote --exit-code --heads origin refs/heads/proof/verify-required-16
 git branch --list proof/verify-required-16
 git worktree list --porcelain
 ```
 
-Expected: PR state `CLOSED`; `ls-remote` exits 2 because the ref is absent; local
-branch output is empty; worktree list omits the proof path.
+Expected: PR state `CLOSED`, or explicit `not-created`; `ls-remote` exits 2 because the
+ref is absent; local branch output is empty; worktree list omits the proof path. Treat
+the expected `ls-remote` exit 2 as the absence assertion rather than a suite failure.
 
 If the outcome is `not-blocked`, re-read live protection. Delete it only if
 `policy_matches` succeeds, because the captured baseline was empty; confirm the GET then
