@@ -57,14 +57,18 @@ and historical prose that require no action:
 | `testing-anti-patterns.md` | deployed | deployed | absent | descriptive quotes |
 | `systematic-debugging/SKILL.md` | deployed | deployed | absent | executable gate |
 | `receiving-code-review/SKILL.md` | deployed | deployed | absent | mixed; gates recorded |
+| `subagent-driven-development/SKILL.md` | deployed | deployed | absent | mixed; gates recorded |
 | `verification-before-completion/SKILL.md` | deployed | deployed | deployed | descriptive history |
 
 The TDD gates require human permission for exceptions and send an unknown test strategy
 to the human. Systematic debugging requires discussion after three failed fixes.
 Review-reception stops on conflicts with prior human decisions and calls for architectural
-escalation; its example speakers and quoted preferences are descriptive. Verification's
-single phrase reports a past loss of trust and is not a gate. Debt 0002 owns only the
-executable residuals and names only the projections that actually deploy them.
+escalation; its example speakers and quoted preferences are descriptive. Subagent-driven
+development already handles its pre-flight plan question in dispatched mode, but still
+sends wrong plans and plan-mandated review conflicts to the human. Its other human phrases
+describe or prohibit interaction. Verification's single phrase reports a past loss of
+trust and is not a gate. Debt 0002 owns only the executable residuals and names only the
+projections that actually deploy them.
 
 ## Approaches considered
 
@@ -109,10 +113,11 @@ duplicating the inventory. ADR 0004 owns the durable policy:
 - dispatched gates resolve from written policy or return a blocker, never infer permission;
 - later shipping skills retain their own push and merge authorization.
 
-Create debt 0002 for the audited, unadapted TDD, debugging, and review-reception gates. It
-records the projection matrix, sanctioned resolution choices, non-regression boundary,
-predecessor commit, and a 2026-10-31 review date. Closing issue #13 means the migration is
-complete; the record remains open until the skill adaptations and proofs it names land.
+Create debt 0002 for the audited residual TDD, debugging, review-reception, and
+subagent-development gates. It records the projection matrix, sanctioned resolution
+choices, non-regression boundary, predecessor commit, and a 2026-10-31 review date.
+Closing issue #13 means the migration is complete; the record remains open until the skill
+adaptations and proofs it names land.
 
 No skill body or installer path changes. The existing directory layout remains the source
 of deployable agent-native files.
