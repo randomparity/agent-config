@@ -10,7 +10,8 @@ Open debt records carry review dates, but a recurring warning in verification ou
 not ensure anyone re-evaluates them. Filing an issue per stale record would move ownership
 away from the versioned record and produce duplicate tracking state.
 
-This record migrates predecessor ADR 0021 from `randomparity/claude-config`.
+This record migrates
+[predecessor ADR 0021](https://github.com/randomparity/claude-config/blob/main/docs/adr/0021-groom-edits-stale-records-rather-than-filing-issues.md).
 
 ## Decision
 

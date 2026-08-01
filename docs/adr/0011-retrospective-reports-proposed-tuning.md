@@ -10,7 +10,8 @@ Workflow lifecycle events and review annotations provide process telemetry, but 
 must not perturb the state it measures or turn advisory evidence into unreviewed policy.
 The telemetry may also be incomplete, especially for work predating the conventions.
 
-This record migrates predecessor ADR 0005 from `randomparity/claude-config`.
+This record migrates
+[predecessor ADR 0005](https://github.com/randomparity/claude-config/blob/main/docs/adr/0005-retro-writes-report-doc-with-proposed-tuning.md).
 
 ## Decision
 
