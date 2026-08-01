@@ -117,6 +117,9 @@ assert_contains 'Use the same base branch or explicit file list as the preceding
 assert_contains \
 	"Keep outstanding manual checks in the report when source findings return \`needs-attention\`." \
 	"$example_skill"
+assert_contains \
+	'Record the policy requirement and its source location' \
+	"$example_skill"
 assert_contains 'Keep native settings, instruction files, modes, and MCP files under' \
 	"$repo_instructions"
 

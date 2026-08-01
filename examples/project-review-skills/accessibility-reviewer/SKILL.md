@@ -62,5 +62,6 @@ Return `needs-manual-check` only when manual checks remain without source findin
 ## Findings
 
 For every finding, record severity, affected target, category, evidence, user impact, and
-the smallest actionable remediation. Keep the review read-only: do not edit source, change
-configuration, run write operations, or claim approval on another person's behalf.
+the smallest actionable remediation. Record the policy requirement and its source location
+for every finding. Keep the review read-only: do not edit source, change configuration,
+run write operations, or claim approval on another person's behalf.
