@@ -39,10 +39,12 @@ The current inventory contains three categories:
 
 Scan every regular, non-symlink, non-binary deployed file under `content/skills/` and each
 `agents/{claude,codex,bob}/shared/` tree, regardless of extension. Reject bare numeric ADR
-citations, bare numeric source-issue citations, and concrete relative file references
-beneath `docs/adr/`, `docs/debt/`, `docs/superpowers/specs/`, or
-`docs/superpowers/plans/`. Permit directory contracts and references whose basename is
-visibly templated with `NNNN`, `YYYY-MM-DD`, an angle-bracket placeholder, or a glob.
+citations, bare numeric source-issue citations, and unclassified concrete relative file
+references beneath the four record/design directories. A concrete ADR/debt path is valid
+only when the same line introduces it with the literal natural-language marker
+`target-repository`; record templates remain valid without the marker. Plan/spec references
+are permitted when their basename is visibly templated with `YYYY-MM-DD`, an angle-bracket
+placeholder, or a glob.
 
 This catches the known stale epic spec, source issue, and conflicting ADR-number forms
 without making the checker interpret prose. Valid target inputs and examples express their
@@ -50,9 +52,10 @@ classification in the reference syntax itself.
 
 ### Explicit classification markers — rejected
 
-Inline markers could label every reference as target input, provenance, or example. They
-would be exact, but would add a second annotation language throughout the installed
-instructions and make ordinary prose depend on guard-specific metadata.
+Markers on every reference would be exact, but would add a second annotation language
+throughout the installed instructions. The selected design uses one narrow exception: the
+ordinary phrase `target-repository` classifies a concrete ADR/debt path that syntax cannot
+otherwise distinguish. Templates, examples, URLs, and source citations need no marker.
 
 ### Central allowlist — rejected
 
@@ -74,15 +77,19 @@ The denied forms are:
 - case-insensitive `ADR` followed by a concrete number, including a Markdown link label;
 - case-insensitive `issue` followed by `#` and a concrete number, including a Markdown link
   label; and
-- a concrete relative Markdown file below one of the four record/design directories.
+- a concrete relative Markdown file below a governed plan/spec directory; and
+- a concrete relative Markdown file below `docs/adr/` or `docs/debt/` unless
+  `target-repository` appears earlier on the same line.
 
 Fully qualified provenance therefore uses a descriptive, nonnumeric Markdown label, such
 as `[governing-review decision](https://github.com/owner/repo/blob/<commit>/docs/adr/0019-name.md)`,
 or a bare stable URL. The numeric identifier may occur in the URL path, but not as a bare
-prose citation. The relative-path rule accepts an exact directory reference or requires the
-variable marker (`NNNN`, `YYYY-MM-DD`, `<...>`, or `*`) in the candidate path's basename;
-an unrelated marker elsewhere on the line or in a parent component cannot exempt a concrete
-file. Diagnostics name the file, line, and reference class.
+prose citation. The path rule accepts an exact directory reference or the appropriate
+variable marker in the candidate basename: `NNNN` for records, and `YYYY-MM-DD`, `<...>`,
+or `*` for plans/specs. An unrelated marker in a parent component cannot exempt a concrete
+file. A concrete ADR/debt basename instead requires `target-repository` before the path on
+that line, making its classification visible to both readers and the guard. Diagnostics
+name the file, line, and reference class.
 
 The test script creates a minimal temporary repository fixture and proves both sides of each
 classification boundary. It includes explicit regressions for the stale epic design path,
