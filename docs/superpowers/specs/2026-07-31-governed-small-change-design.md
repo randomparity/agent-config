@@ -98,6 +98,19 @@ expansion returns to the scope checkpoint. No model call or dependency is added,
 and latency remain those of the existing workflow. Success is deterministic contract
 coverage plus the unchanged final review and CI gates.
 
+The classification decision is ordered and fail-closed:
+
+1. If any governing-decision evidence cannot be revalidated, any acceptance criterion is
+   implicit or untestable, or any design-changing ambiguity remains, select `non-trivial`
+   and run full design.
+2. Otherwise, if implementation would introduce any excluded decision category, select
+   `non-trivial` and run full design.
+3. Only when every eligibility predicate succeeds, select `governed-small-change` and make
+   the focused failing test the next executable phase.
+4. If build-time discovery invalidates either prior conclusion, stop the build, return to
+   `SCOPE CHECKPOINT`, re-freeze the charter, and run full design without automatically
+   reselecting the abbreviated path.
+
 ## Failure modes and eval cases
 
 | ID | Failure mode | Severity | Fixture and observable gate |
@@ -113,8 +126,14 @@ coverage plus the unchanged final review and CI gates.
 | GSC-9 | Workflow loops between build and design | 4 | One scope-expansion transition re-freezes scope and resumes through full design, with no automatic repeated bypass; block on loop. |
 
 Measurements are structure-aware shell assertions over canonical skill text and isolated
-mutated fixtures. They check required criteria, ordering, carrier evidence, and fallback
-language. No LLM judges or live external services are used.
+mutated fixtures. The fixtures encode the ordered decision table above and the three issue
+26 scenarios, then assert the documented class, next phase, evidence carrier, and fallback
+clauses; mutations remove or reorder one guard at a time to prove each assertion bites. They
+also assert that the failing-test instruction precedes optional elaboration and that all
+post-build controls remain ordered after the abbreviated path. These tests prove the
+workflow contract supplied to an agent, not live model adherence to that contract. Final
+branch review and CI remain the behavioral backstops; no LLM judges or live external
+services are added.
 
 ## Verification and durable handoff
 
