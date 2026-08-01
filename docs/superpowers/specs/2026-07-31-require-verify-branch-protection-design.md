@@ -126,8 +126,9 @@ remain immutable.
   snapshots for manual reconciliation without overwriting the concurrent change.
 - If the proof check does not fail for the expected record-gate reason, close and clean
   the proof artifacts, then diagnose before claiming enforcement.
-- If the pull request is not `BLOCKED`, leave the debt open, remove or restore the new
-  policy from the captured baseline, and stop.
+- If the pull request is not `BLOCKED`, leave the debt open and apply the same
+  compare-before-rollback rule: restore only when live policy exactly equals this run's
+  expected post-write snapshot; otherwise preserve it for manual reconciliation.
 - If `verify` is renamed or stuck later, use a real pull request to discover the emitted
   replacement and patch the required-context endpoint. Removing all required contexts is
   not the recovery path.
