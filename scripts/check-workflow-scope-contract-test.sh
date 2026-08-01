@@ -189,9 +189,9 @@ rewrite_block_line_once() {
 	fi
 	[[ "$count" -eq 1 ]] || fail "$file: duplicate mutation literal: $old"
 	tmp=$file.scope-tmp
-	if ! awk -v start="$start" -v end="$end" -v old="$old" -v new="$new" '
+	if ! SCOPE_REPLACEMENT=$new awk -v start="$start" -v end="$end" -v old="$old" '
     $0 == start { active = 1 }
-    active && $0 == old { print new; changed++; next }
+    active && $0 == old { print ENVIRON["SCOPE_REPLACEMENT"]; changed++; next }
     $0 == end { active = 0 }
     { print }
     END { if (changed != 1) exit 42 }
