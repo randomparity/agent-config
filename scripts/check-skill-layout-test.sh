@@ -68,11 +68,40 @@ replace_frontmatter() {
 	printf '%s\n' "$@" '' '# Fixture' >"$root/content/skills/skill-01/SKILL.md"
 }
 
+assert_portable_userland() {
+	local root="$1"
+	local portable_bin="$root/portable-bin"
+
+	mkdir -p "$portable_bin"
+	# The wrapper source must contain the literal positional parameter.
+	# shellcheck disable=SC2016
+	printf '%s\n' \
+		'#!/usr/bin/env bash' \
+		'set -euo pipefail' \
+		'for argument in "$@"; do' \
+		'  case "$argument" in -mindepth|-maxdepth) exit 64 ;; esac' \
+		'done' \
+		"exec $system_find \"\$@\"" >"$portable_bin/find"
+	# The wrapper source must contain the literal positional parameter.
+	# shellcheck disable=SC2016
+	printf '%s\n' \
+		'#!/usr/bin/env bash' \
+		'set -euo pipefail' \
+		'for argument in "$@"; do' \
+		'  case "$argument" in -i*) exit 64 ;; esac' \
+		'done' \
+		"exec $system_sed \"\$@\"" >"$portable_bin/sed"
+	chmod 755 "$portable_bin/find" "$portable_bin/sed"
+	(cd "$root" && PATH="$portable_bin:$PATH" bash scripts/check-skill-layout.sh)
+}
+
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "$script_dir/.." && pwd)"
 implementation="$repo_root/scripts/check-skill-layout.sh"
 contract="$repo_root/scripts/agent-skills-contract.json"
 reserved="$repo_root/scripts/reserved-skill-names.txt"
+system_find="$(command -v find)"
+system_sed="$(command -v sed)"
 
 [[ -x "$implementation" ]] || fail "implementation missing: $implementation"
 [[ -f "$contract" ]] || fail "contract missing: $contract"
@@ -91,9 +120,28 @@ root="$(new_fixture)"
 # shellcheck disable=SC2016
 printf '\n`[Example](missing-example.md)\ncontinued example`\n' \
 	>>"$root/content/skills/skill-01/SKILL.md"
+# These are literal CommonMark code-span fixtures.
+# shellcheck disable=SC2016
+printf '%s\n' \
+	'`` `[Double](missing-double.md)` ``' \
+	'``` ``[Triple](missing-triple.md)`` ```' \
+	'~~~~' \
+	'[Fenced](missing-fenced.md)' \
+	'~~~' \
+	'[Still fenced](missing-still-fenced.md)' \
+	'~~~~' \
+	'[Helper reference][helper]' \
+	'[External reference][external]' \
+	'[Fragment reference][fragment]' \
+	'[helper]: helper.sh' \
+	'[external]: https://example.com/resource' \
+	'[fragment]: #fixture' >>"$root/content/skills/skill-01/SKILL.md"
 (cd "$root" && bash scripts/check-skill-layout.sh)
 [[ -x "$root/content/skills/skill-01/helper.sh" ]] ||
 	fail 'valid scan changed executable mode'
+
+root="$(new_fixture)"
+assert_portable_userland "$root"
 
 root="$(new_fixture)"
 mkdir -p "$root/agents/claude/shared/skills/native"
@@ -108,6 +156,36 @@ root="$(new_fixture)"
 mkdir -p "$root/agents/bob/shared/nested"
 printf 'workflow\n' >"$root/agents/bob/shared/nested/SKILL.md"
 assert_fails 'agents/bob/shared/nested/SKILL.md: native SKILL.md is forbidden' "$root"
+
+root="$(new_fixture)"
+printf 'workflow\n' >"$root/agents/codex/SKILL.md"
+assert_fails 'agents/codex/SKILL.md: native SKILL.md is forbidden' "$root"
+
+root="$(new_fixture)"
+mkdir -p "$root/agents/codex/commands"
+printf 'workflow\n' >"$root/agents/codex/commands/foo.md"
+assert_fails 'agents/codex/commands/foo.md: native command is forbidden' "$root"
+
+root="$(new_fixture)"
+mkdir -p "$root/agents/codex/commands"
+mkfifo "$root/agents/codex/commands/workflow"
+assert_fails 'agents/codex/commands/workflow: native command is forbidden' "$root"
+
+root="$(new_fixture)"
+printf 'workflow\n' >"$root/workflow.md"
+ln -s ../../workflow.md "$root/agents/codex/SKILL.md"
+assert_fails 'agents/codex/SKILL.md: native SKILL.md is forbidden' "$root"
+
+root="$(new_fixture)"
+newline_name=$'bad\nname.md'
+printf 'resource\n' >"$root/content/skills/skill-01/$newline_name"
+assert_fails 'content/skills: path contains newline' "$root"
+
+root="$(new_fixture)"
+printf '%b' \
+	'---\nname: skill-01\0\ndescription: "Fixture."\n---\n\n# Fixture\n' \
+	>"$root/content/skills/skill-01/SKILL.md"
+assert_fails 'content/skills/skill-01/SKILL.md: NUL bytes are forbidden' "$root"
 
 root="$(new_fixture)"
 replace_frontmatter "$root" '---' 'name: skill-01' \
@@ -149,8 +227,9 @@ assert_fails 'content/skills/skill-01/SKILL.md: name must be a plain canonical s
 
 root="$(new_fixture)"
 mv "$root/content/skills/skill-01" "$root/content/skills/skill--01"
-sed -i 's/name: skill-01/name: skill--01/' \
-	"$root/content/skills/skill--01/SKILL.md"
+sed 's/name: skill-01/name: skill--01/' \
+	"$root/content/skills/skill--01/SKILL.md" >"$root/name.tmp"
+mv "$root/name.tmp" "$root/content/skills/skill--01/SKILL.md"
 assert_fails 'content/skills/skill--01: invalid skill name' "$root"
 
 root="$(new_fixture)"
@@ -168,6 +247,32 @@ assert_fails 'content/skills/skill-01/SKILL.md: broken relative link: missing.md
 root="$(new_fixture)"
 printf '\n[Escape](../../outside.md)\n' >>"$root/content/skills/skill-01/SKILL.md"
 assert_fails 'content/skills/skill-01/SKILL.md: relative link escapes skill package' "$root"
+
+root="$(new_fixture)"
+printf '%s\n' '[Missing reference][missing]' '[missing]: missing-ref.md' \
+	>>"$root/content/skills/skill-01/SKILL.md"
+assert_fails \
+	'content/skills/skill-01/SKILL.md: broken relative link: missing-ref.md' \
+	"$root"
+
+root="$(new_fixture)"
+printf '%s\n' '[Escape reference][escape]' '[escape]: ../../outside.md' \
+	>>"$root/content/skills/skill-01/SKILL.md"
+assert_fails 'content/skills/skill-01/SKILL.md: relative link escapes skill package' "$root"
+
+root="$(new_fixture)"
+printf '[Missing](missing-uppercase.md)\n' \
+	>"$root/content/skills/skill-01/GUIDE.MD"
+assert_fails \
+	'content/skills/skill-01/GUIDE.MD: broken relative link: missing-uppercase.md' \
+	"$root"
+
+root="$(new_fixture)"
+printf '[Escape](../../outside.md)\n' \
+	>"$root/content/skills/skill-01/Guide.MaRkDoWn"
+assert_fails \
+	'content/skills/skill-01/Guide.MaRkDoWn: relative link escapes skill package' \
+	"$root"
 
 root="$(new_fixture)"
 printf '\nUse ~/.codex/skills/skill-01/helper.sh.\n' \

@@ -54,13 +54,6 @@ validate_reserved_names() {
 	done <"$reserved"
 }
 
-native_tail() {
-	local relative="$1"
-	local tail="${relative#agents/}"
-
-	printf '%s\n' "${tail#*/shared/}"
-}
-
 validate_native_sources() {
 	local agents="$1"
 	local path
@@ -68,26 +61,21 @@ validate_native_sources() {
 	local tail
 
 	[[ -d "$agents" ]] || return 0
-	while IFS= read -r path; do
+	while IFS= read -r -d '' path; do
 		relative="${path#"$repo_root"/}"
-		[[ "$relative" =~ ^agents/[^/]+/shared/ ]] || continue
-		tail="$(native_tail "$relative")"
-		if [[ "${tail##*/}" == 'SKILL.md' ]]; then
+		tail="${relative#agents/}"
+		if [[ "${relative##*/}" == 'SKILL.md' ]]; then
 			skill_error "$relative" 'native SKILL.md is forbidden'
 		fi
-		case "/$tail/" in
-		*/commands/*) skill_error "$relative" 'native command is forbidden' ;;
+		case "$tail" in
+		commands/* | */commands/*) skill_error "$relative" 'native command is forbidden' ;;
 		esac
-	done < <(find "$agents" -type f -print | LC_ALL=C sort)
-
-	while IFS= read -r path; do
-		relative="${path#"$repo_root"/}"
-		[[ "$relative" =~ ^agents/[^/]+/shared/ ]] || continue
-		tail="$(native_tail "$relative")"
-		case "/$tail/" in
-		*/skills/*) skill_error "$relative" 'native skill directory is forbidden' ;;
+		case "$tail" in
+		skills | */skills | skills/* | */skills/*)
+			skill_error "$relative" 'native skill directory is forbidden'
+			;;
 		esac
-	done < <(find "$agents" -type d -print | LC_ALL=C sort)
+	done < <(find "$agents" ! -path "$agents" -print0)
 }
 
 validate_portable_entry() {
@@ -95,6 +83,9 @@ validate_portable_entry() {
 	local path="$skills_root/$relative"
 	local identity_output
 
+	if [[ "$relative" == *$'\n'* ]]; then
+		skill_error 'content/skills' 'path contains newline'
+	fi
 	if [[ -L "$path" ]]; then
 		skill_error "content/skills/$relative" 'symlinks are forbidden'
 	fi
@@ -114,7 +105,7 @@ validate_portable_tree() {
 	local seen_relative
 
 	: >"$workspace/folded-paths"
-	while IFS= read -r path; do
+	while IFS= read -r -d '' path; do
 		relative="${path#"$skills_root"/}"
 		validate_portable_entry "$relative"
 		folded="$(LC_ALL=C printf '%s' "$relative" | tr '[:upper:]' '[:lower:]')"
@@ -124,7 +115,7 @@ validate_portable_tree() {
 			fi
 		done <"$workspace/folded-paths"
 		printf '%s\t%s\n' "$folded" "$relative" >>"$workspace/folded-paths"
-	done < <(find "$skills_root" -mindepth 1 -print | LC_ALL=C sort)
+	done < <(find "$skills_root" ! -path "$skills_root" -print0)
 }
 
 validate_frontmatter() {
@@ -132,7 +123,12 @@ validate_frontmatter() {
 	local skill_name="$2"
 	local relative="content/skills/$skill_name/SKILL.md"
 	local line1 line2 line3 line4 json lengths
+	local without_nul="$workspace/without-nul-$skill_name"
 
+	LC_ALL=C tr -d '\000' <"$file" >"$without_nul"
+	if ! cmp -s "$without_nul" "$file"; then
+		skill_error "$relative" 'NUL bytes are forbidden'
+	fi
 	iconv -f UTF-8 -t UTF-8 "$file" >/dev/null 2>&1 ||
 		skill_error "$relative" 'file must be valid UTF-8'
 	line1="$(sed -n '1p' "$file")"
@@ -159,23 +155,119 @@ validate_frontmatter() {
 		skill_error "$relative" 'non-empty Markdown must follow frontmatter'
 }
 
-markdown_link_tokens() {
+markdown_visible_text() {
 	local markdown="$1"
 
 	awk '
-    /^[[:space:]]*(```|~~~)/ { fenced = !fenced; next }
-    !fenced {
-      output = ""
-      rest = $0
-      while (match(rest, /`/)) {
-        if (!inline) output = output substr(rest, 1, RSTART - 1)
-        inline = !inline
-        rest = substr(rest, RSTART + 1)
-      }
-      if (!inline) output = output rest
-      print output
+    function without_indent(line, count) {
+      count = 0
+      while (count < 3 && substr(line, count + 1, 1) == " ") count++
+      return substr(line, count + 1)
     }
-  ' "$markdown" | rg --no-filename -o '\]\([^)]*\)' || :
+    function run_length(line, character, count) {
+      count = 0
+      while (substr(line, count + 1, 1) == character) count++
+      return count
+    }
+    function opens_fence(line, candidate, character, run_size, rest) {
+      candidate = without_indent(line)
+      character = substr(candidate, 1, 1)
+      if (character != "`" && character != "~") return 0
+      run_size = run_length(candidate, character)
+      if (run_size < 3) return 0
+      rest = substr(candidate, run_size + 1)
+      if (character == "`" && index(rest, "`") != 0) return 0
+      fence_character = character
+      fence_length = run_size
+      return 1
+    }
+    function closes_fence(line, candidate, run_size, rest) {
+      candidate = without_indent(line)
+      if (substr(candidate, 1, 1) != fence_character) return 0
+      run_size = run_length(candidate, fence_character)
+      if (run_size < fence_length) return 0
+      rest = substr(candidate, run_size + 1)
+      return rest ~ /^[[:space:]]*$/
+    }
+    function code_run(line, position, run_size) {
+      run_size = 0
+      while (substr(line, position + run_size, 1) == "`") run_size++
+      return run_size
+    }
+    function visible_line(line, position, start, run_size, text) {
+      position = 1
+      while (position <= length(line)) {
+        text = substr(line, position)
+        start = index(text, "`")
+        if (start == 0) {
+          if (code_length == 0) printf "%s", text
+          else pending = pending text
+          return
+        }
+        start += position - 1
+        if (code_length == 0) printf "%s", substr(line, position, start - position)
+        else pending = pending substr(line, position, start - position)
+        run_size = code_run(line, start)
+        if (code_length == 0) {
+          code_length = run_size
+          pending = substr(line, start, run_size)
+        } else if (run_size == code_length) {
+          code_length = 0
+          pending = ""
+        } else {
+          pending = pending substr(line, start, run_size)
+        }
+        position = start + run_size
+      }
+    }
+    {
+      if (fence_character != "") {
+        if (closes_fence($0)) {
+          fence_character = ""
+          fence_length = 0
+        }
+        next
+      }
+      if (code_length == 0 && opens_fence($0)) next
+      visible_line($0)
+      if (code_length == 0) printf "\n"
+      else pending = pending "\n"
+    }
+    END { if (code_length != 0) printf "%s", pending }
+  ' "$markdown"
+}
+
+markdown_link_tokens() {
+	local markdown="$1"
+
+	markdown_visible_text "$markdown" | awk '
+    function emit_destination(raw, end, fields) {
+      sub(/^[[:space:]]*/, "", raw)
+      if (substr(raw, 1, 1) == "<") {
+        end = index(raw, ">")
+        if (end == 0) return
+        print substr(raw, 2, end - 2)
+        return
+      }
+      split(raw, fields, /[[:space:]]+/)
+      print fields[1]
+    }
+    {
+      line = $0
+      candidate = line
+      for (indent = 0; indent < 3 && substr(candidate, 1, 1) == " "; indent++) {
+        candidate = substr(candidate, 2)
+      }
+      if (match(candidate, /^\[[^]]+\]:[[:space:]]*/)) {
+        emit_destination(substr(candidate, RLENGTH + 1))
+      }
+      while (match(line, /\]\([^)]*\)/)) {
+        token = substr(line, RSTART + 2, RLENGTH - 3)
+        emit_destination(token)
+        line = substr(line, RSTART + RLENGTH)
+      }
+    }
+  '
 }
 
 validate_links() {
@@ -223,9 +315,9 @@ validate_skill() {
 	[[ -f "$skill_dir/SKILL.md" && ! -L "$skill_dir/SKILL.md" ]] ||
 		skill_error "content/skills/$name/SKILL.md" 'required regular file is missing'
 	validate_frontmatter "$skill_dir/SKILL.md" "$name"
-	while IFS= read -r path; do
+	while IFS= read -r -d '' path; do
 		validate_links "$skill_dir" "$path"
-	done < <(find "$skill_dir" -type f -name '*.md' -print | LC_ALL=C sort)
+	done < <(find "$skill_dir" -type f \( -iname '*.md' -o -iname '*.markdown' \) -print0)
 }
 
 validate_inventory() {
@@ -233,11 +325,11 @@ validate_inventory() {
 	local count=0
 
 	[[ -d "$skills_root" ]] || skill_error 'content/skills' 'canonical skill tree is missing'
-	while IFS= read -r path; do
+	while IFS= read -r -d '' path; do
 		[[ -d "$path" && ! -L "$path" ]] ||
 			skill_error "${path#"$repo_root"/}" 'immediate children must be skill directories'
 		count=$((count + 1))
-	done < <(find "$skills_root" -mindepth 1 -maxdepth 1 -print | LC_ALL=C sort)
+	done < <(find "$skills_root" ! -path "$skills_root" -prune -print0)
 	[[ "$count" -eq 35 ]] ||
 		skill_error 'content/skills' "expected exactly 35 skill directories, found $count"
 }
@@ -261,9 +353,9 @@ validate_native_sources "$repo_root/agents"
 validate_inventory
 validate_portable_tree
 
-while IFS= read -r skill_dir; do
+while IFS= read -r -d '' skill_dir; do
 	validate_skill "$skill_dir"
-done < <(find "$skills_root" -mindepth 1 -maxdepth 1 -type d -print | LC_ALL=C sort)
+done < <(find "$skills_root" ! -path "$skills_root" -prune -type d -print0)
 
 if root_reference="$(rg -l '(~|\$HOME|\$\{HOME\})/\.(codex|claude|bob)(/|$)' \
 	"$skills_root" || :)" && [[ -n "$root_reference" ]]; then

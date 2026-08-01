@@ -49,7 +49,8 @@ assert_canonical_skills() {
 	actual_identity="$(identity_path "$destination/skills")"
 	[[ "$actual_identity" == "$expected_identity" ]] ||
 		fail "installed skills differ from canonical tree: $destination/skills"
-	count="$(find "$destination/skills" -mindepth 1 -maxdepth 1 -type d | wc -l)"
+	count="$(find "$destination/skills" ! -path "$destination/skills" \
+		-prune -type d -print | wc -l)"
 	[[ "$count" -eq 35 ]] ||
 		fail "expected 35 canonical skills in $destination/skills, got $count"
 	assert_file "$destination/skills/simplify-changes/SKILL.md"
@@ -162,6 +163,13 @@ assert_not_file "$BOB_CONFIG_DIR/stale-managed.txt"
 assert_file "$CLAUDE_CONFIG_DIR/runtime-state.txt"
 assert_file "$CODEX_CONFIG_DIR/runtime-state.txt"
 assert_file "$BOB_CONFIG_DIR/runtime-state.txt"
+
+mode_drift="$CODEX_CONFIG_DIR/skills/brainstorming/scripts/start-server.sh"
+chmod 644 "$mode_drift"
+[[ ! -x "$mode_drift" ]] || fail "expected executable drift fixture: $mode_drift"
+AGENT_CONFIG_HOST=test-host ./install.sh --agent codex
+assert_executable "$mode_drift"
+assert_canonical_skills "$CODEX_CONFIG_DIR"
 
 write_text "$CLAUDE_CONFIG_DIR/CLAUDE.md" "local drift before reinstall"
 AGENT_CONFIG_HOST=test-host ./install.sh --agent claude

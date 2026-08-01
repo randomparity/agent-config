@@ -5,6 +5,11 @@ REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
 TMP_FILES=()
 
+# shellcheck source=scripts/install-identity.sh
+# Resolved from the repository root established above.
+# shellcheck disable=SC1091
+source "$REPO/scripts/install-identity.sh"
+
 usage() {
 	cat >&2 <<'EOF'
 Usage: ./install.sh --agent claude|codex|bob|all
@@ -158,20 +163,12 @@ remove_dest() {
 payload_differs() {
 	local src="$1"
 	local dest="$2"
+	local source_identity
+	local destination_identity
 
-	if [[ -d "$src" ]]; then
-		[[ -d "$dest" ]] || return 0
-		if diff -rq "$src" "$dest" >/dev/null 2>&1; then
-			return 1
-		fi
-		return 0
-	fi
-
-	[[ -f "$dest" ]] || return 0
-	if cmp -s "$src" "$dest"; then
-		return 1
-	fi
-	return 0
+	source_identity="$(identity_path "$src")"
+	destination_identity="$(identity_path "$dest")"
+	[[ "$source_identity" != "$destination_identity" ]]
 }
 
 backup_path() {
