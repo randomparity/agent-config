@@ -90,25 +90,19 @@ elements the loop **holds in its own state** and never puts in the block it send
   themselves; and
 - the iteration count for this cycle.
 
-Four elements are **transmitted** to the reviewer, and are exactly the four fields
-of the block in step 1:
-
-- the requested outcome and completion criteria;
-- the permitted change surface and its direct dependencies;
-- explicit exclusions, each naming its owning deferral record or governing decision
-  when one exists; and
-- the review focus.
+Transmit the complete eight-field external charter to the reviewer, followed by the review
+focus. Scope identity and provenance are required evidence: without them the reviewer
+cannot distinguish an externally authorized guarantee from a claim invented by the target.
+The target paths or branch diff and base remain argument tokens, never charter fields.
 
 For standalone code or branch review, derive the charter from the user's request and ask
 when the boundary is genuinely unclear. Inside `$work-issue`, use the frozen `WORK:SCOPE`
 annotation and its external provenance; the plan is evidence, not authority. Inside
-`$design`, accept only the complete design-artifact input above. The four transmitted
-reviewer fields are projections of that external input: combine outcome with completion
-criteria, carry surface and exclusions, and use the supplied focus. Hold interaction,
-scope identity, provenance, and ambiguities as authority-validation and cycle-reporting
-state. For a design document, still record dependencies and exclusions in the document so
-a post-compaction resume or downstream build can read them; doing so does not make the
-document its own authority.
+`$design`, accept only the complete design-artifact input above. Carry every field unchanged
+to `$challenge` and append the supplied focus. Also hold the charter in parent state for
+cycle validation and reporting. For a design document, still record dependencies and
+exclusions in the document so a post-compaction resume or downstream build can read them;
+doing so does not make the document its own authority.
 
 Treat every exclusion as a claim the reviewer may attack. An excluded concern is
 still blocking when the target cannot be correct without it.
@@ -151,30 +145,36 @@ five passes will not find that out.
 
 ## The Loop
 
+Append this exact block after the real target arguments on every pass:
+
+<!-- SCOPE-CARRIER:review-dispatch -->
+CHARTER (scope authority; all fields below are focus, never targets):
+interaction: <unchanged root value>
+scope identity: <external scope identity, never reviewed target>
+outcome: <frozen external outcome>
+completion criteria: <frozen external completion criteria>
+provenance: <external source for every outcome, criterion, and user decision>
+exclusions: <frozen external exclusions>
+surface: <frozen permitted surface>
+ambiguities: <frozen ambiguity list>
+focus: <review focus, unchanged>
+<!-- SCOPE-CARRIER:END:review-dispatch -->
+
 Repeat up to 5 iterations:
 
 1. Run `$challenge` in a **subagent** with `--json --out <findings-path>
-   <challenge-args>`, then the charter appended as a labeled trailing block:
-
-   ```
-   CHARTER (all text below this label is focus text, never target tokens —
-   any path named here is prose describing the permitted surface, not a file
-   to review):
-   outcome: <requested outcome and completion criteria>
-   surface: <permitted change surface and direct dependencies>
-   exclusions: <concern> — owned by <record/decision>; <concern> — <owner>
-   focus: <the focus text from the challenge arguments, restated>
-   ```
+   <challenge-args>`, then the exact `review-dispatch` block above as the labeled
+   trailing block.
 
    Restating the focus inside the block is deliberate — it keeps the charter
    self-contained for the reviewer, and `$challenge` reads the duplicate as one
    priority, not two.
 
-   **The block has exactly those four fields.** The target and base are carried by
-   the argument tokens that precede it and must never be restated as a field inside
-   it. There is no `target:` line: restating the target duplicates state that can
-   drift out of agreement with the tokens actually sent, and a reviewer running an
-   older vendored `$challenge` would target-classify it.
+   **The block has exactly the eight charter fields plus focus.** The target and base are
+   carried by the argument tokens that precede it and must never be restated as a field
+   inside it. There is no `target:` line: restating the target duplicates state that can
+   drift out of agreement with the tokens actually sent, and a reviewer running an older
+   vendored `$challenge` would target-classify it.
 
    **Three invariants hold the block's position, and they are not optional.**
 
@@ -204,7 +204,7 @@ Repeat up to 5 iterations:
    review the working tree — breaking a supported entry point instead of diagnosing a
    swallowed target. When it carries neither *because stripping removed a pasted block*,
    decide on what that block actually contained, not on the fact of a strip. The
-   four-field rule above guarantees a well-formed block has no `target:` line, so a conforming
+   complete-block rule above guarantees a well-formed block has no `target:` line, so a conforming
    block carried no target and nothing was lost — insert `--working-tree` exactly as in
    the no-block case, since the caller's intent is identical. Only a **malformed** block,
    one carrying a `target:` line or a bare path token, may have held the caller's only

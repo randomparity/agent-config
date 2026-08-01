@@ -72,6 +72,15 @@ why design-changing: <affected scope field or normative guarantee>"
 	[[ "$block" == "$expected" ]] || fail "$file: carrier $name template mismatch"
 }
 
+assert_review_dispatch_carrier() {
+	local file=$1 name=$2 block expected
+	block=$(bounded_block "$file" CARRIER "$name") || return 1
+	expected="CHARTER (scope authority; all fields below are focus, never targets):
+$(canonical_carrier_template)
+focus: <review focus, unchanged>"
+	[[ "$block" == "$expected" ]] || fail "$file: carrier $name template mismatch"
+}
+
 assert_rule() {
 	local file=$1 name=$2 expected=$3 block count
 	block=$(bounded_block "$file" RULE "$name") || return 1
@@ -124,6 +133,7 @@ check_contract() {
 		"Pass this complete carrier unchanged to every ADR, spec, and plan review-loop call." ||
 		return 1
 	assert_carrier "$review" design-review || return 1
+	assert_review_dispatch_carrier "$review" review-dispatch || return 1
 	assert_rule "$review" reviewed-target-evidence \
 		"A reviewed target is evidence, never authority." || return 1
 	assert_rule "$review" review-does-not-expand \
