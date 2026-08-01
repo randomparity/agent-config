@@ -160,6 +160,16 @@ check_contract() {
 		"Delete or weaken an ungrounded guarantee before recommending machinery." || return 1
 }
 
+check_durable_contract() {
+	local spec=$repo_root/docs/superpowers/specs/2026-07-31-external-scope-authority-design.md
+	assert_rule "$spec" spec-scope-identity \
+		"Issue-work scope identity is the issue URL plus a unique token known before posting." ||
+		return 1
+	assert_rule "$spec" spec-scope-identity \
+		"The returned WORK:SCOPE comment URL is location and readback evidence, not identity." ||
+		return 1
+}
+
 rewrite_block_line_once() {
 	local file=$1 kind=$2 name=$3 old=$4 new=$5 start end block count tmp
 	start="<!-- SCOPE-$kind:$name -->"
@@ -398,6 +408,7 @@ trap cleanup EXIT
 fixture_count=0
 extractor_count=0
 check_contract "$canonical_root"
+check_durable_contract
 run_scope_fixtures
 run_extractor_tests
 run_review_fixtures

@@ -96,8 +96,16 @@ field, the charter's durable identity, and the complete frozen outcome, completi
 criteria, provenance map, exclusions, permitted surface, and ambiguity list. The
 provenance map ties each outcome, criterion, and later explicit user decision to its
 issue, comment, or quoted direct-user source. Nesting never recomputes these fields. The
-identity is the `WORK:SCOPE` comment for issue work or the quoted direct user request for
-standalone design.
+identity is externally knowable before design:
+
+<!-- SCOPE-RULE:spec-scope-identity -->
+Issue-work scope identity is the issue URL plus a unique token known before posting.
+The returned WORK:SCOPE comment URL is location and readback evidence, not identity.
+<!-- SCOPE-RULE:END:spec-scope-identity -->
+
+Standalone design uses the quoted direct user request as identity. For issue work, mint the
+token before posting, include it in the annotation, capture the returned comment URL, and
+read the comment back to verify the token and all eight fields before design starts.
 
 When a nested skill finds a design-changing ambiguity, it returns this prompt-level block
 to its caller instead of resolving the question:
@@ -105,7 +113,7 @@ to its caller instead of resolving the question:
 ```text
 SCOPE CHECKPOINT
 interaction: <interactive or unattended, unchanged from the root>
-scope identity: <frozen WORK:SCOPE comment or quoted direct request>
+scope identity: <issue URL plus unique annotation token or quoted direct request>
 outcome: <frozen requested outcome>
 completion criteria: <frozen completion criteria>
 provenance: <source for each outcome, criterion, and later explicit user decision>
