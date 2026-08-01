@@ -35,9 +35,14 @@ verified result.
 
 ## Verdicts
 
-Use one verdict: `pass` when no findings remain, `findings` when issues need changes,
-`not-applicable` when the target has no user-facing UI, or `blocked` when target resolution
-or policy discovery cannot complete.
+Use one verdict:
+
+- `approve` when no findings remain and no manual checks remain.
+- `needs-attention` when issues need changes.
+- `needs-manual-check` when manual checks remain.
+- `not-applicable` when the target has no user-facing UI.
+
+Do not use `approve` when manual checks remain.
 
 ## Findings
 

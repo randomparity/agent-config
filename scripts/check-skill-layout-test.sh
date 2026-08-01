@@ -6,6 +6,13 @@ fail() {
 	exit 1
 }
 
+assert_contains() {
+	local expected="$1"
+	local file="$2"
+
+	rg -Fq "$expected" "$file" || fail "expected $file to contain: $expected"
+}
+
 assert_fails() {
 	local expected="$1"
 	local root="$2"
@@ -53,9 +60,17 @@ new_fixture() {
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 implementation="$repo_root/scripts/check-skill-layout.sh"
 reserved="$repo_root/scripts/reserved-skill-names.txt"
-tmpdir="$(mktemp -d "${TMPDIR:-/tmp}/skill-layout-test.XXXXXX")"
+tmpdir="$(mktemp -d "$repo_root/.skill-layout-test.XXXXXX")"
 trap 'rm -R "$tmpdir"' EXIT
 case_count=0
+
+example_skill="$repo_root/examples/project-review-skills/accessibility-reviewer/SKILL.md"
+assert_contains "\`approve\` when no findings remain and no manual checks remain" "$example_skill"
+assert_contains "\`needs-attention\` when issues need changes" "$example_skill"
+assert_contains "\`needs-manual-check\` when manual checks remain" "$example_skill"
+assert_contains "\`not-applicable\` when the target has no user-facing UI" "$example_skill"
+assert_contains "Do not use \`approve\` when manual checks remain." "$example_skill"
+assert_contains 'policy can be found, stop with an actionable error' "$example_skill"
 
 output="$(cd "$repo_root" && bash scripts/check-skill-layout.sh)"
 [[ "$output" == 'skills-check: ok (35 canonical skills, 1 project review examples)' ]] || fail "$output"
@@ -94,7 +109,7 @@ assert_package_case() {
 	local kind="$1"
 	local inventory="$2"
 	local name="$3"
-	local root target expected matching_count
+	local root target expected
 
 	root="$(new_fixture)"
 	target="$root/$inventory/$name"
@@ -139,8 +154,6 @@ assert_package_case() {
 	case-fold-collision)
 		printf '%s\n' 'one' >"$target/Readme.md"
 		printf '%s\n' 'two' >"$target/readme.md"
-		matching_count="$(find "$target" -maxdepth 1 -iname 'readme.md' | wc -l | tr -d ' ')"
-		[[ "$matching_count" -eq 2 ]] || return 0
 		expected="$inventory: ASCII case-fold path collision"
 		;;
 	invalid-utf8)
