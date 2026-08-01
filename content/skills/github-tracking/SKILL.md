@@ -88,6 +88,48 @@ dependent has been evaluated, so callers can report partial success accurately.
 
 cleared_dependency_reason=
 cleared_dependency_error=false
+cleared_dependency_max_lookups=500
+cleared_dependency_lookup_count=0
+cleared_dependency_blocker_ids=()
+cleared_dependency_blocker_states=()
+cleared_dependency_state=
+
+reset_cleared_dependency_cache() {
+  cleared_dependency_lookup_count=0
+  cleared_dependency_blocker_ids=()
+  cleared_dependency_blocker_states=()
+}
+
+cleared_dependency_safe_text() {
+  LC_ALL=C tr -cd '[:print:]' | cut -c1-200
+}
+
+cleared_dependency_blocker_state() { # repo blocker dependent
+  local repo=$1 blocker=$2 dependent=$3 index state safe
+  for index in "${!cleared_dependency_blocker_ids[@]}"; do
+    if [[ ${cleared_dependency_blocker_ids[$index]} == "$blocker" ]]; then
+      cleared_dependency_state=${cleared_dependency_blocker_states[$index]}
+      return
+    fi
+  done
+  if ((cleared_dependency_lookup_count >= cleared_dependency_max_lookups)); then
+    cleared_dependency_state="OVERFLOW:$dependent"
+    return
+  fi
+  ((cleared_dependency_lookup_count += 1))
+  if ! state=$(gh issue view "$blocker" --repo "$repo" --json state --jq .state \
+    2>&1); then
+    safe=$(printf '%s' "$state" | cleared_dependency_safe_text)
+    if [[ $state == *'not found'* || $state == *'Could not resolve'* ]]; then
+      state=MISSING
+    else
+      state="UNREADABLE:$safe"
+    fi
+  fi
+  cleared_dependency_blocker_ids+=("$blocker")
+  cleared_dependency_blocker_states+=("$state")
+  cleared_dependency_state=$state
+}
 
 cleared_dependency_body_verdict() { # repo number body
   local repo=$1 number=$2 body=$3 line blocker state
@@ -98,7 +140,7 @@ cleared_dependency_body_verdict() { # repo number body
     if [[ $line =~ ^Blocked\ by\ \#([0-9]+)$ ]]; then
       blockers+=("${BASH_REMATCH[1]}")
     elif [[ $line == 'Blocked by #'* ]]; then
-      cleared_dependency_reason="malformed reference on #$number: $line"
+      cleared_dependency_reason="malformed reference on #$number; expected Blocked by #N"
       cleared_dependency_error=true
       return 1
     fi
@@ -108,13 +150,18 @@ cleared_dependency_body_verdict() { # repo number body
     return 1
   fi
   for blocker in "${blockers[@]}"; do
-    if ! state=$(gh issue view "$blocker" --repo "$repo" --json state --jq .state \
-      2>&1); then
-      if [[ $state == *'not found'* || $state == *'Could not resolve'* ]]; then
-        cleared_dependency_reason="missing blocker #$blocker for #$number"
-      else
-        cleared_dependency_reason="unreadable blocker #$blocker for #$number: $state"
-      fi
+    cleared_dependency_blocker_state "$repo" "$blocker" "$number"
+    state=$cleared_dependency_state
+    if [[ $state == MISSING ]]; then
+      cleared_dependency_reason="missing blocker #$blocker for #$number"
+      cleared_dependency_error=true
+      return 1
+    elif [[ $state == UNREADABLE:* ]]; then
+      cleared_dependency_reason="unreadable blocker #$blocker for #$number: ${state#*:}"
+      cleared_dependency_error=true
+      return 1
+    elif [[ $state == OVERFLOW:* ]]; then
+      cleared_dependency_reason="lookup budget exhausted at #$number; rerun with issue-number batches"
       cleared_dependency_error=true
       return 1
     fi
@@ -200,6 +247,7 @@ reconcile_cleared_dependencies() { # plan|apply owner/name
   local -a targets=()
   shift 2
   targets=("$@")
+  reset_cleared_dependency_cache
   [[ $mode == plan || $mode == apply ]] || {
     printf 'usage: reconcile_cleared_dependencies plan|apply owner/name\n' >&2
     return 2

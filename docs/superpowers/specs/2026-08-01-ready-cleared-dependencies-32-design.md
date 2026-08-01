@@ -70,13 +70,20 @@ dependency set remain held.
 `triage-issues` retains its explicit/manual fallback. It may reassess a cleared dependency,
 but is no longer described as the required release mechanism.
 
+One run resolves at most 500 distinct blocker issues and caches each result across all
+dependents. When that budget is exhausted, unresolved dependents stay blocked and the report
+names the first deferred dependent plus a command to resume with a smaller issue-number
+batch. Apply mode is naturally resumable because successfully readied issues leave the next
+scan; plan mode can use the same issue-number batching without writes.
+
 ## Error handling
 
 Evaluation is per dependent: one unreadable or malformed issue does not prevent other
 dependents from being evaluated. All uncertainty fails closed. Reports distinguish
 `open blocker`, `missing blocker`, `unreadable blocker`, `malformed reference`, `no canonical
 references`, and `label update failed`. Reads use explicit JSON fields and no status-label
-server-side filter.
+server-side filter. Diagnostics never reproduce malformed body lines. External CLI errors
+have control characters removed and are truncated to 200 bytes before display.
 
 ## Tests
 
