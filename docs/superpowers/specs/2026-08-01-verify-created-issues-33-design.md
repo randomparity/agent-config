@@ -41,9 +41,9 @@ postcondition.
 
 `create-verified-issue.sh` is the single-create boundary, not the policy workflow. It calls
 `gh issue create` exactly once with `--body-file`, captures the returned durable URL, and
-reads the issue using `gh issue view` with explicit JSON fields. For sub-issues it
-exhaustively enumerates the intended parent's native sub-issues with pagination and confirms
-that the created issue number is present. Expected labels are supplied as repeated
+reads the issue using `gh issue view` with explicit JSON fields, including the authoritative
+native `parent` field. For sub-issues it compares that returned parent number directly with
+the intended parent. Expected labels are supplied as repeated
 arguments so spaces and colons remain literal. The populated body file is retained by the
 caller and supplies the confirmed body contract without standard-input shortcuts.
 
@@ -73,8 +73,8 @@ be reported as successful or duplicated.
 
 A shell integration test supplies a fake `gh` executable and runs the actual helper. It
 proves that success is withheld until read-back passes and covers empty body, missing
-section, wrong title, missing label, wrong parent, a child beyond the first parent-response
-page, malformed read-back data, and successful creation. It also runs the documented
+section, wrong title, missing label, wrong parent, malformed read-back data, and successful
+creation. It also runs the documented
 decomposition loop against the helper to prove that partial failure stops later creates,
 reports the failed child's durable URL, and never creates a replacement. Contract checks
 assert that every skill create path uses the helper, retains its populated temporary body
