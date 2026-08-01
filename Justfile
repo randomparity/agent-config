@@ -30,11 +30,13 @@ records:
 
 lint:
   shellcheck install.sh install-tools.sh install-test.sh install-tools-test.sh scripts/*.sh \
-    .github/scripts/*.sh .github/scripts/profiles/*.sh
+    .github/scripts/*.sh .github/scripts/profiles/*.sh \
+    content/skills/issue/scripts/*.sh
 
 format-check:
   shfmt -d install.sh install-tools.sh install-test.sh install-tools-test.sh scripts/*.sh
   shfmt -i 2 -d .github/scripts/*.sh .github/scripts/profiles/*.sh
+  shfmt -d content/skills/issue/scripts/*.sh
 
 format:
   shfmt -w install.sh install-tools.sh install-test.sh install-tools-test.sh scripts/*.sh
@@ -43,6 +45,7 @@ format:
 test:
   ./install-test.sh
   ./install-tools-test.sh
+  ./content/skills/issue/scripts/create-verified-issue-test.sh
   ./scripts/check-public-safety-test.sh
   ./scripts/check-workflow-scope-contract-test.sh
 
