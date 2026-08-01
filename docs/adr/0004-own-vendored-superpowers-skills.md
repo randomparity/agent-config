@@ -19,10 +19,12 @@ this repository's multi-agent layout.
 
 ## Decision
 
-The repository owns its Superpowers-derived files as maintained forks in the native
-agent projections under `agents/<agent>/shared/skills/`. The authoritative attribution
-inventory is `docs/licenses/superpowers.md`; it covers every file beneath each listed
-root. The unmodified upstream MIT terms are retained at
+The repository accepts maintenance responsibility for its Superpowers-derived files as
+maintained forks in the native agent projections under `agents/<agent>/shared/skills/`.
+Original upstream portions retain Jesse Vincent's copyright under the preserved MIT
+terms; this repository owns its local modifications to the extent applicable. The
+authoritative attribution inventory is `docs/licenses/superpowers.md`; it covers every
+file beneath each listed root. The unmodified upstream MIT terms are retained at
 `docs/licenses/superpowers.LICENSE`.
 
 An upstream update is a deliberate re-vendor change. It records the upstream release or
@@ -33,10 +35,12 @@ deployable source owned by this repository under ADR 0001; this decision does no
 canonical skill tree or a generator.
 
 Interactive behavior remains the default. A caller or orchestrator explicitly asserts
-dispatched mode, and that mode flows through downstream lifecycle skills. In dispatched
-mode a skill completes its phase and returns to its caller without asking an unavailable
-human to choose an integration path and without merging, pushing, or discarding work.
-Only skills with such interactive lifecycle edges carry the adaptation. Today those are
+dispatched mode, and that mode flows through downstream lifecycle skills. Each adapted
+Superpowers-derived skill completes its phase and returns to its caller without asking an
+unavailable human to choose an integration path and without merging, pushing, or
+discarding work. This does not restrict later, non-vendored integration owners such as
+`ship-pr` and `merge-cleanup`, whose own authorization governs pushing and merging. Only
+skills with such interactive lifecycle edges carry the adaptation. Today those are
 `brainstorming`, `writing-plans`, `executing-plans`,
 `subagent-driven-development`, and `finishing-a-development-branch` in the Claude and
 Codex projections. Bob's current derived skills do not have those edges.
@@ -45,8 +49,9 @@ Codex projections. Bob's current derived skills do not have those edges.
 
 - The public repository carries the upstream copyright and MIT license alongside an
   explicit inventory of every covered projection root.
-- Local ownership permits agent-specific syntax and workflow fixes, but every upstream
-  refresh is a reviewed merge rather than a blind copy or automatic upgrade.
+- Local maintenance responsibility permits agent-specific syntax and workflow fixes, but
+  every upstream refresh is a reviewed merge rather than a blind copy or automatic
+  upgrade.
 - A new derived root is incomplete until the attribution inventory covers it; removing a
   root removes its inventory entry in the same change.
 - Claude-only plugin settings, namespaces, and deployment assumptions from the
@@ -56,6 +61,10 @@ Codex projections. Bob's current derived skills do not have those edges.
 
 ## Considered & rejected
 
+- **Do nothing, or restore only attribution.** Continued omission leaves the public copies
+  without their required notice. Restoring only the notice leaves current maintenance and
+  dispatched-mode responsibilities implicit, repeating the provenance loss that exposed
+  the omission.
 - **Copy the license into every skill directory.** This makes each subtree self-contained
   but creates many identical files whose drift obscures which terms are authoritative.
   One license plus an explicit root inventory provides the required notice without that
