@@ -1872,6 +1872,21 @@ MD
   run_case "README.md grows an index table" 0 W-INDEX-TABLE "$d" BASE_SHA="$b" \
     RECORD_PROFILES=adr
 
+  printf '  %-4s %-44s ' "" "required ADR index is accepted"
+  if (cd "$d" && env -u GITHUB_ACTIONS ADR_INDEX_POLICY=required RECORD_PROFILES=adr \
+    BASE_SHA="$b" ./.github/scripts/check-records.sh) >"$d/.required.out" 2>"$d/.required.err"; then
+    if grep -q 'W-INDEX-TABLE' "$d/.required.err"; then
+      failed=$((failed + 1))
+      printf 'FAIL emitted W-INDEX-TABLE\n'
+    else
+      passed=$((passed + 1))
+      printf 'ok   exit=0 no index warning\n'
+    fi
+  else
+    failed=$((failed + 1))
+    printf 'FAIL checker failed: %s\n' "$(sed -n 's/^::error:://p' "$d/.required.err" | head -1)"
+  fi
+
   # APPEND_ONLY_SECTIONS="*" protects every level-2 section the base ref had, not a fixed
   # list — ADRs are not section-uniform, and a fixed list leaves the extra sections guttable.
   d=$(adr_dir adr_extra_section)
