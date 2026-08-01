@@ -17,9 +17,11 @@ Several deployed skills still direct a dispatched worker to an unavailable human
 - `systematic-debugging/SKILL.md` requires human discussion after three failed fixes. This
   executable gate is present in the Claude and Codex projections; Bob does not deploy the
   skill.
-- `receiving-code-review/SKILL.md` stops for human discussion when feedback conflicts with
-  prior decisions and routes architectural escalation to the human. These executable
-  gates are present in the Claude and Codex projections; Bob does not deploy the skill.
+- `receiving-code-review/SKILL.md` stops for clarification when feedback is unclear,
+  requests direction when external feedback cannot be verified, stops for human discussion
+  when feedback conflicts with prior decisions, and routes architectural escalation to the
+  human. These executable gates are present in the Claude and Codex projections; Bob does
+  not deploy the skill.
 - `subagent-driven-development/SKILL.md` sends a wrong plan and a plan-mandated review
   conflict to the human. These executable residuals are present in the Claude and Codex
   projections; Bob does not deploy the skill.
@@ -52,8 +54,8 @@ The five lifecycle skills already adapted for dispatched mode keep their embedde
 No command or skill may add a new dispatched path to a named executable gate without
 asserting the mode and defining whether written policy resolves it or the caller receives
 a blocker. A dispatched worker may not treat an absent human as permission to skip or
-weaken a test, continue after the debugging stop, or override a prior architectural
-decision.
+weaken a test, continue after the debugging stop, guess at unclear or unverifiable review
+feedback, or override a prior architectural decision.
 
 ## What would resolve it
 
