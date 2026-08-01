@@ -67,8 +67,11 @@ Audit each named gate against its current callers and choose one sanctioned beha
 Add the result at the gate inside every applicable agent projection, preserve interactive
 behavior as the default, and assert dispatched mode at each caller. Resolution requires a
 test or transcript proof that each executable gate follows its selected branch, plus a
-scoped reference sweep showing every remaining phrase in the four acceptance categories
-is descriptive.
+scoped reference sweep over the test, debugging, review-reception, and verification roots
+named in the design. Search for `human`, `user`, `ask`, `permission`, `approval`,
+`discuss`, `clarif`, `partner`, `proceed`, `wait`, `stop`, `direction`, `unclear`, and
+`verify`, then inspect every match semantically and show that each remaining phrase is
+descriptive.
 
 ## Provenance
 
