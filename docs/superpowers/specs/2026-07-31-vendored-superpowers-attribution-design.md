@@ -62,18 +62,22 @@ and historical prose that require no action:
 | `testing-anti-patterns.md` | deployed | deployed | absent | descriptive quotes |
 | `systematic-debugging/SKILL.md` | deployed | deployed | absent | executable gate |
 | `receiving-code-review/SKILL.md` | deployed | deployed | absent | mixed; gates recorded |
-| `subagent-driven-development/SKILL.md` | deployed | deployed | absent | mixed; gates recorded |
 | `verification-before-completion/SKILL.md` | deployed | deployed | deployed | descriptive history |
+| `using-git-worktrees/SKILL.md` | deployed | deployed | absent | lifecycle; outside debt 0002 |
 
 The TDD gates require human permission for exceptions and send an unknown test strategy
 to the human. Systematic debugging requires discussion after three failed fixes.
-Review-reception stops on conflicts with prior human decisions and calls for architectural
-escalation; its example speakers and quoted preferences are descriptive. Subagent-driven
-development already handles its pre-flight plan question in dispatched mode, but still
-sends wrong plans and plan-mandated review conflicts to the human. Its other human phrases
-describe or prohibit interaction. Verification's single phrase reports a past loss of
-trust and is not a gate. Debt 0002 owns only the executable residuals and names only the
-projections that actually deploy them.
+Review-reception stops for clarification or direction on unclear and unverifiable
+feedback, on conflicts with prior human decisions, and for architectural escalation; its
+example speakers and quoted preferences are descriptive. Verification's single phrase
+reports a past loss of trust and is not a gate. Debt 0002 owns only the executable
+residuals inside issue #13's explicit test, debugging, review-reception, and verification
+boundary and names only the projections that actually deploy them.
+
+`using-git-worktrees` is a lifecycle skill outside that boundary, not an omitted audit
+result. Caller-assigned worktree instructions resolve its creation-consent gate. Its
+baseline-failure prompt does not yet return a blocker to a dispatched caller, so
+[issue #23][issue-23] owns that separate lifecycle fix under ADR 0004.
 
 ## Approaches considered
 
@@ -126,7 +130,8 @@ submission. ADR 0004 owns the durable policy:
 - all applicable projections are considered together, without requiring byte identity;
 - a caller explicitly asserts dispatched mode;
 - dispatched gates target resolution from written policy or a returned blocker, never
-  inferred permission; debt 0002 enumerates the only current exceptions;
+  inferred permission; debt 0002 enumerates the scoped issue #13 exceptions, while
+  lifecycle exceptions remain governed and tracked separately;
 - later shipping skills retain their own push and merge authorization.
 
 Extend the existing `install_common_content` entry point in `install.sh`. It installs the
@@ -136,14 +141,15 @@ single canonical `docs/licenses/superpowers.LICENSE` source at
 drift backup, manifest, and pruning behavior. `install-test.sh` compares each installed
 license byte-for-byte with the canonical source after `--agent all`.
 
-Create debt 0002 for the audited residual TDD, debugging, review-reception, and
-subagent-development gates. It records the projection matrix, sanctioned resolution
-choices, non-regression boundary, predecessor commit, and a 2026-10-31 review date.
+Create debt 0002 for the audited residual TDD, debugging, and review-reception gates and
+the descriptive verification reference. It records the scoped projection matrix,
+sanctioned resolution choices, non-regression boundary, predecessor commit, and a
+2026-10-31 review date.
 Closing issue #13 means the migration is complete; the record remains open until the skill
 adaptations and proofs it names land.
 
-No skill body or installer path changes. The existing directory layout remains the source
-of deployable agent-native files.
+No skill body or installer architecture changes. The existing directory layout remains
+the source of deployable agent-native files.
 
 ## Failure handling and maintenance
 
@@ -171,8 +177,10 @@ of deployable agent-native files.
 - Run the installer test red before the common install step changes, then green after each
   Claude, Codex, and Bob target contains a byte-identical managed license.
 - Enumerate the current derived roots and confirm each appears in the attribution notice.
-- Repeat the human-reference sweep and confirm every result is classified by debt 0002 or
-  documented as descriptive or inapplicable.
+- Repeat the issue #13 human-reference sweep and confirm each test, debugging,
+  review-reception, and verification result is classified by debt 0002 or documented as
+  descriptive or inapplicable. Confirm lifecycle skills are explicitly excluded rather
+  than silently treated as covered.
 - Run the decision-record checker for ADR 0004 and debt 0002.
 - Run `just verify`, including public-safety, documentation-adjacent record checks, install
   tests, shell lint and formatting, and workflow checks.
@@ -190,3 +198,4 @@ remain deferred to debt 0002.
 [adr-0004]: ../../adr/0004-own-vendored-superpowers-skills.md
 [debt-0002]: ../../debt/0002-non-lifecycle-vendored-skills-retain-human-gates.md
 [superpowers-611]: https://github.com/obra/superpowers/tree/v6.1.1
+[issue-23]: https://github.com/randomparity/agent-config/issues/23
