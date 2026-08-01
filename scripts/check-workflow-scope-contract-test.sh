@@ -110,6 +110,9 @@ check_contract() {
 	assert_carrier "$design" design-to-brainstorming || return 1
 	assert_carrier "$design" design-to-writing-plans || return 1
 	assert_checkpoint_carrier "$brainstorm" brainstorming-checkpoint || return 1
+	assert_rule "$brainstorm" ambiguity-checkpoint \
+		"In dispatched mode, send design-changing ambiguity to SCOPE CHECKPOINT; never choose inline." ||
+		return 1
 	assert_ordered_clause "$work" work-checkpoint "### SCOPE CHECKPOINT" \
 		work-unattended "### Unattended parking" || return 1
 	assert_ordered_clause "$design" design-user-decision \
@@ -273,6 +276,14 @@ run_scope_fixtures() {
 		work-unattended "### Unattended parking"
 	assert_fixture_fails scope-05 \
 		"expected order marker work-checkpoint before work-unattended" "$fixture"
+
+	fixture=$(copy_fixture ambiguity-fallback)
+	file=$(skill_path "$fixture" brainstorming)
+	rewrite_block_line_once "$file" RULE ambiguity-checkpoint \
+		"In dispatched mode, send design-changing ambiguity to SCOPE CHECKPOINT; never choose inline." \
+		"Pick one interpretation, make it explicit, and continue."
+	assert_fixture_fails ambiguity-fallback \
+		"rule ambiguity-checkpoint missing instruction" "$fixture"
 }
 
 run_review_fixtures() {
@@ -370,7 +381,7 @@ check_contract "$canonical_root"
 run_scope_fixtures
 run_extractor_tests
 run_review_fixtures
-[[ "$fixture_count" -eq 7 ]] || fail "expected 7 SCOPE fixtures, got $fixture_count"
+[[ "$fixture_count" -eq 8 ]] || fail "expected 8 SCOPE fixtures, got $fixture_count"
 [[ "$extractor_count" -eq 3 ]] || fail "expected 3 extractor tests, got $extractor_count"
 printf 'workflow-scope-contract-test: ok (%d fixtures, %d extractor tests)\n' \
 	"$fixture_count" "$extractor_count"

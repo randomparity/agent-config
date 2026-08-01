@@ -41,6 +41,10 @@ Everything else in this skill still applies: exploring project context, the scop
 Carry all charter values unchanged. A missing, incomplete, or unresolvable field takes this
 same path and never derives authority from the proposed design:
 
+<!-- SCOPE-RULE:ambiguity-checkpoint -->
+In dispatched mode, send design-changing ambiguity to SCOPE CHECKPOINT; never choose inline.
+<!-- SCOPE-RULE:END:ambiguity-checkpoint -->
+
 <!-- SCOPE-CARRIER:brainstorming-checkpoint -->
 SCOPE CHECKPOINT
 interaction: <unchanged root value>
@@ -164,9 +168,13 @@ After writing the spec document, look at it with fresh eyes:
 1. **Placeholder scan:** Any "TBD", "TODO", incomplete sections, or vague requirements? Fix them.
 2. **Internal consistency:** Do any sections contradict each other? Does the architecture match the feature descriptions?
 3. **Scope check:** Is this focused enough for a single implementation plan, or does it need decomposition?
-4. **Ambiguity check:** Could any requirement be interpreted two different ways? If so, pick one and make it explicit.
+4. **Ambiguity check:** Could any requirement be interpreted two different ways? In
+   dispatched mode, return an interpretation that changes a charter field or normative
+   guarantee through `SCOPE CHECKPOINT`. Pick and document an interpretation inline only
+   when it is explicitly non-design-changing.
 
-Fix any issues inline. No need to re-review — just fix and move on.
+Fix non-design-changing issues inline. A `SCOPE CHECKPOINT` returns to the caller before
+the spec can continue. No additional self-review pass is required for inline fixes.
 
 **User Review Gate:**
 After the spec review loop passes, ask the user to review the written spec before proceeding:
