@@ -22,12 +22,19 @@ repository's multi-agent layout.
 
 The repository accepts maintenance responsibility for its Superpowers-derived files as
 maintained forks in the native agent projections under `agents/<agent>/shared/skills/`.
-Original upstream portions retain Jesse Vincent's copyright. The combined derived files,
-including local modifications by this repository's contributors, are distributed under
-the MIT terms retained at `docs/licenses/superpowers.LICENSE`. The authoritative
-attribution inventory is `docs/licenses/superpowers.md`; it covers every file beneath
-each listed root and records the canonical upstream repository plus the exact tag and
-commit used as the shared baseline.
+Original upstream portions retain Jesse Vincent's copyright. The repository owner
+confirms that every current local modification in the covered roots is also licensed
+under the MIT terms retained at `docs/licenses/superpowers.LICENSE`. A future contribution
+to a covered root must be offered under those terms; a change without that grant cannot
+be merged. The authoritative attribution inventory is `docs/licenses/superpowers.md`; it
+covers every file beneath each listed root and records the canonical upstream repository
+plus the exact tag and commit used as the shared baseline.
+
+Every repository checkout and installed agent projection containing a covered derived
+skill carries the upstream copyright and MIT permission notice. The repository keeps one
+canonical license source. `install.sh` deploys that source as
+`licenses/superpowers.LICENSE` into the Claude, Codex, and Bob configuration targets; it
+does not maintain separately editable projection copies.
 
 An upstream update is a deliberate re-vendor change. It updates the inventory's exact
 release and commit, reviews the upstream diff against local adaptations, updates every
@@ -59,6 +66,8 @@ that debt; only the adaptations and proof named by the record do.
   immutable source baseline and an explicit inventory of every covered projection root.
 - Contributors' local modifications in the covered roots use the same MIT terms, so a
   derived file does not have split or unstated distribution terms.
+- Installed projections carry a managed copy of the canonical license. A license update
+  flows through the existing installer manifest and drift-backup behavior.
 - Local maintenance responsibility permits agent-specific syntax and workflow fixes, but
   every upstream refresh is a reviewed merge rather than a blind copy or automatic
   upgrade.
@@ -79,8 +88,15 @@ that debt; only the adaptations and proof named by the record do.
   the omission.
 - **Copy the license into every skill directory.** This makes each subtree self-contained
   but creates many identical files whose drift obscures which terms are authoritative.
-  One license plus an explicit root inventory provides the required notice without that
-  duplication.
+  One canonical license copied into each installed agent target provides the required
+  notice without one independently maintained copy per skill.
+- **Keep the notice only in the repository checkout.** This leaves the normal installer
+  distributing derived skill copies without the notice they require. The installer must
+  carry the canonical license into each applicable target.
+- **Apply MIT only to upstream portions.** This avoids an inbound rule but leaves local
+  modifications in combined derived files under unstated terms. The repository owner
+  confirmed the existing modifications use MIT, and future covered contributions must
+  carry the same grant.
 - **Restore the predecessor ADRs verbatim.** They explain the first vendoring decision,
   but their plugin and Claude-only deployment assumptions are false for this repository.
   Linking them as provenance preserves history without importing obsolete policy.
@@ -90,6 +106,10 @@ that debt; only the adaptations and proof named by the record do.
 - **Create one canonical skill tree and generate all projections.** That could reduce
   repetition, but it changes ADR 0001's ownership and installation model. Attribution
   restoration does not justify a new renderer or generated-artifact contract.
+- **Split dispatched behavior into a separate ADR.** Licensing, updates, and local
+  adaptations are one maintained-fork policy required by issue #6. Debt 0002 already
+  gives the independently changing residual gates their own lifecycle without making the
+  governing re-vendor decision ambiguous.
 
 [predecessor-15]: https://github.com/randomparity/claude-config/commit/40570ea3
 [predecessor-18]: https://github.com/randomparity/claude-config/commit/4ab6fdd6
