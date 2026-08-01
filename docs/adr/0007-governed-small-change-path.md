@@ -28,6 +28,9 @@ not skip branch review, simplification, guardrails, PR creation, CI, or merge ha
 implementation discovers scope expansion or a new decision, work returns to the scope
 checkpoint and full design rather than inferring authority. Campaign triage may preserve
 the classification only with its governing-decision evidence and acceptance criteria.
+Eligibility is revalidated when the abbreviated path is consumed, including after campaign
+dispatch; missing, superseded, non-accepted, or no-longer-governing evidence returns to the
+scope checkpoint and full design.
 
 ## Consequences
 
