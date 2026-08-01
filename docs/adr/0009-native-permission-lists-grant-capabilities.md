@@ -55,7 +55,7 @@ different semantics.
 - **Add allow fields for symmetry.** Empty or speculative configuration adds surface
   without a current need and could change prompts or capability access.
 - **Record only the predecessor's Claude command field.** This repository intentionally
-  excludes that field from canonical skill frontmatter and also owns a Bob grant surface;
-  copying the old scope would be inaccurate.
+  excludes that field from canonical skill frontmatter and owns different native
+  permission surfaces; copying the old scope would be inaccurate.
 
 [predecessor]: https://github.com/randomparity/claude-config/blob/main/docs/adr/0017-allowed-tools-grants-it-never-restricts.md
