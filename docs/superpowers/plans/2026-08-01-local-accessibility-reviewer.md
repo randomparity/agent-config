@@ -209,13 +209,15 @@ Extend the existing example-content assertions to require these exact behavioral
 Any source finding takes precedence over outstanding manual checks: return `needs-attention`.
 Apply only accessibility requirements named by the project policy.
 Record the normalized inspected target in every verdict.
+Record the normalized inspected target in every target-resolution error.
 Use the same base branch or explicit file list as the preceding branch review.
+Keep outstanding manual checks in the report when source findings return `needs-attention`.
 ```
 
 Run: `bash scripts/check-skill-layout-test.sh`
 
 Expected: FAIL because the checker permits another `examples/` skill and the example lacks
-the four contract clauses.
+the six contract clauses.
 
 - [ ] **Step 2: Enforce ADR 0020's single example inventory**
 
