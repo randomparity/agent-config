@@ -24,11 +24,14 @@ The repository accepts maintenance responsibility for its Superpowers-derived fi
 maintained forks in the native agent projections under `agents/<agent>/shared/skills/`.
 Original upstream portions retain Jesse Vincent's copyright. The repository owner
 confirms that every current local modification in the covered roots is also licensed
-under the MIT terms retained at `docs/licenses/superpowers.LICENSE`. A future contribution
-to a covered root must be offered under those terms; a change without that grant cannot
-be merged. The authoritative attribution inventory is `docs/licenses/superpowers.md`; it
-covers every file beneath each listed root and records the canonical upstream repository
-plus the exact tag and commit used as the shared baseline.
+under the MIT terms retained at `docs/licenses/superpowers.LICENSE`. By submitting a
+future change to a covered root, its contributor offers that change under the canonical
+MIT terms and represents that they can grant those rights. The README and attribution
+notice publish this rule; the merged contribution retains its evidence. A change without
+that grant cannot merge. The authoritative attribution inventory is
+`docs/licenses/superpowers.md`; it covers every file beneath each listed root and records
+the canonical upstream repository plus the exact tag and commit used as the shared
+baseline.
 
 Every repository checkout and installed agent projection containing a covered derived
 skill carries the upstream copyright and MIT permission notice. The repository keeps one
@@ -37,18 +40,23 @@ canonical license source. `install.sh` deploys that source as
 does not maintain separately editable projection copies.
 
 An upstream update is a deliberate re-vendor change. It updates the inventory's exact
-release and commit, reviews the upstream diff against local adaptations, updates every
+release and commit; verifies the applicable upstream license and additional notices; and
+imports only material compatible with this MIT-only policy while capturing every required
+notice. It then reviews the upstream diff against local adaptations, updates every
 applicable agent projection, and changes the covered roots when skills are added or
-removed. The projections need not be byte-identical to upstream or to one another. They
-remain deployable source maintained by this repository under ADR 0001; this decision does
-not add a canonical skill tree or a generator.
+removed. An incompatible upstream license or notice requires a superseding decision
+before import. The projections need not be byte-identical to upstream or to one another.
+They remain deployable source maintained by this repository under ADR 0001; this decision
+does not add a canonical skill tree or a generator.
 
 Interactive behavior remains the default. A caller or orchestrator explicitly asserts
-dispatched mode, and that mode flows through downstream derived skills. A dispatched gate
-either resolves from the caller's written requirements and repository policy or returns a
-blocker to the caller; it never guesses permission from an unavailable human. The five
-Claude and Codex lifecycle skills carrying embedded lifecycle adaptations are `brainstorming`,
-`writing-plans`, `executing-plans`, `subagent-driven-development`, and
+dispatched mode, and that mode flows through downstream derived skills. The target and
+non-regression rule is that a dispatched gate either resolves from the caller's written
+requirements and repository policy or returns a blocker to the caller; it never guesses
+permission from an unavailable human. Debt 0002's enumerated gates are the only current
+exceptions, and no new exception may be added. The five Claude and Codex lifecycle skills
+carrying embedded lifecycle adaptations are `brainstorming`, `writing-plans`,
+`executing-plans`, `subagent-driven-development`, and
 `finishing-a-development-branch`. They return without merging, pushing, or discarding
 work. This does not restrict later, non-vendored integration owners such as `ship-pr` and
 `merge-cleanup`, whose own authorization governs pushing and merging.
