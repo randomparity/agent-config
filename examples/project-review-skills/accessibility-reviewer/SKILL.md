@@ -13,6 +13,7 @@ Resolve that input to the files, routes, or components under review.
 When target resolution fails, report the raw unresolved input.
 Also report the accepted base-branch or explicit-file-list forms.
 Create the normalized inspected target only after resolution succeeds.
+Stop an empty or unresolved target before any review work or verdict.
 
 ## Required project policy
 

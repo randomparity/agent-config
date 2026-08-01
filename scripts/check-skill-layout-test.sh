@@ -109,6 +109,9 @@ assert_contains 'Also report the accepted base-branch or explicit-file-list form
 	"$example_skill"
 assert_contains 'Create the normalized inspected target only after resolution succeeds.' \
 	"$example_skill"
+assert_contains \
+	'Stop an empty or unresolved target before any review work or verdict.' \
+	"$example_skill"
 assert_contains 'Use the same base branch or explicit file list as the preceding branch review.' \
 	"$example_skill"
 assert_contains \
