@@ -21,9 +21,10 @@ moves a security boundary. That model inventories boundaries and actors, names c
 and states excluded threats; its controls become build criteria.
 
 After adversarial review, the issue workflow applies the same trigger to the actual diff
-and conditionally runs the repository's `threat-scan` skill. Findings are fixed or assigned
-to the repository's verified durable owner on the same terms as other review findings: a
-deferral record where supported, otherwise a tracker issue.
+and conditionally runs the repository's `threat-scan` skill. Findings are fixed, assigned
+to the repository's verified durable owner, or—only at the bounded round-trip exit below—
+reported unresolved at hand-off. A durable owner is a deferral record where supported,
+otherwise a tracker issue.
 
 The scan is an inline workflow stage, not a human approval gate. Its attention verdict is
 work to disposition, not a reason by itself to park. Any human-only client command remains
