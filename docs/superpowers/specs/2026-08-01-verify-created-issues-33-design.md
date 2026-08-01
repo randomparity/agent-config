@@ -61,8 +61,9 @@ created.
 
 ## Error handling and safety
 
-Malformed or incomplete GitHub JSON is a verification failure. A missing URL falls back to
-the supplied issue reference in the diagnostic, while a returned URL is always preferred.
+Malformed or incomplete GitHub JSON is a verification failure. If the create call returns
+no resolvable URL, the helper reports that the durable artifact could not be identified and
+stops without retrying; it cannot invent the issue reference required for read-back.
 The script treats all external strings as data, uses arrays for `gh` arguments, and never
 evaluates generated shell. GitHub read failure propagates as failure with an actionable
 message. These guarantees trace to issue #33's requirement that malformed creations never
