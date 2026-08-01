@@ -134,10 +134,13 @@ assert_contains "$plan_output" "ShellCheck"
 
 fake_bin="$tmpdir/bin"
 mkdir -p "$fake_bin"
+for utility in bash awk tr; do
+	ln -s "$(command -v "$utility")" "$fake_bin/$utility"
+done
 printf '#!/usr/bin/env bash\nexit 0\n' >"$fake_bin/dnf"
 chmod +x "$fake_bin/dnf"
 captured="$(
-	PATH="$fake_bin:$PATH" run_plan Linux "$rhel_release"
+	PATH="$fake_bin" run_plan Linux "$rhel_release"
 )"
 status="$(capture_status "$captured")"
 plan_output="$(capture_output "$captured")"
@@ -148,7 +151,7 @@ mv "$fake_bin/dnf" "$fake_bin/dnf.disabled"
 printf '#!/usr/bin/env bash\nexit 0\n' >"$fake_bin/yum"
 chmod +x "$fake_bin/yum"
 captured="$(
-	PATH="$fake_bin:$PATH" run_plan Linux "$rhel_release"
+	PATH="$fake_bin" run_plan Linux "$rhel_release"
 )"
 status="$(capture_status "$captured")"
 plan_output="$(capture_output "$captured")"

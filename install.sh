@@ -158,20 +158,46 @@ remove_dest() {
 payload_differs() {
 	local src="$1"
 	local dest="$2"
+	local diff_status
+	local source_executables
+	local destination_executables
 
-	if [[ -d "$src" ]]; then
-		[[ -d "$dest" ]] || return 0
+	if [[ -d "$src" && ! -L "$src" ]]; then
+		[[ -d "$dest" && ! -L "$dest" ]] || return 0
 		if diff -rq "$src" "$dest" >/dev/null 2>&1; then
-			return 1
+			diff_status=0
+		else
+			diff_status="$?"
 		fi
-		return 0
+		case "$diff_status" in
+		0) ;;
+		1) return 0 ;;
+		*)
+			printf 'install: could not compare payload: %s\n' "$dest" >&2
+			exit 1
+			;;
+		esac
+		source_executables="$(
+			cd "$src"
+			find . -type f \( -perm -100 -o -perm -010 -o -perm -001 \) -print |
+				LC_ALL=C sort
+		)"
+		destination_executables="$(
+			cd "$dest"
+			find . -type f \( -perm -100 -o -perm -010 -o -perm -001 \) -print |
+				LC_ALL=C sort
+		)"
+		[[ "$source_executables" != "$destination_executables" ]]
+		return
 	fi
 
-	[[ -f "$dest" ]] || return 0
-	if cmp -s "$src" "$dest"; then
-		return 1
+	[[ -f "$dest" && ! -L "$dest" ]] || return 0
+	cmp -s "$src" "$dest" || return 0
+	if [[ -x "$src" ]]; then
+		[[ ! -x "$dest" ]]
+	else
+		[[ -x "$dest" ]]
 	fi
-	return 0
 }
 
 backup_path() {
@@ -421,8 +447,7 @@ install_claude() {
 	install_managed_path "$dest_dir" "$settings_tmp" "settings.json"
 	install_managed_path "$dest_dir" "$REPO/agents/claude/shared/CLAUDE.md" "CLAUDE.md"
 	install_managed_path "$dest_dir" "$REPO/agents/claude/shared/statusline.sh" "statusline.sh"
-	install_managed_path "$dest_dir" "$REPO/agents/claude/shared/commands" "commands"
-	install_managed_path "$dest_dir" "$REPO/agents/claude/shared/skills" "skills"
+	install_managed_path "$dest_dir" "$REPO/content/skills" "skills"
 	install_common_content "$dest_dir"
 	maybe_configure_claude_mcp
 	finish_agent claude "$dest_dir"
@@ -446,7 +471,7 @@ install_codex() {
 
 	install_managed_path "$dest_dir" "$config_tmp" "config.toml"
 	install_managed_path "$dest_dir" "$REPO/agents/codex/shared/AGENTS.md" "AGENTS.md"
-	install_managed_path "$dest_dir" "$REPO/agents/codex/shared/skills" "skills"
+	install_managed_path "$dest_dir" "$REPO/content/skills" "skills"
 	install_common_content "$dest_dir"
 	finish_agent codex "$dest_dir"
 }
@@ -483,7 +508,7 @@ install_bob() {
 	install_managed_path "$dest_dir" "$bob_modes" "settings/custom_modes.yaml"
 	install_managed_path "$dest_dir" "$bob_modes" "custom_modes.yaml"
 	install_managed_path "$dest_dir" "$REPO/agents/bob/shared/rules" "rules"
-	install_managed_path "$dest_dir" "$REPO/agents/bob/shared/skills" "skills"
+	install_managed_path "$dest_dir" "$REPO/content/skills" "skills"
 	install_common_content "$dest_dir"
 	finish_agent bob "$dest_dir"
 }

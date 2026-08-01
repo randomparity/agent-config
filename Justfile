@@ -19,15 +19,13 @@ records:
   RECORD_PROFILES="adr debt" ./.github/scripts/check-records.sh
   shared_assets="check-records.sh check-records-test.sh migrate-records.sh"
   shared_assets="$shared_assets profiles/adr.sh profiles/debt.sh"
-  for agent in claude codex; do
-    for asset in $shared_assets; do
-      root_asset=".github/scripts/$asset"
-      deployed_asset="agents/$agent/shared/skills/decision-records/assets/$asset"
-      if ! cmp -s "$root_asset" "$deployed_asset"; then
-        echo "record gate mismatch: $deployed_asset differs from $root_asset" >&2
-        exit 1
-      fi
-    done
+  for asset in $shared_assets; do
+    root_asset=".github/scripts/$asset"
+    skill_asset="content/skills/decision-records/assets/$asset"
+    if ! cmp -s "$root_asset" "$skill_asset"; then
+      echo "record gate mismatch: $skill_asset differs from $root_asset" >&2
+      exit 1
+    fi
   done
 
 lint:
@@ -47,6 +45,9 @@ test:
   ./install-tools-test.sh
   ./scripts/check-public-safety-test.sh
 
+skills-check:
+  ./scripts/check-skill-layout.sh
+
 public-safety:
   ./scripts/check-public-safety.sh
 
@@ -54,7 +55,7 @@ actions-check:
   actionlint
   zizmor --offline .github/workflows/
 
-verify: tools-check records lint format-check test public-safety actions-check
+verify: tools-check records lint format-check skills-check test public-safety actions-check
 
 ci: verify
   prek run --all-files

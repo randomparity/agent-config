@@ -39,6 +39,34 @@ assert_executable() {
 	[[ -x "$1" ]] || fail "expected executable: $1"
 }
 
+assert_canonical_skills() {
+	local destination="$1"
+	local expected_executables
+	local actual_executables
+	local count
+
+	diff -rq "$REPO/content/skills" "$destination/skills" >/dev/null ||
+		fail "installed skills differ from canonical tree: $destination/skills"
+	expected_executables="$(
+		cd "$REPO/content/skills"
+		find . -type f \( -perm -100 -o -perm -010 -o -perm -001 \) -print |
+			LC_ALL=C sort
+	)"
+	actual_executables="$(
+		cd "$destination/skills"
+		find . -type f \( -perm -100 -o -perm -010 -o -perm -001 \) -print |
+			LC_ALL=C sort
+	)"
+	[[ "$actual_executables" == "$expected_executables" ]] ||
+		fail "installed skill modes differ from canonical tree: $destination/skills"
+	count="$(find "$destination/skills" ! -path "$destination/skills" \
+		-prune -type d -print | wc -l)"
+	[[ "$count" -eq 35 ]] ||
+		fail "expected 35 canonical skills in $destination/skills, got $count"
+	assert_file "$destination/skills/simplify-changes/SKILL.md"
+	assert_not_file "$destination/skills/simplify/SKILL.md"
+}
+
 assert_tree_contains() {
 	local dir="$1"
 	local expected="$2"
@@ -72,6 +100,7 @@ seed_stale_manifest() {
 	write_text "$dest/.agent-config-manifest" "stale-managed.txt"
 }
 
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 tmpdir="$(mktemp -d "${TMPDIR:-/tmp}/agent-config-test.XXXXXX")"
 trap 'rm -R "$tmpdir"' EXIT
 
@@ -111,14 +140,14 @@ AGENT_CONFIG_HOST=test-host ./install.sh --agent all
 
 assert_file "$CLAUDE_CONFIG_DIR/CLAUDE.md"
 assert_file "$CLAUDE_CONFIG_DIR/settings.json"
-assert_file "$CLAUDE_CONFIG_DIR/skills/test-driven-development/SKILL.md"
+assert_canonical_skills "$CLAUDE_CONFIG_DIR"
 assert_file "$CLAUDE_CONFIG_DIR/languages/bash.md"
 assert_executable "$CLAUDE_CONFIG_DIR/statusline.sh"
 assert_json_value "$CLAUDE_CONFIG_DIR/settings.json" ".env.AGENT_CONFIG_TEST" "claude"
 
 assert_file "$CODEX_CONFIG_DIR/AGENTS.md"
 assert_file "$CODEX_CONFIG_DIR/config.toml"
-assert_file "$CODEX_CONFIG_DIR/skills/work-issue/SKILL.md"
+assert_canonical_skills "$CODEX_CONFIG_DIR"
 assert_file "$CODEX_CONFIG_DIR/references/orchestration.md"
 assert_toml_contains "$CODEX_CONFIG_DIR/config.toml" 'agent_config_test = "codex"'
 
@@ -128,7 +157,7 @@ assert_file "$BOB_CONFIG_DIR/custom_modes.yaml"
 assert_file "$BOB_CONFIG_DIR/mcp.json"
 assert_file "$BOB_CONFIG_DIR/mcp_settings.json"
 assert_file "$BOB_CONFIG_DIR/rules/global-development-standards.md"
-assert_file "$BOB_CONFIG_DIR/skills/test-driven-development/SKILL.md"
+assert_canonical_skills "$BOB_CONFIG_DIR"
 assert_json_value "$BOB_CONFIG_DIR/settings.json" ".agentConfigTest.bob" "true"
 assert_json_value "$BOB_CONFIG_DIR/mcp.json" '.mcpServers["example-docs"].command' "npx"
 assert_json_value "$BOB_CONFIG_DIR/mcp_settings.json" '.mcpServers["example-docs"].command' "npx"
@@ -139,6 +168,13 @@ assert_not_file "$BOB_CONFIG_DIR/stale-managed.txt"
 assert_file "$CLAUDE_CONFIG_DIR/runtime-state.txt"
 assert_file "$CODEX_CONFIG_DIR/runtime-state.txt"
 assert_file "$BOB_CONFIG_DIR/runtime-state.txt"
+
+mode_drift="$CODEX_CONFIG_DIR/skills/brainstorming/scripts/start-server.sh"
+chmod 644 "$mode_drift"
+[[ ! -x "$mode_drift" ]] || fail "expected executable drift fixture: $mode_drift"
+AGENT_CONFIG_HOST=test-host ./install.sh --agent codex
+assert_executable "$mode_drift"
+assert_canonical_skills "$CODEX_CONFIG_DIR"
 
 write_text "$CLAUDE_CONFIG_DIR/CLAUDE.md" "local drift before reinstall"
 AGENT_CONFIG_HOST=test-host ./install.sh --agent claude

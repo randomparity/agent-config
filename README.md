@@ -3,18 +3,19 @@
 Public shared configuration for Claude Code, Codex, and IBM Bob.
 
 This repository combines common development standards, language references,
-workflow skills, Claude commands, Codex skills, and Bob rules/modes without
+one shared workflow-skill inventory, and agent-native settings without
 committing host-specific configuration.
 
 ## Layout
 
-- `content/` holds agent-neutral instructions, language references, and
-  orchestration references.
-- `agents/claude/shared/` holds Claude-native `CLAUDE.md`, settings, commands,
-  status line, and skills.
-- `agents/codex/shared/` holds Codex-native `AGENTS.md`, config, and skills.
+- `content/` holds agent-neutral instructions, language references,
+  orchestration references, and the canonical `skills/` tree installed for all
+  supported agents.
+- `agents/claude/shared/` holds Claude-native `CLAUDE.md`, settings, and status
+  line configuration.
+- `agents/codex/shared/` holds Codex-native `AGENTS.md` and config.
 - `agents/bob/shared/` holds Bob-native `AGENTS.md`, settings, MCP config,
-  custom modes, rules, and skills.
+  custom modes, and rules.
 - `examples/hosts/` shows private overlay shapes with placeholder values only.
 - `examples/bob-project/` shows Bob project-local `.bob/` conventions.
 
@@ -135,8 +136,12 @@ Run `just format` to apply shell formatting. CI runs `just ci`, which runs
 `just verify` and then `prek run --all-files` to prove the hook configuration.
 
 `./install-test.sh` installs every agent into temporary directories, applies
-private overlay fixtures, checks generated files, verifies manifest pruning, and
-verifies managed-file drift backup.
+private overlay fixtures, verifies every installed skill tree against
+`content/skills/` including executable modes, checks generated files, verifies
+manifest pruning, and verifies managed-file drift backup.
+
+`./scripts/check-skill-layout.sh` rejects agent-native workflow copies and
+validates the portable structure of the canonical skill packages.
 
 `./scripts/check-public-safety.sh` scans for denied host-specific paths, local
 network addresses, auth headers, and common secret token shapes.

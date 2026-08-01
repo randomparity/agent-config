@@ -4,6 +4,7 @@ Global instructions for all projects. Project-specific AGENTS.md files override 
 
 - Prefer Exa AI (`mcp__exa__web_search_exa`) over `WebSearch` for all web searches
 - **Process skills come first.** Use installed skills proactively when they match the task: before designing, use `$brainstorming`; before a bug fix, `$systematic-debugging`; before multi-task implementation, `$writing-plans` then `$subagent-driven-development` (or `$executing-plans` without subagents); before claiming done, `$verification-before-completion`. If a skill is unavailable in the current session, do the work directly and say so briefly.
+- In this repository, reusable workflow sources live only under `content/skills/`; agent-native trees must not define skills or commands.
 
 ## Philosophy
 
