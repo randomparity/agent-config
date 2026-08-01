@@ -2,8 +2,7 @@
 
 ## Status
 
-Open
-review-by: 2026-08-31
+> **Resolved by issue #16 enforcement proof** (2026-07-31)
 
 ## Concern
 

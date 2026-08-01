@@ -141,6 +141,55 @@ verifies managed-file drift backup.
 `./scripts/check-public-safety.sh` scans for denied host-specific paths, local
 network addresses, auth headers, and common secret token shapes.
 
+### Required `verify` branch check
+
+GitHub protects `main` with the lowercase check context `verify`, bound to the
+GitHub Actions app (ID `15368`). The workflow display name is `Verify`; branch
+protection uses the job/check name, including its case, rather than that display
+name. Administrators are subject to the same required check.
+
+If a workflow edit renames the job or a stale required context leaves a pull
+request waiting indefinitely, first run the replacement check on a real pull
+request. It does not need to merge. Copy the emitted name and producer only after
+the replacement succeeds:
+
+```sh
+repo_name=$(gh repo view --json nameWithOwner --jq .nameWithOwner)
+pr_number=19 # replace with the real pull request that emitted the replacement
+gh pr checks "$pr_number" --json name,state,link,workflow
+head_sha=$(gh pr view "$pr_number" --json headRefOid --jq .headRefOid)
+gh api "repos/$repo_name/commits/$head_sha/check-runs" \
+  --jq '.check_runs[] | {name, app_id: .app.id, app_slug: .app.slug, conclusion}'
+```
+
+Inspect the current requirement before changing it:
+
+```sh
+gh api "repos/$repo_name/branches/main/protection/required_status_checks" \
+  --jq '{strict, contexts, checks}'
+```
+
+Then patch only the required-status-check portion of branch protection. Replace
+both literals below with the successful replacement run's exact values; preserve
+`strict: false` unless the repository separately decides to require branches to be
+up to date:
+
+```sh
+gh api --method PATCH \
+  "repos/$repo_name/branches/main/protection/required_status_checks" \
+  --input - <<'JSON'
+{
+  "strict": false,
+  "checks": [{"context": "verify", "app_id": 15368}]
+}
+JSON
+```
+
+Read the setting back and confirm the replacement PR becomes unblocked. Do not
+clear all required checks as a workaround: that recreates the unprotected merge
+path. Patching this endpoint preserves administrator enforcement and unrelated
+branch-protection settings.
+
 ## Decision Records
 
 Architecture decisions live in `docs/adr/`; explicitly deferred work lives in
