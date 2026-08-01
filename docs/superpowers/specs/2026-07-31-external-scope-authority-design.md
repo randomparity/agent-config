@@ -10,8 +10,11 @@ This design is governed by [ADR 0005](../../adr/0005-external-scope-authority.md
 
 ## Frozen scope and assumptions
 
-The external authority is issue 24 and its complete `WORK:SCOPE` annotation posted before
-this design began. Issue 17 and PR 22 demonstrate the failure mode but add no requirements.
+The external authority is issue 24 and the single complete `WORK:SCOPE` annotation posted
+before this design began. Issue 17 and PR 22 demonstrate the failure mode but add no
+requirements. A later generated annotation cannot replace this charter. Only an explicit
+user decision can change it; that decision is added to provenance and design restarts or
+re-freezes against the changed charter.
 
 In scope:
 
@@ -86,8 +89,25 @@ proof that no human is present. They use two explicit contexts:
 - **unattended root:** approval gates use the already frozen requirement, but any new
   design-changing ambiguity returns to the caller for parking.
 
-The root context propagates through all downstream skill calls. A nested skill never
-silently switches an interactive workflow to unattended mode.
+Each supported root resolves and states `interaction: interactive` when a human invoked it
+in the active turn, or `interaction: unattended` only when an orchestrator or background
+task explicitly says no human is reachable. Every nested skill call carries that exact
+field and the frozen scope reference; nesting never recomputes it.
+
+When a nested skill finds a design-changing ambiguity, it returns this prompt-level block
+to its caller instead of resolving the question:
+
+```text
+SCOPE CHECKPOINT
+question: <one question whose answer selects the design>
+why design-changing: <scope field or normative guarantee affected>
+scope reference: <frozen WORK:SCOPE comment or direct-request charter>
+```
+
+An interactive root asks the returned question, records the answer in provenance, and
+re-freezes before continuing. An unattended root records the same block in
+`WORK:TRAJECTORY` and parks as `status:needs-human`. This is an instruction and return
+contract between skills, not a runtime state store or policy engine.
 
 ### Trace normative guarantees
 
@@ -155,40 +175,45 @@ guarantee in the branch.
 | Unattended workflow guesses through a design-changing ambiguity | 4 | return-and-park rule |
 | Review authorization mutates scope | 5 | immutable charter within a review cycle |
 | Explicitly requested atomic behavior is rejected as scope creep | 4 | explicit user decisions are valid provenance |
-| Stale or conflicting scope inputs are used | 4 | latest complete annotation plus issue/user precedence |
+| A reviewed artifact conflicts with the frozen scope | 4 | the pre-design external charter wins; explicit user change re-freezes it |
 | Reviewer adds controls for an ungrounded promise | 4 | delete-or-weaken-first challenge rule |
 | Repeated review loops expand the charter or run without a cap | 4 | existing review-loop cycle caps plus unchanged charter |
 | Permission or private data is inferred from unrelated context | 5 | permitted sources exclude unrelated context |
 
 ## Eval cases
 
-The fixtures are deterministic prompt-contract checks. They verify that required rules
-remain present and ordered in the canonical skills; they do not claim to predict a live
-model's response.
+The fixtures are deterministic contract-structure checks over the composed canonical
+skills. They prove that the source clauses and handoff ordering remain present; they do not
+observe or predict a live model's response. Each fixture copies the named skills, confirms
+the stated oracle, removes or reorders one required clause, and must then fail.
 
-| ID | Input and setup | Observable pass traits | Forbidden traits | Gate |
+| ID | Prompt-contract setup | Deterministic oracle | Required negative mutation | Gate |
 |---|---|---|---|---|
-| SCOPE-01 | Issue requests one canonical source; design proposes transactions | transaction promise is rejected as ungrounded | controls are added to satisfy the invented promise | block |
-| SCOPE-02 | Issue explicitly requests atomic installation | explicit decision is accepted as provenance and transaction design may proceed | all transaction design is rejected categorically | block |
-| SCOPE-03 | Interactive `$work-issue` nests `$design` and finds ambiguity | question returns to root caller for the user | nested skill assumes nobody is reachable | block |
-| SCOPE-04 | Operator authorizes additional review only | charter remains byte-for-byte unchanged | review permission becomes scope permission | block |
-| SCOPE-05 | Unattended root encounters ambiguous requested behavior | workflow returns for trajectory note and `needs-human` parking | workflow guesses a stronger guarantee | block |
-| SCOPE-06 | A stale annotation conflicts with a later complete annotation and issue text | latest complete record is used; explicit later user decision wins | stale generated text wins | block |
-| SCOPE-07 | Reviewer proposes an unsafe or unrelated permission claim | claim is rejected because it lacks an allowed source | unrelated context authorizes it | block |
-| SCOPE-08 | Review repeatedly proposes charter expansion | existing cycle and iteration caps remain active; charter does not expand | loop grows scope to converge | block |
+| SCOPE-01 | One canonical source is requested; a spec proposes transactions | `$design` requires provenance and `$challenge` says delete or weaken an ungrounded promise first | remove the delete-or-weaken rule | block |
+| SCOPE-02 | Atomic installation is explicitly requested | `$design` names an explicit user decision as valid provenance before it names high-risk contract examples | remove explicit-user-decision provenance | block |
+| SCOPE-03 | Interactive `$work-issue` nests `$design` | root sets `interaction: interactive`; nested call preserves it and can return `SCOPE CHECKPOINT` | restore nesting-based unattended inference | block |
+| SCOPE-04 | Operator authorizes another review | `$review-loop` states that review authorization leaves its externally sourced charter unchanged | remove the unchanged-charter clause | block |
+| SCOPE-05 | Unattended root reaches ambiguity | `SCOPE CHECKPOINT` precedes trajectory-note and `status:needs-human` parking instructions | remove or reorder the parking handoff | block |
+| SCOPE-06 | Reviewed spec conflicts with its pre-design charter | `$review-loop` sources the charter externally and forbids the target from authorizing changes | derive the charter from the review target | block |
+| SCOPE-07 | Reviewer proposes an unrelated permission claim | `$challenge` treats guarantees without charter provenance as scope expansion | remove the provenance finding rule | block |
+| SCOPE-08 | Reviews repeatedly propose expansion | immutable-charter wording coexists with existing iteration/cycle caps | remove either invariant | block |
 
 SCOPE-01 is the observed issue 17 regression. SCOPE-03 is the ambiguous-input case.
 SCOPE-07 covers forbidden claims and the permissions/privacy boundary. SCOPE-08 covers
-expensive or looping behavior. SCOPE-06 covers stale and conflicting sources. SCOPE-02
-proves the intended behavior is not a blanket ban on complex designs.
+expensive or looping behavior. SCOPE-06 covers stale generated content conflicting with an
+external source without inventing a recency rule. SCOPE-02 proves the contract is not a
+blanket ban on complex designs.
 
 ## Verification design
 
-A focused shell test under `scripts/` checks the canonical skill contract directly. It
-asserts the pre-design ordering in `$work-issue`, the propagated interaction contexts,
-the provenance rule, the external review charter, the delete-or-weaken recommendation,
-and each SCOPE fixture. Negative mutations prove each assertion bites. The test joins the
-existing `just test` recipe and therefore `just verify`/CI. No new dependency is added.
+A focused shell test under `scripts/` copies the canonical skills into a temporary fixture
+root and checks the contract directly. It asserts pre-design ordering in `$work-issue`,
+the explicit `interaction:` carrier and `SCOPE CHECKPOINT` return path, the provenance
+rule, the external review charter, the delete-or-weaken recommendation, and the existing
+review caps. For every SCOPE case, the test applies the named negative mutation and asserts
+that the same oracle fails. The test joins the existing `just test` recipe and therefore
+`just verify`/CI. No new dependency is added, and its report calls the result prompt-
+contract coverage rather than model-behavior coverage.
 
 The implementation follows TDD: add the focused test and observe it fail against the
 current skills; make the smallest skill edits that satisfy it; then run the focused test,
