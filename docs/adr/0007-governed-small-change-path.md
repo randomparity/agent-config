@@ -18,10 +18,10 @@ use a label alone to bypass design when implementation would make a new decision
 ## Decision
 
 Add `governed-small-change` as a third `$work-issue` classification. It is eligible only
-when a linked accepted ADR or equivalent settled decision governs the behavior, acceptance
-criteria are explicit and testable, no design-changing ambiguity remains, and the work
-introduces no new architecture, schema, dependency, persistence, concurrency,
-authentication, migration, or external-service decision.
+when a linked accepted decision governs the behavior, acceptance criteria are explicit and
+testable, no design-changing ambiguity remains, and the work introduces no architecture,
+schema, dependency, persistence, concurrency, authentication, migration, or external-service
+behavior.
 
 The classification skips `$design` and proceeds from verified `WORK:SCOPE` to TDD. It does
 not skip branch review, simplification, guardrails, PR creation, CI, or merge handoff. If
