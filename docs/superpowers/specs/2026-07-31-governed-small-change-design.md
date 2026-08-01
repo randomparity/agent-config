@@ -39,7 +39,8 @@ evidence falls back to `non-trivial`.
 
 The evidence carrier records the stable decision reference, its decision kind, its
 authoritative accepted status, and the behavior or contract it governs. An ADR is checked
-against the repository's decision-record index and record status, including supersession.
+against its `Status` section and any supersession banner under the repository's
+decision-record convention.
 An equivalent decision is eligible only when the repository already defines an equally
 durable, independently checkable acceptance and supersession convention; this change does
 not create one. Campaign carries those evidence fields verbatim. `$work-issue` resolves the
