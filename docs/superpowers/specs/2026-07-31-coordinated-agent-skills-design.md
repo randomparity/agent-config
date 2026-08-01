@@ -147,10 +147,22 @@ Root instructions remain agent-native. Per-agent installers no longer install
 any `agents/*/shared/skills` path, and Claude no longer installs
 `agents/claude/shared/commands`.
 
-The manifest records one `skills/<name>` entry per canonical skill. The
+Private overlays are inputs to specific native settings merges, not payload
+roots. The installer reads only the documented settings/MCP overlay filenames.
+Before snapshotting them, it recursively rejects any `SKILL.md`, `skills/`
+entry, or client command-directory entry or symlink anywhere under a selected
+host/agent overlay, naming the private path and `content/skills/` as the only
+repository-managed workflow source. Native non-workflow overlay files remain
+governed by ADR 0001.
+
+The version-2 JSON manifest records every managed path, one
+`skills/<name>` entry per canonical skill, the identity algorithm, and the
+single canonical source-snapshot identity used by the transaction. The
 installer iterates canonical skill directories in sorted order and preserves
 non-canonical user skill directories. Later removals are pruned per managed
-skill name. Unmanaged files outside managed names are unchanged.
+skill name. Unmanaged files outside managed names are unchanged. A legacy
+newline manifest is recognized only as the version-1 migration input described
+below; new writes are version 2.
 
 The legacy manifest contains only whole-tree `skills` and, for Claude,
 `commands` entries; it does not identify children. This change therefore checks
@@ -232,10 +244,28 @@ resolve to the pending device, inode, and digest, unlink the sibling name, and
 record `held`. Pending recovery checks both names against that recorded identity
 and removes only matching links; cleanup leaves neither sibling nor lock name.
 
-After all locks are held and before any live promotion, publish an immutable
-mode-`0600` transaction header inside each destination's contained transaction
-directory. Each header repeats the transaction id, full destination list/scope
-digest, identity algorithm, and journal generation digest. Validate a matching
+After all locks are held, create one owner-only immutable transaction source
+snapshot before any per-destination stage. Compute source identity A over
+`content/skills`, `content/languages`, and `content/references`, copy them once
+into the snapshot, compute snapshot identity B, then recompute live source
+identity C; continue only when A, B, and C match. Snapshot the validated
+per-agent native sources and allowlisted private-overlay inputs in the same
+transaction directory. Later repository or overlay changes do not affect the
+transaction.
+Every client stage copies canonical common content and skills from that one
+snapshot, never from the live worktree, and final validation requires all
+selected clients' canonical paths to match B.
+
+The source-snapshot directory and private inputs use mode `0700`/`0600`, remain
+under the private transaction root, and are deleted after committed or
+rolled-back cleanup. Raw overlays are never moved into timestamped destination
+backups; only their merged installed outputs follow normal managed-path backup
+rules.
+
+Before any live promotion, publish an immutable mode-`0600` transaction header
+inside each destination's contained transaction directory. Each header repeats
+the transaction id, full destination list/scope digest, identity algorithm,
+canonical source identity B, and journal generation digest. Validate a matching
 header in every selected destination before entering `open`. Reconstruction
 requires the complete list from at least one valid lock/header and a matching
 header or lock from every destination on that list. Missing or conflicting
@@ -265,10 +295,11 @@ is gone. A different execution identity, malformed metadata, or unsupported
 storage topology requires the repair path and is never inferred dead from a
 hostname/PID collision.
 
-After locks are held, resolve overlays and stage every filesystem-managed source
-for every selected client: agent-native files, `languages/`, `references/`,
-each canonical skill name, managed legacy-command removals, and the complete
-ownership manifest. Validate every stage before changing a live path. The
+After the source snapshot and headers validate, stage every filesystem-managed
+source for every selected client: agent-native files, `languages/`,
+`references/`, each canonical skill name, managed legacy-command removals, and
+the complete version-2 ownership manifest. Validate every stage before changing
+a live path. The
 transaction promotes and rolls back all of those entries together, so a
 manifest always describes the same committed filesystem generation. An error
 after staging cannot produce an ordinary success or generic install summary:
@@ -278,14 +309,17 @@ registration run only after filesystem commit and are reported separately;
 they are not represented as part of the atomic filesystem transaction.
 
 Under each destination, create a temporary stage on the same filesystem, copy
-every managed payload into it, and compare the stage to the source. Record the
-pre-install identity of every managed path and canonical skill name.
+every managed payload into it from the immutable transaction snapshot, and
+compare the stage to its recorded source identity. Record the pre-install
+identity of every managed path and canonical skill name.
 
 Promotion renames each old managed path to a transaction backup and each staged
 path into place. Same-filesystem rename makes each individual path atomic.
 After promotion, compare every selected client's managed filesystem generation
-and manifest with the staged source. Only then mark the transaction committed
-and let normal timestamped drift backups retain replaced content.
+and manifest with the staged source, and compare every canonical common/skill
+identity across clients with canonical snapshot identity B. Only then mark the
+transaction committed and let normal timestamped drift backups retain replaced
+content.
 
 Reconcile removals from the old per-skill manifest before promotion. A managed
 name absent from the new canonical inventory is moved to a transaction backup
@@ -575,6 +609,9 @@ is reported separately as sampled evidence, never as a deterministic guarantee.
 | SKILL-28 | Preserve an unrelated legacy skill containing an unreadable file, symlink, large asset, and sentinel secret while replacing one proven-managed sibling | Install succeeds without the unrelated sentinel appearing under transaction or timestamped backups; managed symlinks are copied no-follow; special files stop before mutation | Reading/copying unrelated content or following a symlink | block |
 | SKILL-29 | Compute fixed absent, empty-directory, executable, Unicode-path, and symlink identity fixtures under every supported host | Every host matches checked-in `tree-v1-git-blob` goldens and rejects unknown identity/object formats | Platform-dependent or delimiter-ambiguous identity | block |
 | SKILL-30 | Present identical hostnames/PIDs with different boot or PID-namespace identities and target known network/unknown filesystem types | No automatic takeover occurs; unsupported destinations stop before journal/lock creation; matching local execution/start identity still recovers | Hostname-only takeover or mutation on unsupported shared storage | block |
+| SKILL-31 | Mutate canonical source during snapshot and again between each client staging hook | A/B/C mismatch aborts before promotion; post-snapshot mutation cannot change stages; all committed manifests and canonical paths carry one B identity | Per-client source reads or mixed canonical revisions | block |
+| SKILL-32 | Seed canonical-name and non-canonical skills, `SKILL.md`, command files, and symlink variants under every selected private overlay | Install stops before source snapshot and names each forbidden private artifact plus canonical alternative | Agent-specific managed workflow from an overlay | block |
+| SKILL-33 | Interrupt in `locking`, `open`, and `needs-repair`, then attempt the documented source rollback | Revert is refused until current recovery/repair clears every journal, lock, and contained recovery directory and validates prior manifests | Removing recovery code while its transaction evidence is live | block |
 
 Static shell checks decide filesystem, metadata, and safety boundaries in CI.
 `scripts/skill-smoke-eval.sh` provides sampled behavioral evidence. It creates
@@ -631,6 +668,10 @@ client compatibility gap rather than hidden behind a warning.
   prunes managed paths absent from the new manifest.
 - New recovery-record boundary: transaction metadata stores local config paths
   under the private agent-config root.
+- New transaction-source boundary: one owner-only snapshot freezes repository
+  common content, agent-native sources, and selected private-overlay inputs.
+- Existing private-overlay boundary: host-specific settings may alter native
+  configuration but cannot contribute invocable workflow artifacts.
 - New concurrency boundary: multiple local installer processes can target the
   same user-level client directories.
 - Existing external-action boundary: some workflows use `gh`, git, package
@@ -648,10 +689,13 @@ client compatibility gap rather than hidden behind a warning.
 ### Controls
 
 - Shared distribution: committed canonical content remains reviewable and is
-  covered by public-safety and layout checks; the installer performs no remote
-  download.
+  covered by public-safety and layout checks; A/B/C identity validation freezes
+  one canonical snapshot for every client stage and manifest, and the installer
+  performs no remote download.
 - Invocation: mutating workflows retain explicit authority checks and fail when
-  required tools are absent. Client approval systems remain in force.
+  required tools are absent. Client approval systems remain in force. Selected
+  private overlays are scanned for workflow/command artifacts before their
+  allowlisted native inputs enter the snapshot.
 - Filesystem: existing safe-relative-path, symlink-ancestor, drift-backup, and
   manifest-only pruning controls remain, with staged same-filesystem promotion
   and reverse-order rollback added for managed skills; regression tests cover
@@ -689,10 +733,16 @@ client compatibility gap rather than hidden behind a warning.
 
 ## Rollback
 
-Before any post-change installer has committed, a source revert is sufficient.
+A source revert is sufficient only before any post-change transaction begins,
+or after the current installer has recovered/repaired every uncommitted
+transaction and verified that no selected destination lock, private journal, or
+contained recovery directory remains. An interrupted `locking`, `open`, or
+`needs-repair` transaction must be completed with automatic recovery or
+`--repair-skills` before reverting the code that understands its evidence.
 After a successful migration, the old installer is not a supported downgrade
-tool: it cannot prove ownership from the newer per-name manifest and can replace
-the enclosing skills tree. Operators must not run it against a migrated config.
+tool: it cannot prove ownership from the version-2 per-name manifest and can
+replace the enclosing skills tree. Operators must not run it against a migrated
+config.
 
 Post-migration rollback is a forward release that retains the new installer,
 historical ledger, per-name manifest, and transaction protocol while reverting
