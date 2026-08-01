@@ -1,6 +1,6 @@
 ---
 name: project-context
-description: Load project-specific context from public project files.
+description: "Load project-specific context from public project files."
 ---
 
 # Project Context
