@@ -96,6 +96,10 @@ cleared_dependency_state=
 
 reset_cleared_dependency_cache() {
   cleared_dependency_lookup_count=0
+  clear_cleared_dependency_results
+}
+
+clear_cleared_dependency_results() {
   cleared_dependency_blocker_ids=()
   cleared_dependency_blocker_states=()
 }
@@ -191,6 +195,22 @@ ensure_cleared_dependency_label() { # repo
   fi
 }
 
+restore_cleared_dependency_blocked() { # repo number issue-json reason
+  local repo=$1 number=$2 issue=$3 reason=$4 label err safe
+  local -a remove_args=()
+  while IFS= read -r label; do
+    remove_args+=(--remove-label "$label")
+  done < <(jq -r '.labels[].name | select(startswith("status:"))' <<<"$issue")
+  if ! err=$(gh issue edit "$number" --repo "$repo" "${remove_args[@]}" \
+    --add-label 'status:blocked' 2>&1); then
+    safe=$(printf '%s' "$err" | cleared_dependency_safe_text)
+    printf 'cannot restore #%s to status:blocked after %s: %s\n' \
+      "$number" "$reason" "$safe" >&2
+    return 1
+  fi
+  printf 'restored #%s to status:blocked after %s\n' "$number" "$reason" >&2
+}
+
 apply_cleared_dependency() { # repo issue-json
   local repo=$1 initial=$2 number current body final label status_labels
   local initial_snapshot current_snapshot snapshot_filter err safe
@@ -235,7 +255,8 @@ apply_cleared_dependency() { # repo issue-json
       "$number" "$safe" >&2
     return 1
   fi
-  if ! final=$(gh issue view "$number" --repo "$repo" --json labels 2>&1); then
+  if ! final=$(gh issue view "$number" --repo "$repo" \
+    --json number,state,body,labels 2>&1); then
     safe=$(printf '%s' "$final" | cleared_dependency_safe_text)
     printf 'verification unreadable for #%s: %s; inspect its status labels\n' \
       "$number" "$safe" >&2
@@ -249,8 +270,21 @@ apply_cleared_dependency() { # repo issue-json
     return 1
   fi
   if [[ $status_labels != '["status:ready"]' ]]; then
-    printf 'conflicting status write on #%s; expected only status:ready\n' \
-      "$number" >&2
+    restore_cleared_dependency_blocked "$repo" "$number" "$final" \
+      'a conflicting status write' || :
+    return 1
+  fi
+  if ! jq -e '(.state | ascii_upcase) == "OPEN" and
+    (all(.labels[].name; . != "epic"))' >/dev/null <<<"$final"; then
+    restore_cleared_dependency_blocked "$repo" "$number" "$final" \
+      'post-write state changed' || :
+    return 1
+  fi
+  clear_cleared_dependency_results
+  body=$(jq -r '.body // ""' <<<"$final")
+  if ! cleared_dependency_body_verdict "$repo" "$number" "$body"; then
+    restore_cleared_dependency_blocked "$repo" "$number" "$final" \
+      "$cleared_dependency_reason" || :
     return 1
   fi
   printf 'readied #%s\n' "$number"
