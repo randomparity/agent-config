@@ -102,6 +102,27 @@ user-scope MCP state outside the selected config directory:
 AGENT_CONFIG_REGISTER_CLAUDE_MCP=1 ./install.sh --agent claude
 ```
 
+## Project-local review skills
+
+Examples under `examples/project-review-skills/` are deliberately not globally
+installed. They depend on the reviewed project's targets and declared policy, so a
+project adopts the example it needs instead of adding an unfamiliar review workflow to
+every agent installation.
+
+Place a selected review skill in the project's agent-native directory:
+
+- Claude: `.claude/skills/`
+- Codex: `.agents/skills/`
+- Bob: `.bob/skills/`
+
+For example, a project instruction can integrate the accessibility reviewer as follows:
+
+```text
+For UI-affecting changes, invoke accessibility-reviewer after normal branch review.
+Disposition defensible findings, rerun the reviewer after behavioral fixes, and treat
+unresolved manual checks according to this project's accessibility policy.
+```
+
 ## Private Overlays
 
 Host overlays stay outside this public repository:
