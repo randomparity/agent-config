@@ -158,9 +158,14 @@ governed by ADR 0001.
 The version-2 JSON manifest is untrusted local input until validated. Its closed
 schema records every managed path and installed identity, one
 `skills/<name>` entry per canonical skill, the identity algorithm, the single
-canonical source-snapshot identity used by the transaction, a prior-manifest
-digest, and its own canonical-JSON digest. Entries are safe relative paths,
-unique, and non-overlapping: no parent/child operation roots coexist.
+canonical source-snapshot identity used by the transaction, the Git object
+format, and its own canonical-JSON digest. Digest input is exactly the UTF-8
+bytes from `jq -cS 'del(.digest)'` plus one trailing LF; the digest is
+`git hash-object --stdin` over those bytes. The self-checksum detects corruption
+but does not establish ownership: checked-in provenance plus valid per-name
+manifest history is the sole removal authority, so no predecessor chain must be
+retained. Entries are safe relative paths, unique, and non-overlapping: no
+parent/child operation roots coexist.
 `scripts/managed-path-ownership.json` is an append-only provenance allowlist for
 fixed native/common paths and historical removals; skill/command entries must
 also be canonical, per-name-manifest-owned, or proven by the historical ledger.
@@ -176,12 +181,16 @@ legacy newline manifest is recognized only as version-1 migration input after
 every entry matches the checked-in historical managed-path/skill/command
 allowlists described below; new writes are version 2.
 
-The legacy manifest contains only whole-tree `skills` and, for Claude,
-`commands` entries; it does not identify children. This change therefore checks
-in `scripts/legacy-skill-ownership.json` before moving the old sources. For each
-agent it records every old managed skill/command name and the tree identity of
-its shipped bytes, file types, and executable modes. The installer trusts
-neither a whole-tree manifest nor a matching name by itself.
+The legacy newline manifest contains enumerated fixed native/common paths plus
+whole-tree `skills` and, for Claude, `commands` entries. Only those two
+enclosing-tree entries lack child ownership. This change therefore checks in
+the exact per-agent fixed-path allowlist under
+`scripts/managed-path-ownership.json` and every old managed skill/command name
+plus shipped tree identity under `scripts/legacy-skill-ownership.json` before
+moving the old sources. Each validated fixed version-1 entry bootstraps its
+version-2 installed identity from the live pre-transaction path. The installer
+trusts neither an unknown newline entry, a whole-tree manifest, nor a matching
+skill/command name by itself.
 
 For the one-time migration, a child whose identity matches the historical
 ledger is proven managed. A non-canonical name absent from the ledger is proven
@@ -398,7 +407,16 @@ already matches the supplied coherent state, and no path escapes a destination.
 It performs no content restoration.
 
 There is one pre-open reconstruction branch for corruption during partial lock
-acquisition. At least one valid lock must provide the full scope/digest, every
+acquisition. If no lock was published, the closed repair record supplies the
+selected agent/destination scope. The command resolves every supplied and
+currently configured supported destination, scans them for the transaction id,
+and requires no lock, header, stage, backup, operation marker, or live-phase
+evidence. It may quarantine a matching unpublished lock sibling after validating
+its regular-file identity; otherwise it quarantines only the corrupt private
+transaction directory and performs no destination mutation.
+
+When at least one lock was published, a valid lock must provide the full
+scope/digest, every
 surviving transaction lock must match it, no destination in that scope may
 contain a transaction header, stage, backup, operation marker, or other live-
 phase evidence, and every live manifest must validate without consulting the
@@ -658,8 +676,8 @@ is reported separately as sampled evidence, never as a deterministic guarantee.
 | SKILL-32 | Seed canonical-name and non-canonical skills, `SKILL.md`, command files, and symlink variants under every selected private overlay; swap an allowlisted regular overlay to a symlink during snapshot | Static artifacts stop before snapshot; overlay index or A/B/C/type mismatch stops before promotion and names the canonical alternative | Agent-specific workflow or followed overlay symlink | block |
 | SKILL-33 | Interrupt in `locking`, `open`, and `needs-repair`, then attempt the documented source rollback | Revert is refused until current recovery/repair clears every journal, lock, and contained recovery directory and validates prior manifests | Removing recovery code while its transaction evidence is live | block |
 | SKILL-34 | Remove a previously version-2-managed native file, common-content child, directory, and skill; interrupt/fail after each removal | Every absent old entry is backed up and omitted, success prunes all, and rollback restores exact prior identities in reverse order | Stale managed path or non-transactional deletion | block |
-| SKILL-35 | Seed truncated/checksum-invalid, path-injected, unknown-class, overlapping parent/child, symlinked, bad-identity, and broken-prior-digest manifests in version 1 and 2 | Validation stops before journal/live mutation and unrelated sentinel paths remain byte-identical; only allowlisted provenance can plan removal | Treating an unverified manifest entry as ownership | block |
-| SKILL-36 | Corrupt both journal generations after each destination-lock ordinal but before any header; also seed one conflicting lock and one live-phase marker | Clean partial-lock cases quarantine evidence and release only matching acquired locks; conflict/live evidence refuses and preserves all locks | Permanent pre-open outage, fabricated missing locks, or managed-path mutation | block |
+| SKILL-35 | Seed truncated/checksum-invalid, path-injected, unknown-class, overlapping parent/child, symlinked, bad-identity, and wrong-object-format version-2 manifests plus unknown/unsafe version-1 lines | Validation stops before journal/live mutation and unrelated sentinel paths remain byte-identical; only allowlisted provenance can plan removal | Treating an unverified manifest entry as ownership | block |
+| SKILL-36 | Corrupt the first journal generation before lock ordinal one, while only an unpublished sibling exists, and after each published-lock ordinal before any header; also seed one conflicting lock and one live-phase marker | Zero-lock evidence is quarantined without managed mutation; clean partial-lock cases release only matching acquired locks; conflict/live evidence refuses and preserves all locks | Permanent pre-open outage, fabricated missing locks, or managed-path mutation | block |
 
 Static shell checks decide filesystem, metadata, and safety boundaries in CI.
 `scripts/skill-smoke-eval.sh` provides sampled behavioral evidence. It creates
