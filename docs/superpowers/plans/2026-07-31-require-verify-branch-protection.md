@@ -94,24 +94,31 @@ Run:
 
 ```bash
 policy=$(gh api "repos/$repo_name/branches/main/protection")
-jq -e '
+policy_matches() {
+  jq -e '
   .required_status_checks.strict == false and
   .required_status_checks.contexts == ["verify"] and
   .required_status_checks.checks == [{"context":"verify","app_id":15368}] and
   .enforce_admins.enabled == true and
   .required_pull_request_reviews == null and
   .restrictions == null and
-  .required_linear_history.enabled == false and
-  .allow_force_pushes.enabled == false and
-  .allow_deletions.enabled == false and
-  .required_conversation_resolution.enabled == false and
-  .lock_branch.enabled == false
-' <<<"$policy"
+  (.required_linear_history.enabled // false) == false and
+  (.allow_force_pushes.enabled // false) == false and
+  (.allow_deletions.enabled // false) == false and
+  (.block_creations.enabled // false) == false and
+  (.required_conversation_resolution.enabled // false) == false and
+  (.lock_branch.enabled // false) == false and
+  (.allow_fork_syncing.enabled // false) == false
+  ' <<<"$1"
+}
+policy_matches "$policy"
 ```
 
-Expected: `true` with exit 0. On mismatch, re-read policy and delete protection only
-when it still exactly matches the request above; otherwise preserve concurrent changes
-and stop for manual reconciliation.
+Expected: `true` with exit 0. Reuse `policy_matches` for every later rollback decision;
+it normalizes omitted disabled fields from the GET representation while asserting every
+field written in Step 2. On mismatch, re-read policy and delete protection only when it
+passes `policy_matches`; otherwise preserve concurrent changes and stop for manual
+reconciliation.
 
 - [ ] **Step 4: Create the temporary failing proof PR**
 
@@ -150,14 +157,41 @@ gh api "repos/$repo_name/commits/$proof_sha/check-runs" \
 
 Expected: `verify` from app ID `15368` is `FAILURE`; `mergeable` is `MERGEABLE`;
 `mergeStateStatus` is `BLOCKED`. Inspect the failed job and confirm the malformed
-record caused the failure. Do not run any merge command.
+record caused the failure. Do not run any merge command. Capture one outcome value:
+
+- `proved` only when all four observations and the expected failure cause match;
+- `inconclusive` for wrong check identity, producer, result, failure cause, conflicts,
+  missing CI, or a timed-out dependency; or
+- `not-blocked` when the conflict-free failed-check PR does not report `BLOCKED`.
+
+Every outcome proceeds through Step 6 cleanup. Leave debt 0001 open unless the outcome
+is `proved`. For `not-blocked`, run the compare-before-rollback branch in Step 6 after
+cleanup. An `inconclusive` result leaves the exact read-back-verified policy in place for
+diagnosis but makes no enforcement claim.
 
 - [ ] **Step 6: Record evidence and clean every proof artifact**
 
-Post an issue #16 comment containing the policy snapshot, proof PR number and URL,
-proof head SHA, failed-check URL and producer, `MERGEABLE` / `BLOCKED` observation,
-and cleanup outcome. Then close the proof PR, delete its remote branch, remove its
-external worktree, and delete its exact local branch. Verify:
+Always clean the temporary artifacts before posting evidence. If a partial failure
+occurred before PR creation, skip only the absent PR operation; still remove every
+branch or worktree that exists. For a created proof PR, close it. Then delete the exact
+remote branch, remove its external worktree, and delete its exact local branch:
+
+```bash
+if [[ -n ${proof_pr:-} ]]; then
+  gh pr close "$proof_pr"
+fi
+if git ls-remote --exit-code --heads origin refs/heads/proof/verify-required-16; then
+  git push origin --delete proof/verify-required-16
+fi
+if git worktree list --porcelain | rg -F "worktree $proof_worktree"; then
+  git worktree remove "$proof_worktree"
+fi
+if git show-ref --verify --quiet refs/heads/proof/verify-required-16; then
+  git branch -D proof/verify-required-16
+fi
+```
+
+Verify cleanup after those operations:
 
 ```bash
 gh pr view "$proof_pr" --json state,headRefName,url
@@ -168,6 +202,17 @@ git worktree list --porcelain
 
 Expected: PR state `CLOSED`; `ls-remote` exits 2 because the ref is absent; local
 branch output is empty; worktree list omits the proof path.
+
+If the outcome is `not-blocked`, re-read live protection. Delete it only if
+`policy_matches` succeeds, because the captured baseline was empty; confirm the GET then
+returns HTTP 404. If `policy_matches` fails, preserve live policy and report both
+snapshots for manual reconciliation.
+
+Only after cleanup and any conditional rollback are verified, post issue #16 evidence
+containing the policy outcome, proof outcome (`proved`, `inconclusive`, or
+`not-blocked`), proof PR number and URL when created, proof head SHA, check URL and
+producer when emitted, merge-state observation, cleanup results, and rollback result.
+Stop unless the outcome is `proved` and the expected policy remains live.
 
 ### Task 2: Document recovery and resolve the debt
 
