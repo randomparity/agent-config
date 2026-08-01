@@ -78,9 +78,7 @@ if ! issue_json=$(gh issue view "$issue_number" --repo "$repo" \
 	printf '%s: read-back failed; creation was not retried\n' "$issue_url" >&2
 	exit 1
 fi
-require_parent=false
-[[ -n $parent ]] && require_parent=true
-if ! jq -e --argjson require_parent "$require_parent" '
+if ! jq -e '
 	type == "object"
 	and (.number | type == "number")
 	and (.title | type == "string")
@@ -88,7 +86,7 @@ if ! jq -e --argjson require_parent "$require_parent" '
 	and (.labels | type == "array")
 	and all(.labels[]; type == "object" and (.name | type == "string"))
 	and (.url | type == "string")
-	and (($require_parent | not) or
+	and ((.parent == null) or
 		((.parent | type == "object") and (.parent.number | type == "number")))
 ' \
 	>/dev/null 2>&1 <<<"$issue_json"; then
@@ -98,10 +96,21 @@ fi
 
 observed_title=$(jq -r '.title' <<<"$issue_json")
 observed_body=$(jq -r '.body' <<<"$issue_json")
-observed_parent=$(jq -r '.parent.number // "none"' <<<"$issue_json")
+observed_number=$(jq -r '.number' <<<"$issue_json")
+observed_url=$(jq -r '.url' <<<"$issue_json")
+observed_parent=none
+if [[ -n $parent ]]; then
+	observed_parent=$(jq -r '.parent.number // "none"' <<<"$issue_json")
+fi
 observed_labels=$(jq -r '.labels[].name' <<<"$issue_json")
 mismatches=()
 
+if [[ $observed_number != "$issue_number" ]]; then
+	mismatches+=("number: expected #$issue_number, observed #$observed_number")
+fi
+if [[ $observed_url != "$issue_url" ]]; then
+	mismatches+=("url: expected '$issue_url', observed '$observed_url'")
+fi
 if [[ $observed_title != "$title" ]]; then
 	mismatches+=("title: expected '$title', observed '$observed_title'")
 fi
