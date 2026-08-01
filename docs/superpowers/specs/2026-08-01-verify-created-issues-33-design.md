@@ -89,13 +89,17 @@ argument vector. The local operator is trusted to choose the repository, title, 
 body file, and optional parent; the control is strict option parsing, numeric parent
 validation, a populated regular body file, and array-based argument construction with no
 evaluation or shell command string. GitHub.com and GitHub Enterprise hosts are supported,
-but the returned HTTPS URL must resolve to the requested owner/repository and an issue
-number before it can drive read-back.
+but the returned HTTPS URL must share the authoritative host and owner/repository path from
+`gh repo view` and end in an issue number before it can drive read-back. A non-zero create
+captures its status and any trustworthy returned URL, emits an unequivocal no-retry
+diagnostic, and stops.
 
 Second, GitHub CLI output enters the verifier. The remote GitHub service and local `gh`
 configuration can return missing, malformed, or unexpected data. The control is an
 explicit-field read, complete shape validation for every consumed label and parent member,
 literal comparisons against the confirmed draft, and fail-closed diagnostics that retain
-the durable URL whenever it was resolved. External text is never evaluated or used to form
-a shell command. Retry, repair, and replacement writes are out of scope because issue #33
-requires a single durable creation attempt whose mismatch is surfaced to the operator.
+the durable URL whenever it was resolved. Diagnostic values are length-bounded and JSON
+encoded so control characters cannot forge terminal or CI lines. External text is never
+evaluated or used to form a shell command. Retry, repair, and replacement writes are out of
+scope because issue #33 requires a single durable creation attempt whose mismatch is
+surfaced to the operator.

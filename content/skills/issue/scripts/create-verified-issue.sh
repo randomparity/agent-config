@@ -2,8 +2,17 @@
 set -euo pipefail
 
 usage() {
-	printf 'usage: %s --repo OWNER/NAME --title TITLE --body-file PATH [--label LABEL]... [--parent NUMBER]\n' "${0##*/}" >&2
+	printf 'usage: %s --repo OWNER/NAME --title TITLE --body-file PATH' "${0##*/}" >&2
+	printf ' [--label LABEL]... [--parent NUMBER]\n' >&2
 	exit 2
+}
+
+diagnostic_value() {
+	local value=$1
+	if ((${#value} > 200)); then
+		value=${value:0:200}'…'
+	fi
+	jq -Rrn --arg value "$value" '$value | @json'
 }
 
 repo=
@@ -58,18 +67,42 @@ if [[ -n $parent ]]; then
 	create_args+=(--parent "$parent")
 fi
 
-created_output=$(gh "${create_args[@]}")
-issue_url=$(printf '%s\n' "$created_output" | rg -o 'https://[^/[:space:]]+/[^/[:space:]]+/[^/[:space:]]+/issues/[0-9]+' | tail -n 1 || true)
+canonical_url=$(gh repo view "$repo" --json url --jq .url)
+canonical_url=${canonical_url%/}
+canonical_path=${canonical_url#https://}
+canonical_path=${canonical_path#*/}
+if ! rg -q '^https://[^/[:space:]]+/[^/[:space:]]+/[^/[:space:]]+$' <<<"$canonical_url" ||
+	[[ $canonical_path != "$repo" ]]; then
+	printf 'canonical repository URL is malformed or does not match %s\n' \
+		"$(diagnostic_value "$repo")" >&2
+	exit 1
+fi
+
+create_status=0
+created_output=$(gh "${create_args[@]}" 2>&1) || create_status=$?
+issue_url_pattern='https://[^/[:space:]]+/[^/[:space:]]+/[^/[:space:]]+/issues/[0-9]+'
+issue_url=$(printf '%s\n' "$created_output" | rg -o "$issue_url_pattern" | tail -n 1 || true)
+if ((create_status != 0)); then
+	if [[ -n $issue_url && $issue_url == "$canonical_url/issues/${issue_url##*/}" ]]; then
+		printf '%s: creation command failed with exit %d; creation was not retried\n' \
+			"$issue_url" "$create_status" >&2
+	else
+		printf 'creation command failed with exit %d; durable issue URL could not be resolved;' \
+			"$create_status" >&2
+		printf ' creation was not retried\n' >&2
+	fi
+	exit 1
+fi
 if [[ -z $issue_url ]]; then
-	printf 'issue was created but its durable issue URL could not be resolved; creation was not retried\n' >&2
+	printf 'issue was created but its durable issue URL could not be resolved;' >&2
+	printf ' creation was not retried\n' >&2
 	exit 1
 fi
 issue_number=${issue_url##*/}
-issue_path=${issue_url#https://}
-issue_path=${issue_path#*/}
-if [[ $issue_path != "$repo/issues/$issue_number" ]]; then
-	printf 'created issue URL does not match repository %s: %s; creation was not retried\n' \
-		"$repo" "$issue_url" >&2
+if [[ $issue_url != "$canonical_url/issues/$issue_number" ]]; then
+	printf 'created issue URL does not match canonical repository URL %s: %s;' \
+		"$(diagnostic_value "$canonical_url")" "$(diagnostic_value "$issue_url")" >&2
+	printf ' creation was not retried\n' >&2
 	exit 1
 fi
 
@@ -109,10 +142,14 @@ if [[ $observed_number != "$issue_number" ]]; then
 	mismatches+=("number: expected #$issue_number, observed #$observed_number")
 fi
 if [[ $observed_url != "$issue_url" ]]; then
-	mismatches+=("url: expected '$issue_url', observed '$observed_url'")
+	expected_display=$(diagnostic_value "$issue_url")
+	observed_display=$(diagnostic_value "$observed_url")
+	mismatches+=("url: expected $expected_display, observed $observed_display")
 fi
 if [[ $observed_title != "$title" ]]; then
-	mismatches+=("title: expected '$title', observed '$observed_title'")
+	expected_display=$(diagnostic_value "$title")
+	observed_display=$(diagnostic_value "$observed_title")
+	mismatches+=("title: expected $expected_display, observed $observed_display")
 fi
 if [[ -z $observed_body ]]; then
 	mismatches+=("body: expected non-empty, observed empty")
@@ -131,7 +168,7 @@ for label in "${labels[@]}"; do
 		fi
 	done <<<"$observed_labels"
 	if [[ $found == false ]]; then
-		mismatches+=("label: missing '$label'")
+		mismatches+=("label: missing $(diagnostic_value "$label")")
 	fi
 done
 if [[ -n $parent && $observed_parent != "$parent" ]]; then
