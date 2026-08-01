@@ -12,18 +12,38 @@ hooks:
 tools-check:
   ./install-tools.sh --check
 
+records:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  ./.github/scripts/check-records-test.sh
+  RECORD_PROFILES="adr debt" ./.github/scripts/check-records.sh
+  shared_assets="check-records.sh check-records-test.sh migrate-records.sh"
+  shared_assets="$shared_assets profiles/adr.sh profiles/debt.sh"
+  for asset in $shared_assets; do
+    root_asset=".github/scripts/$asset"
+    skill_asset="content/skills/decision-records/assets/$asset"
+    if ! cmp -s "$root_asset" "$skill_asset"; then
+      echo "record gate mismatch: $skill_asset differs from $root_asset" >&2
+      exit 1
+    fi
+  done
+
 lint:
-  shellcheck install.sh install-tools.sh install-test.sh install-tools-test.sh scripts/*.sh
+  shellcheck install.sh install-tools.sh install-test.sh install-tools-test.sh scripts/*.sh \
+    .github/scripts/*.sh .github/scripts/profiles/*.sh
 
 format-check:
   shfmt -d install.sh install-tools.sh install-test.sh install-tools-test.sh scripts/*.sh
+  shfmt -i 2 -d .github/scripts/*.sh .github/scripts/profiles/*.sh
 
 format:
   shfmt -w install.sh install-tools.sh install-test.sh install-tools-test.sh scripts/*.sh
+  shfmt -i 2 -w .github/scripts/*.sh .github/scripts/profiles/*.sh
 
 test:
   ./install-test.sh
   ./install-tools-test.sh
+  ./scripts/check-public-safety-test.sh
 
 skills-check:
   ./scripts/check-skill-layout.sh
@@ -35,7 +55,7 @@ actions-check:
   actionlint
   zizmor --offline .github/workflows/
 
-verify: tools-check lint format-check skills-check test public-safety actions-check
+verify: tools-check records lint format-check skills-check test public-safety actions-check
 
 ci: verify
   prek run --all-files

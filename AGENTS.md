@@ -18,6 +18,9 @@ settings, instruction files, commands, skills, modes, and MCP files under
 Run `just setup` before local development to install repo tooling and enable
 git hooks.
 
+Before creating, superseding, resolving, or migrating an ADR or debt record,
+follow the decision-record workflow in `README.md`.
+
 Run these guardrails before reporting completion:
 
 ```sh

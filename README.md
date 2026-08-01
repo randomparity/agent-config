@@ -146,6 +146,163 @@ validates the portable structure of the canonical skill packages.
 `./scripts/check-public-safety.sh` scans for denied host-specific paths, local
 network addresses, auth headers, and common secret token shapes.
 
+### Required `verify` branch check
+
+GitHub protects `main` with the lowercase check context `verify`, bound to the
+GitHub Actions app (ID `15368`). The workflow display name is `Verify`; branch
+protection uses the job/check name, including its case, rather than that display
+name. Administrators are subject to the same required check.
+
+If a workflow edit renames the job or a stale required context leaves a pull
+request waiting indefinitely, first run the replacement check on a real pull
+request. It does not need to merge. Copy the emitted name and producer only after
+the replacement succeeds:
+
+```sh
+repo_name=$(gh repo view --json nameWithOwner --jq .nameWithOwner)
+pr_number=19 # replace with the real pull request that emitted the replacement
+gh pr checks "$pr_number" --json name,state,link,workflow
+head_sha=$(gh pr view "$pr_number" --json headRefOid --jq .headRefOid)
+gh api "repos/$repo_name/commits/$head_sha/check-runs" \
+  --jq '.check_runs[] | {name, app_id: .app.id, app_slug: .app.slug, conclusion}'
+```
+
+The update endpoint replaces the entire required-check list. Preserve every
+unrelated check when replacing the stale context, and stop if policy changes
+between the read and write:
+
+```bash
+set -euo pipefail
+
+required_url="repos/$repo_name/branches/main/protection/required_status_checks"
+current_required=$(gh api "$required_url")
+stale_context=verify
+replacement_context=verify # replace with the successful run's exact name
+replacement_app_id=15368    # replace with that run's app_id
+
+if ! jq -e --arg stale "$stale_context" \
+  --arg replacement "$replacement_context" \
+  '([.checks[] | select(.context == $stale)] | length == 1) and
+   ([.checks[] | select(
+      .context == $replacement and .context != $stale)] | length == 0)' \
+  <<<"$current_required"; then
+  printf '%s\n' 'stale or replacement context is ambiguous; inspect and retry' >&2
+  exit 1
+fi
+if ! replacement=$(jq \
+  --arg stale "$stale_context" \
+  --arg context "$replacement_context" \
+  --argjson app_id "$replacement_app_id" \
+  '{
+    strict,
+    checks: [.checks[] |
+      if .context == $stale
+      then {context: $context, app_id: $app_id}
+      else .
+      end]
+  }' <<<"$current_required"); then
+  printf '%s\n' 'could not build the replacement policy; nothing was written' >&2
+  exit 1
+fi
+
+live_required=$(gh api "$required_url")
+current_snapshot=$(jq -cS '{strict, checks}' <<<"$current_required")
+live_snapshot=$(jq -cS '{strict, checks}' <<<"$live_required")
+if [[ "$live_snapshot" != "$current_snapshot" ]]; then
+  printf '%s\n' 'required checks changed during recovery; inspect and retry' >&2
+  exit 1
+fi
+
+gh api --method PATCH "$required_url" --input - <<<"$replacement"
+updated_required=$(gh api "$required_url")
+updated_snapshot=$(jq -cS '{strict, checks}' <<<"$updated_required")
+expected_snapshot=$(jq -cS . <<<"$replacement")
+if [[ "$updated_snapshot" != "$expected_snapshot" ]]; then
+  printf '%s\n' 'required-check read-back differs; inspect before another write' >&2
+  exit 1
+fi
+```
+
+Confirm the replacement PR becomes unblocked. Do not clear all required checks as
+a workaround: that recreates the unprotected merge path. Patching this endpoint
+preserves other branch-protection features; constructing and asserting the complete
+required-check list preserves other required checks when one administrator owns the
+write window. The endpoint has no conditional-write step verified by this workflow,
+so coordinate a short maintenance window and do not run this recipe concurrently with
+another policy edit. The before/after snapshots detect observed drift but cannot make
+an unconditional PATCH race-free; retain them for reconciliation if another edit occurs.
+
+## Decision Records
+
+Architecture decisions live in `docs/adr/`; explicitly deferred work lives in
+`docs/debt/`. Number the two directories independently: list the numbered files
+in the relevant directory and increment its highest four-digit prefix. Do not
+maintain a hand-written index.
+
+An ADR is named `NNNN-slug.md`, starts with `# NNNN — Title`, and has non-empty
+`## Status`, `## Context`, `## Decision`, `## Consequences`, and
+`## Considered & rejected` sections. Its status is `Proposed`, `Deferred`, or
+`Accepted`, `Rejected`, or `Superseded` followed by an ISO date in parentheses.
+Record supersession in the old ADR with this status banner, pointing to the new
+ADR:
+
+```markdown
+> **Superseded by [NNNN](NNNN-slug.md)** (YYYY-MM-DD)
+```
+
+A debt record uses the same file and title convention. It has non-empty
+`## Status`, `## Concern`, `## Why deferred`, `## Non-regression boundary`,
+`## What would resolve it`, and `## Provenance` sections. Open records use an
+`Open` status followed by `review-by: YYYY-MM-DD`. Provenance includes at least
+one `target: path` line. Resolve a record in place by removing `review-by:` and
+replacing `Open` with:
+
+```markdown
+> **Resolved by <what>** (YYYY-MM-DD)
+```
+
+Merged records are append-only except for their lifecycle markers. Create a new
+ADR instead of rewriting an accepted decision; supersede the old one when the
+new decision is accepted. Resolve debt in place when its stated condition is
+met.
+
+If a numbering collision or mistake requires renumbering a merged record, move it
+to an unused four-digit number and update the H1 number in the same change. Do
+not alter substantive text. The gate accepts the move only when the destination
+did not exist at the base commit and canonicalized content is identical;
+marker-only normalization may accompany it. New records still increment the
+highest current number in their own directory.
+
+For legacy records, preview marker-only migrations before writing them:
+
+```sh
+RECORD_PROFILES="adr debt" ./.github/scripts/migrate-records.sh
+RECORD_PROFILES="adr debt" ./.github/scripts/migrate-records.sh --write
+```
+
+Review every item the dry run leaves for a human. For a missing lifecycle date,
+inspect repository history:
+
+```sh
+git log --follow --format=%cs -- <record>
+```
+
+Add the date of the commit that established the lifecycle state; do not invent
+the current date. Apply the marker rewrites with `--write`, then make the
+evidenced Status or required-section completion in the same dedicated migration
+commit without rewriting existing prose.
+
+Include every printed `Migrated-markers:` trailer; those trailers enumerate the
+automatic marker rewrites, not the required human completions. Run `just verify`
+after creating, superseding, resolving, or migrating a record.
+
+The root package under `.github/scripts/` owns the repository gate. Its checker,
+suite, migrator, and `adr` and `debt` profiles must remain byte-identical to both
+agent projections under `agents/claude/shared/skills/decision-records/assets/`
+and `agents/codex/shared/skills/decision-records/assets/`; `just records` checks
+that invariant. GitHub requires the producer-bound lowercase `verify` check on
+`main`; issue #16 records the failing-PR enforcement proof and recovery procedure.
+
 ## Source Material
 
 This repo was designed from the existing local Claude Code and Codex config

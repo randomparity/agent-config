@@ -1,11 +1,8 @@
-# 0001. Canonical Content With Agent-Native Projections
+# 0001 — Canonical Content With Agent-Native Projections
 
 ## Status
 
-Accepted
-
-> **Agent Skills ownership superseded by [0003](0003-canonical-agent-skills.md)**
-> (2026-07-31)
+Accepted (2026-07-31)
 
 ## Context
 
@@ -53,7 +50,7 @@ repo.
 - Public-safety verification becomes part of the contract because the installer
   can read private overlays while the repo remains public.
 
-## Considered & Rejected
+## Considered & rejected
 
 - Single shared tree copied to every agent. Rejected because Claude commands,
   Codex skills, and Bob modes use incompatible metadata and invocation models.

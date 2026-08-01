@@ -1,8 +1,8 @@
-# 0003. Canonical Agent Skills Across Supported Agents
+# 0004 — Canonical Agent Skills Across Supported Agents
 
 ## Status
 
-Accepted
+Accepted (2026-07-31)
 
 ## Context
 
@@ -14,6 +14,10 @@ skills.
 All three supported clients consume Agent Skills directories containing a
 `SKILL.md` file plus optional resources. Maintaining separate implementations no
 longer provides a useful adapter boundary.
+
+This decision supersedes ADR 0001 only for Agent Skills ownership. ADR 0001
+continues to govern settings, root instructions, modes, MCP files, and other
+agent-specific formats.
 
 ## Decision
 
@@ -51,7 +55,7 @@ reconciliation path.
 - The installer does not add locks, journals, repair commands, historical
   ownership ledgers, or cross-filesystem rollback machinery.
 
-## Considered and Rejected
+## Considered & rejected
 
 - **Keep per-agent copies.** This is the drift mechanism issue 17 reported.
 - **Generate native projections.** All clients already accept the shared format,
