@@ -128,7 +128,6 @@ The classification decision is ordered and fail-closed:
 | GSC-5 | Campaign drops or fabricates eligibility evidence | 4 | Campaign verdict and dispatch contracts carry evidence, and `$work-issue` rechecks it; block on name-only propagation. |
 | GSC-6 | Abbreviated path skips post-build controls | 5 | Ordered-clause fixtures retain review, simplification, verification, PR, and CI phases; block on omission. |
 | GSC-7 | Stale or conflicting decision evidence is accepted | 4 | Superseded, non-accepted, or conflicting evidence falls back to full design; block on abbreviated path. |
-| GSC-8 | Permission or private-data claims enter classification | 5 | Such new decisions are ineligible and return to full design; block on shortcut. |
 | GSC-9 | Workflow loops between build and design | 4 | One scope-expansion transition re-freezes scope and resumes through full design, with no automatic repeated bypass; block on loop. |
 | GSC-10 | A broad but fully governed change skips planning | 4 | A change requiring decomposition or cross-task sequencing selects `non-trivial` even with accepted decision evidence and explicit criteria; block on shortcut. |
 
