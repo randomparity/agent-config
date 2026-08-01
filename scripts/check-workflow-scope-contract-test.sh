@@ -181,6 +181,10 @@ check_contract() {
 		"### Governed small change path" work-design "## 3. Design" || return 1
 	assert_rule "$work" governed-direct-build \
 		"A governed-small-change proceeds from verified WORK:SCOPE directly to build-tdd without a new spec or plan." || return 1
+	assert_ordered_clause "$work" governed-proof \
+		"The first executable action on the abbreviated path is the focused failing test in step 4." \
+		governed-elaboration \
+		"Optional design elaboration may follow that proof but is not a prerequisite." || return 1
 	assert_rule "$work" post-build-controls \
 		"The abbreviated path retains branch review, simplification, repository guardrails, PR creation, CI, and merge handoff." || return 1
 	assert_rule "$build" governed-scope-expansion \
@@ -334,6 +338,15 @@ run_governed_fixtures() {
 		"The abbreviated path ends after the focused test passes."
 	assert_fixture_fails governed-post-build-controls \
 		"rule post-build-controls missing instruction" "$fixture"
+
+	fixture=$(copy_fixture governed-proof-order)
+	file=$(skill_path "$fixture" work-issue)
+	move_ordered_clause_after "$file" governed-proof \
+		"The first executable action on the abbreviated path is the focused failing test in step 4." \
+		governed-elaboration \
+		"Optional design elaboration may follow that proof but is not a prerequisite."
+	assert_fixture_fails governed-proof-order \
+		"expected order marker governed-proof before governed-elaboration" "$fixture"
 
 	fixture=$(copy_fixture governed-order)
 	file=$(skill_path "$fixture" work-issue)
@@ -527,7 +540,7 @@ run_scope_fixtures
 run_governed_fixtures
 run_extractor_tests
 run_review_fixtures
-[[ "$fixture_count" -eq 19 ]] || fail "expected 19 SCOPE fixtures, got $fixture_count"
+[[ "$fixture_count" -eq 20 ]] || fail "expected 20 SCOPE fixtures, got $fixture_count"
 [[ "$extractor_count" -eq 3 ]] || fail "expected 3 extractor tests, got $extractor_count"
 printf 'workflow-scope-contract-test: ok (%d fixtures, %d extractor tests)\n' \
 	"$fixture_count" "$extractor_count"

@@ -190,7 +190,9 @@ reselect the abbreviated path in that design cycle.
 A governed-small-change proceeds from verified WORK:SCOPE directly to build-tdd without a new spec or plan.
 <!-- SCOPE-RULE:END:governed-direct-build -->
 
+<!-- SCOPE-ORDER:governed-proof -->
 The first executable action on the abbreviated path is the focused failing test in step 4.
+<!-- SCOPE-ORDER:governed-elaboration -->
 Optional design elaboration may follow that proof but is not a prerequisite.
 
 <!-- SCOPE-RULE:post-build-controls -->
