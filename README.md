@@ -59,7 +59,8 @@ Check local tooling without installing anything:
 The tool installer supports macOS with Homebrew and Linux via `/etc/os-release`
 family detection for Ubuntu/Debian, Fedora, and RHEL-family systems. It uses
 package managers first, then pinned fallbacks only when the required runtime is
-already installed.
+already installed. The zizmor wheel fallback uses 1.28.0; the Cargo source
+fallback uses 1.27.0 so it remains buildable with Rust 1.88 and newer.
 
 Set up or refresh local git hooks:
 
