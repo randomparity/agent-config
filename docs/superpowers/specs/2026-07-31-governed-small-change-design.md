@@ -37,6 +37,16 @@ governing decision and acceptance criteria, and the `$work-issue` subagent indep
 rechecks eligibility against the live issue before preserving it. Missing or stale
 evidence falls back to `non-trivial`.
 
+The evidence carrier records the stable decision reference, its decision kind, its
+authoritative accepted status, and the behavior or contract it governs. An ADR is checked
+against the repository's decision-record index and record status, including supersession.
+An equivalent decision is eligible only when the repository already defines an equally
+durable, independently checkable acceptance and supersession convention; this change does
+not create one. Campaign carries those evidence fields verbatim. `$work-issue` resolves the
+reference again, confirms its accepted and non-superseded state, checks the claimed governed
+behavior against the live issue criteria, and fails closed to `non-trivial` when any field
+is absent, conflicting, or cannot be revalidated.
+
 ### Rejected: caller-selected shortcut
 
 Allowing a flag or prompt phrase to skip design creates a second authority mechanism and
