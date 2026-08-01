@@ -24,7 +24,9 @@ change`. Eligibility requires all of:
 2. the issue has explicit, testable acceptance criteria;
 3. no unresolved design-changing ambiguity exists; and
 4. implementation introduces no new architecture, schema, dependency, persistence,
-   concurrency, authentication, migration, or external-service decision.
+   concurrency, authentication, migration, or external-service decision; and
+5. the work is one independently testable implementation slice that one PR can deliver
+   without cross-task sequencing or decomposition.
 
 The workflow records the evidence and classification in `WORK:SCOPE`, creates its branch,
 then proceeds directly to `$build-tdd`. The existing branch-wide review and shipping
@@ -101,14 +103,17 @@ coverage plus the unchanged final review and CI gates.
 
 The classification decision is ordered and fail-closed:
 
-1. If any governing-decision evidence cannot be revalidated, any acceptance criterion is
+1. If the work requires decomposition or cross-task sequencing, select `non-trivial` and
+   run full design. File count, effort labels, and issue length may inform that check but
+   cannot establish eligibility by themselves.
+2. If any governing-decision evidence cannot be revalidated, any acceptance criterion is
    implicit or untestable, or any design-changing ambiguity remains, select `non-trivial`
    and run full design.
-2. Otherwise, if implementation would introduce any excluded decision category, select
+3. Otherwise, if implementation would introduce any excluded decision category, select
    `non-trivial` and run full design.
-3. Only when every eligibility predicate succeeds, select `governed-small-change` and make
+4. Only when every eligibility predicate succeeds, select `governed-small-change` and make
    the focused failing test the next executable phase.
-4. If build-time discovery invalidates either prior conclusion, stop the build, return to
+5. If build-time discovery invalidates any prior conclusion, stop the build, return to
    `SCOPE CHECKPOINT`, re-freeze the charter, and run full design without automatically
    reselecting the abbreviated path.
 
@@ -125,6 +130,7 @@ The classification decision is ordered and fail-closed:
 | GSC-7 | Stale or conflicting decision evidence is accepted | 4 | Superseded, non-accepted, or conflicting evidence falls back to full design; block on abbreviated path. |
 | GSC-8 | Permission or private-data claims enter classification | 5 | Such new decisions are ineligible and return to full design; block on shortcut. |
 | GSC-9 | Workflow loops between build and design | 4 | One scope-expansion transition re-freezes scope and resumes through full design, with no automatic repeated bypass; block on loop. |
+| GSC-10 | A broad but fully governed change skips planning | 4 | A change requiring decomposition or cross-task sequencing selects `non-trivial` even with accepted decision evidence and explicit criteria; block on shortcut. |
 
 Measurements are structure-aware shell assertions over canonical skill text and isolated
 mutated fixtures. The fixtures encode the ordered decision table above and the three issue
