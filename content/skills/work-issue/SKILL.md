@@ -82,7 +82,11 @@ changes this root value.
 
 Record all eight fields in the issue's `WORK:SCOPE` annotation:
 
-- `scope identity`: the complete `WORK:SCOPE` comment URL or quoted direct request;
+<!-- SCOPE-RULE:scope-identity -->
+Use the issue URL plus a unique annotation token as the pre-publication scope identity.
+<!-- SCOPE-RULE:END:scope-identity -->
+
+- `scope identity`: the issue URL plus that unique annotation token;
 - `outcome`: the requested outcome;
 - `completion criteria`: each criterion and its source;
 - `provenance`: the source of every outcome, criterion, and later user decision;
@@ -115,8 +119,10 @@ ADR, plan, or other generated artifact.
 When the root interaction is unattended, do not answer a design-changing question on the
 caller's behalf. Post `WORK:TRAJECTORY`, set `status:needs-human`, and stop before design.
 
-Post the complete `WORK:SCOPE` annotation before continuing. It is also the liveness signal
-`$recover-orphans` reads, so post it for a trivial bugfix that will skip design.
+Mint the annotation token once before posting and include it in the comment. Capture the
+returned comment URL as the annotation's location, not its identity. Read the posted comment
+back and verify the token and all eight fields before continuing. It is also the liveness
+signal `$recover-orphans` reads, so post it for a trivial bugfix that will skip design.
 
 ## 2. Branch
 

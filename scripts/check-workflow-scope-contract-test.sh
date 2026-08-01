@@ -106,6 +106,9 @@ check_contract() {
 	challenge=$(skill_path "$root" challenge)
 	assert_ordered_clause "$work" work-frozen "## Frozen scope charter" \
 		work-design "## 3. Design" || return 1
+	assert_rule "$work" scope-identity \
+		"Use the issue URL plus a unique annotation token as the pre-publication scope identity." ||
+		return 1
 	assert_carrier "$work" work-issue-to-design || return 1
 	assert_carrier "$design" design-to-brainstorming || return 1
 	assert_rule "$design" frozen-approval \
