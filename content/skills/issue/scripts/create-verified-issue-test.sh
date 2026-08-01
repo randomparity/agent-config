@@ -35,7 +35,9 @@ if [[ $1 == issue && $2 == create ]]; then
   if [[ ${GH_SCENARIO:-success} == unresolved-create ]]; then
     printf 'created\n'
   else
-    printf 'https://github.com/example/repo/issues/%s\n' "${GH_ISSUE_NUMBER:-101}"
+    host=github.com
+    [[ ${GH_SCENARIO:-success} == ghes ]] && host=ghe.example.com
+    printf 'https://%s/example/repo/issues/%s\n' "$host" "${GH_ISSUE_NUMBER:-101}"
   fi
   exit 0
 fi
@@ -68,17 +70,22 @@ if [[ $1 == issue && $2 == view ]]; then
   esac
   case ${GH_SCENARIO:-success} in
     missing-label | combined) labels='[{"name":"bug"}]' ;;
+    malformed-label) labels='["bad"]' ;;
   esac
   case ${GH_SCENARIO:-success} in
     wrong-parent | combined) parent='{"number":41}' ;;
+    malformed-parent) parent='"bad"' ;;
   esac
+  host=github.com
+  [[ ${GH_SCENARIO:-success} == ghes ]] && host=ghe.example.com
   jq -cn \
     --argjson number "${GH_ISSUE_NUMBER:-101}" \
     --arg title "$title" \
     --arg body "$body" \
     --argjson labels "$labels" \
     --argjson parent "$parent" \
-    '{number:$number,title:$title,body:$body,labels:$labels,parent:$parent,state:"OPEN",url:("https://github.com/example/repo/issues/"+($number|tostring))}'
+    --arg host "$host" \
+    '{number:$number,title:$title,body:$body,labels:$labels,parent:$parent,state:"OPEN",url:("https://"+$host+"/example/repo/issues/"+($number|tostring))}'
   exit 0
 fi
 
@@ -117,7 +124,13 @@ else
 	fail 'success scenario failed'
 fi
 
-for scenario in empty-body missing-section malformed-json wrong-title missing-label wrong-parent; do
+if run_case ghes; then
+	assert_contains 'https://ghe.example.com/example/repo/issues/101' "$fixture/stdout"
+else
+	fail 'GHES scenario failed'
+fi
+
+for scenario in empty-body missing-section malformed-json wrong-title missing-label wrong-parent malformed-label malformed-parent; do
 	if run_case "$scenario"; then
 		fail "$scenario unexpectedly passed"
 	fi
