@@ -72,7 +72,6 @@ gh api --method PUT "repos/$repo_name/branches/main/protection" --input - <<'JSO
 {
   "required_status_checks": {
     "strict": false,
-    "contexts": [],
     "checks": [{"context": "verify", "app_id": 15368}]
   },
   "enforce_admins": true,
