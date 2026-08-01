@@ -7,6 +7,7 @@ SHFMT_VERSION="v3.13.1"
 ACTIONLINT_VERSION="v1.7.12"
 PREK_VERSION="0.4.11"
 ZIZMOR_VERSION="1.28.0"
+ZIZMOR_CARGO_VERSION="1.27.0"
 
 usage() {
 	cat >&2 <<'EOF'
@@ -367,7 +368,7 @@ install_with_fallback() {
 			printf 'install-tools: pipx fallback failed for zizmor\n' >&2
 		fi
 		if runtime_available cargo; then
-			run_command cargo install --locked zizmor --version "$ZIZMOR_VERSION"
+			run_command cargo install --locked zizmor --version "$ZIZMOR_CARGO_VERSION"
 			return "$?"
 		fi
 		return 1

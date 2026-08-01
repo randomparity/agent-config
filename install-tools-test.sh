@@ -216,6 +216,45 @@ assert_contains "$runtime_fallback_output" "install-tools: uv fallback failed fo
 assert_contains "$runtime_fallback_output" "fake pipx installed prek"
 assert_not_contains "$runtime_fallback_output" "could not install prek automatically"
 
+zizmor_bin="$tmpdir/zizmor-bin"
+zizmor_home="$tmpdir/zizmor-home"
+mkdir -p "$zizmor_bin" "$zizmor_home"
+for command_name in just jq rg shellcheck shfmt gh prek actionlint; do
+	cat >"$zizmor_bin/$command_name" <<'EOF'
+#!/usr/bin/env bash
+exit 0
+EOF
+	chmod +x "$zizmor_bin/$command_name"
+done
+for command_name in uv pipx; do
+	cat >"$zizmor_bin/$command_name" <<'EOF'
+#!/usr/bin/env bash
+exit 17
+EOF
+	chmod +x "$zizmor_bin/$command_name"
+done
+cat >"$zizmor_bin/cargo" <<'EOF'
+#!/usr/bin/env bash
+install_dir="$HOME/.cargo/bin"
+mkdir -p "$install_dir"
+printf '#!/usr/bin/env bash\nexit 0\n' >"$install_dir/zizmor"
+chmod +x "$install_dir/zizmor"
+printf 'fake cargo %s\n' "$*"
+exit 0
+EOF
+chmod +x "$zizmor_bin/cargo"
+
+zizmor_fallback_output="$(
+	PATH="$zizmor_bin:/usr/bin:/bin" \
+		HOME="$zizmor_home" \
+		AGENT_CONFIG_SKIP_PACKAGE_MANAGER=1 \
+		./install-tools.sh 2>&1
+)"
+assert_contains "$zizmor_fallback_output" "install-tools: uv fallback failed for zizmor"
+assert_contains "$zizmor_fallback_output" "install-tools: pipx fallback failed for zizmor"
+assert_contains "$zizmor_fallback_output" \
+	"fake cargo install --locked zizmor --version 1.27.0"
+
 path_bin="$tmpdir/path-bin"
 path_home="$tmpdir/path-home"
 github_path="$tmpdir/github-path"
