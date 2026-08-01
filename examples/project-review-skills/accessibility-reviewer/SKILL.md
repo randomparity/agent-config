@@ -19,6 +19,9 @@ Discover and read the project's applicable accessibility policy before reviewing
 policy can be found, stop with an actionable error that identifies the policy location or
 owner needed to continue. Also read the relevant UI or design-system conventions.
 Apply only accessibility requirements named by the project policy.
+If the found policy declares no accessibility baseline or requirements, stop before reviewing.
+Identify the policy and the owner or action needed to declare requirements.
+Do not return `approve` for a policy with no declared accessibility requirements.
 
 ## Applicability
 

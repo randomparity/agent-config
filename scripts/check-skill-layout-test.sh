@@ -94,6 +94,13 @@ assert_contains \
 	"$example_skill"
 assert_contains 'Apply only accessibility requirements named by the project policy.' \
 	"$example_skill"
+assert_contains \
+	'If the found policy declares no accessibility baseline or requirements, stop before reviewing.' \
+	"$example_skill"
+assert_contains 'Identify the policy and the owner or action needed to declare requirements.' \
+	"$example_skill"
+assert_contains "Do not return \`approve\` for a policy with no declared accessibility requirements." \
+	"$example_skill"
 assert_contains 'Record the normalized inspected target in every verdict.' "$example_skill"
 assert_contains 'Record the normalized inspected target in every target-resolution error.' \
 	"$example_skill"
