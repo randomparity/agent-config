@@ -97,13 +97,14 @@ of these sources:
 
 1. a requirement or completion criterion in the frozen scope;
 2. an explicit user decision appended to the scope provenance; or
-3. a necessary consequence, with the reasoning that the sourced requirement cannot be
-   satisfied without it.
+3. a necessary consequence, with reasoning that no reasonable implementation can satisfy
+   the sourced completion criterion without it.
 
 The spec carries a compact provenance section or inline source references. An untraceable
-guarantee is a design-changing question. An interactive root asks; an unattended root
-parks. Transactions, persistence, concurrency, recovery, migrations, and new public
-contracts are named high-risk examples, not an exhaustive exception list.
+guarantee, or a claim of necessity that a reasonable alternative makes contestable, is a
+design-changing question. An interactive root asks; an unattended root parks.
+Transactions, persistence, concurrency, recovery, migrations, and new public contracts are
+named high-risk examples, not an exhaustive exception list.
 
 ### Keep review authority external
 

@@ -29,9 +29,12 @@ workflow parks when such a question lacks prior authority. Downstream skills inh
 that availability rather than inferring it from who invoked them.
 
 Every normative design guarantee must trace to the frozen scope, an explicit later user
-decision, or a necessary consequence of either. Design reviews use that external charter.
-Permission to continue reviewing never changes it. An ungrounded guarantee is removed or
-weakened before controls are designed for it.
+decision, or a necessary consequence of either. A consequence is necessary only when no
+reasonable implementation can satisfy a frozen completion criterion without it, and the
+trace states that reasoning. Contestable necessity is a design-changing ambiguity returned
+to the user, not internal authority. Design reviews use the external charter. Permission to
+continue reviewing never changes it. An ungrounded guarantee is removed or weakened before
+controls are designed for it.
 
 ## Consequences
 
