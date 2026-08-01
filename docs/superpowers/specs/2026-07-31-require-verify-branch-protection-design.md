@@ -145,9 +145,12 @@ remain immutable.
 ### Actors and trust
 
 Repository administrators are trusted to change protection settings and can still
-change or remove the policy later. Contributors and their branch contents are untrusted.
-GitHub supplies check results and merge-state evaluation. The local operator controls the
-temporary proof branch but must treat it as known-bad input that cannot reach `main`.
+change or remove the policy later. Maintainers with merge authority and changes to the
+`Verify` workflow definition are also trusted: an app-bound context identifies GitHub
+Actions, not one immutable workflow body. Other contributors and their branch contents
+are untrusted. GitHub supplies check results and merge-state evaluation. The local
+operator controls the temporary proof branch but must treat it as known-bad input that
+cannot reach `main`.
 
 ### Controls
 
@@ -163,9 +166,11 @@ temporary proof branch but must treat it as known-bad input that cannot reach `m
 
 ### Out of scope
 
-The policy cannot prevent an administrator from later editing or deleting the policy.
-The proof establishes GitHub's current enforcement for the configured repository, not a
-general guarantee about future GitHub behavior.
+The policy cannot prevent an administrator from later editing or deleting the policy,
+and it does not defend against a trusted maintainer weakening the workflow while keeping
+the same app-bound context. The proof establishes GitHub's current enforcement for the
+configured repository and unchanged workflow, not a general guarantee about future
+GitHub behavior.
 
 ## Acceptance checks
 

@@ -162,33 +162,54 @@ gh api "repos/$repo_name/commits/$head_sha/check-runs" \
   --jq '.check_runs[] | {name, app_id: .app.id, app_slug: .app.slug, conclusion}'
 ```
 
-Inspect the current requirement before changing it:
+The update endpoint replaces the entire required-check list. Preserve every
+unrelated check when replacing the stale context, and stop if policy changes
+between the read and write:
 
-```sh
-gh api "repos/$repo_name/branches/main/protection/required_status_checks" \
-  --jq '{strict, contexts, checks}'
+```bash
+required_url="repos/$repo_name/branches/main/protection/required_status_checks"
+current_required=$(gh api "$required_url")
+stale_context=verify
+replacement_context=verify # replace with the successful run's exact name
+replacement_app_id=15368    # replace with that run's app_id
+
+jq -e --arg stale "$stale_context" --arg replacement "$replacement_context" \
+  '([.checks[] | select(.context == $stale)] | length == 1) and
+   ([.checks[] | select(
+      .context == $replacement and .context != $stale)] | length == 0)' \
+  <<<"$current_required"
+replacement=$(jq \
+  --arg stale "$stale_context" \
+  --arg context "$replacement_context" \
+  --argjson app_id "$replacement_app_id" \
+  '{
+    strict,
+    checks: [.checks[] |
+      if .context == $stale
+      then {context: $context, app_id: $app_id}
+      else .
+      end]
+  }' <<<"$current_required")
+
+live_required=$(gh api "$required_url")
+current_snapshot=$(jq -cS '{strict, checks}' <<<"$current_required")
+live_snapshot=$(jq -cS '{strict, checks}' <<<"$live_required")
+if [[ "$live_snapshot" != "$current_snapshot" ]]; then
+  printf '%s\n' 'required checks changed during recovery; inspect and retry' >&2
+  exit 1
+fi
+
+gh api --method PATCH "$required_url" --input - <<<"$replacement"
+updated_required=$(gh api "$required_url")
+updated_snapshot=$(jq -cS '{strict, checks}' <<<"$updated_required")
+expected_snapshot=$(jq -cS . <<<"$replacement")
+[[ "$updated_snapshot" == "$expected_snapshot" ]]
 ```
 
-Then patch only the required-status-check portion of branch protection. Replace
-both literals below with the successful replacement run's exact values; preserve
-`strict: false` unless the repository separately decides to require branches to be
-up to date:
-
-```sh
-gh api --method PATCH \
-  "repos/$repo_name/branches/main/protection/required_status_checks" \
-  --input - <<'JSON'
-{
-  "strict": false,
-  "checks": [{"context": "verify", "app_id": 15368}]
-}
-JSON
-```
-
-Read the setting back and confirm the replacement PR becomes unblocked. Do not
-clear all required checks as a workaround: that recreates the unprotected merge
-path. Patching this endpoint preserves administrator enforcement and unrelated
-branch-protection settings.
+Confirm the replacement PR becomes unblocked. Do not clear all required checks as
+a workaround: that recreates the unprotected merge path. Patching this endpoint
+preserves other branch-protection features; constructing and asserting the complete
+required-check list preserves other required checks.
 
 ## Decision Records
 
@@ -258,8 +279,8 @@ The root package under `.github/scripts/` owns the repository gate. Its checker,
 suite, migrator, and `adr` and `debt` profiles must remain byte-identical to both
 agent projections under `agents/claude/shared/skills/decision-records/assets/`
 and `agents/codex/shared/skills/decision-records/assets/`; `just records` checks
-that invariant. CI runs the gate, but it remains advisory until branch
-protection requires the `Verify` check; issue #16 tracks that repository setting.
+that invariant. GitHub requires the producer-bound lowercase `verify` check on
+`main`; issue #16 records the failing-PR enforcement proof and recovery procedure.
 
 ## Source Material
 
