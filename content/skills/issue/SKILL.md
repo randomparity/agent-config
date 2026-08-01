@@ -39,16 +39,30 @@ in decompose mode its sub-issues) is gated behind one explicit confirmation.
    `risk:` is deliberately **not** part of the born-ready conjunction above. Born-ready
    governs eligibility for *daytime* work; `risk:` gates only unattended work, and coupling
    them would park every issue the dimension has not reached.
-6. **Confirm → create.** Show the full draft (title, body, labels) and get one explicit
-   confirmation. Then `gh issue create --repo <owner/name> --title <t> --body-file <tmp>
-   --label <labels>`. Prefer `--body-file` over inline `--body`; never `eval` argument
-   tokens.
+6. **Confirm → create → verify.** Show the full draft (title, body, labels) and get one
+   explicit confirmation. Write the confirmed body to a populated temporary file and
+   invoke the bundled `scripts/create-verified-issue.sh` with `--repo <owner/name>`,
+   `--title <t>`, `--body-file <tmp>`, and one `--label <label>` per intended label.
+   Retain the populated temporary body file through read-back verification; never replace
+   it with standard input or inline `--body`, and never `eval` argument tokens. The script
+   creates exactly one issue, reads it back with explicit JSON fields, and checks the
+   confirmed title, non-empty body, mandatory sections, and every intended label. Its
+   verified URL is the only success result.
+
+   On verification failure, report the durable issue URL and every exact mismatch emitted
+   by the script. Do not retry, replace, or create a duplicate. If creation returned no
+   resolvable URL, report that the durable artifact could not be identified and stop.
 7. **Decompose mode** (arguments name a parent issue, e.g. "decompose #N"): read the parent
    (and its `$scope` split if present), draft each sub-issue through steps 2–6, and file each
-   as a **native sub-issue** with `gh issue create --parent <N> ...` (the direct native
-   path, `gh` ≥ 2.94.0; on older `gh`, or to link a *pre-existing* issue instead, use
+   as a **native sub-issue** by passing `--parent <N>` to
+   `scripts/create-verified-issue.sh` (the direct native path requires `gh` ≥ 2.94.0; on
+   older `gh`, or to link a *pre-existing* issue instead, use
    `gh api repos/<owner>/<name>/issues/<N>/sub_issues` or the `sub_issue_write` MCP tool).
-   Add a `Part of #N` courtesy line to each sub-issue body.
+   Add a `Part of #N` courtesy line to each sub-issue body. The script also verifies the
+   created issue's authoritative native `parent` field. After each child, wait for its
+   verified URL before creating the next. If verification fails, stop the decomposition,
+   report prior verified URLs plus the failed child's durable URL and every mismatch, and
+   do not create later children or a replacement.
 
    **Carried confirmation.** A calling command that has already shown these drafts and
    obtained one explicit confirmation (e.g. `$epic`'s step-6 gate) carries that
@@ -91,7 +105,7 @@ in decompose mode its sub-issues) is gated behind one explicit confirmation.
 
 ## Hard constraints
 
-- Read + `gh` only; no branches, no file writes outside the temp body file.
+- Read + `gh` only; no branches, no file writes outside the populated temporary body file.
 - Explicit `--json` fields on every `gh` read.
 - One confirmation before any `gh issue create` / sub-issue write — a caller's carried
   confirmation (step 7) counts as that confirmation.
