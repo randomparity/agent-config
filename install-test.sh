@@ -10,6 +10,14 @@ assert_file() {
 	[[ -f "$1" ]] || fail "expected file: $1"
 }
 
+assert_same_file() {
+	local expected="$1"
+	local actual="$2"
+
+	cmp -s "$expected" "$actual" ||
+		fail "expected identical files: $expected and $actual"
+}
+
 assert_not_file() {
 	[[ ! -e "$1" ]] || fail "expected path to be absent: $1"
 }
@@ -18,6 +26,14 @@ assert_contains() {
 	local file="$1"
 	local expected="$2"
 	grep -Fq "$expected" "$file" || fail "expected $file to contain: $expected"
+}
+
+assert_line() {
+	local file="$1"
+	local expected="$2"
+
+	grep -Fxq -- "$expected" "$file" ||
+		fail "expected $file to contain line: $expected"
 }
 
 assert_json_value() {
@@ -141,6 +157,9 @@ AGENT_CONFIG_HOST=test-host ./install.sh --agent all
 assert_file "$CLAUDE_CONFIG_DIR/CLAUDE.md"
 assert_file "$CLAUDE_CONFIG_DIR/settings.json"
 assert_canonical_skills "$CLAUDE_CONFIG_DIR"
+assert_same_file \
+	"docs/licenses/superpowers.LICENSE" \
+	"$CLAUDE_CONFIG_DIR/licenses/superpowers.LICENSE"
 assert_file "$CLAUDE_CONFIG_DIR/languages/bash.md"
 assert_executable "$CLAUDE_CONFIG_DIR/statusline.sh"
 assert_json_value "$CLAUDE_CONFIG_DIR/settings.json" ".env.AGENT_CONFIG_TEST" "claude"
@@ -148,6 +167,9 @@ assert_json_value "$CLAUDE_CONFIG_DIR/settings.json" ".env.AGENT_CONFIG_TEST" "c
 assert_file "$CODEX_CONFIG_DIR/AGENTS.md"
 assert_file "$CODEX_CONFIG_DIR/config.toml"
 assert_canonical_skills "$CODEX_CONFIG_DIR"
+assert_same_file \
+	"docs/licenses/superpowers.LICENSE" \
+	"$CODEX_CONFIG_DIR/licenses/superpowers.LICENSE"
 assert_file "$CODEX_CONFIG_DIR/references/orchestration.md"
 assert_toml_contains "$CODEX_CONFIG_DIR/config.toml" 'agent_config_test = "codex"'
 
@@ -158,9 +180,19 @@ assert_file "$BOB_CONFIG_DIR/mcp.json"
 assert_file "$BOB_CONFIG_DIR/mcp_settings.json"
 assert_file "$BOB_CONFIG_DIR/rules/global-development-standards.md"
 assert_canonical_skills "$BOB_CONFIG_DIR"
+assert_same_file \
+	"docs/licenses/superpowers.LICENSE" \
+	"$BOB_CONFIG_DIR/licenses/superpowers.LICENSE"
 assert_json_value "$BOB_CONFIG_DIR/settings.json" ".agentConfigTest.bob" "true"
 assert_json_value "$BOB_CONFIG_DIR/mcp.json" '.mcpServers["example-docs"].command' "npx"
 assert_json_value "$BOB_CONFIG_DIR/mcp_settings.json" '.mcpServers["example-docs"].command' "npx"
+
+assert_line "$CLAUDE_CONFIG_DIR/.agent-config-manifest" \
+	"licenses/superpowers.LICENSE"
+assert_line "$CODEX_CONFIG_DIR/.agent-config-manifest" \
+	"licenses/superpowers.LICENSE"
+assert_line "$BOB_CONFIG_DIR/.agent-config-manifest" \
+	"licenses/superpowers.LICENSE"
 
 assert_not_file "$CLAUDE_CONFIG_DIR/stale-managed.txt"
 assert_not_file "$CODEX_CONFIG_DIR/stale-managed.txt"
@@ -177,9 +209,16 @@ assert_executable "$mode_drift"
 assert_canonical_skills "$CODEX_CONFIG_DIR"
 
 write_text "$CLAUDE_CONFIG_DIR/CLAUDE.md" "local drift before reinstall"
+write_text "$CLAUDE_CONFIG_DIR/licenses/superpowers.LICENSE" \
+	"local license drift before reinstall"
 AGENT_CONFIG_HOST=test-host ./install.sh --agent claude
 
 assert_contains "$CLAUDE_CONFIG_DIR/CLAUDE.md" "# Global Development Standards"
 assert_tree_contains "$CLAUDE_CONFIG_DIR/.agent-config-backups" "local drift before reinstall"
+assert_same_file \
+	"docs/licenses/superpowers.LICENSE" \
+	"$CLAUDE_CONFIG_DIR/licenses/superpowers.LICENSE"
+assert_tree_contains "$CLAUDE_CONFIG_DIR/.agent-config-backups" \
+	"local license drift before reinstall"
 
 printf 'install-test: ok\n'

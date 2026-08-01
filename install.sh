@@ -406,6 +406,10 @@ install_common_content() {
 
 	install_managed_path "$dest_dir" "$REPO/content/languages" "languages"
 	install_managed_path "$dest_dir" "$REPO/content/references" "references"
+	install_managed_path \
+		"$dest_dir" \
+		"$REPO/docs/licenses/superpowers.LICENSE" \
+		"licenses/superpowers.LICENSE"
 }
 
 maybe_configure_claude_mcp() {
