@@ -1,39 +1,70 @@
 # Vendored Superpowers Attribution and Ownership Design
 
-Issue: [#6](https://github.com/randomparity/agent-config/issues/6)
+Issues: [#6](https://github.com/randomparity/agent-config/issues/6) and
+[#13](https://github.com/randomparity/agent-config/issues/13)
 
 ADR: [0004. Own vendored Superpowers skills as maintained agent projections][adr-0004]
+
+Debt: [0002. Non-lifecycle vendored skills retain human-only gates][debt-0002]
 
 ## Goal
 
 Restore the license and attribution omitted when Superpowers-derived skills were imported,
 and state the repository's present ownership, update, and dispatched-mode policy for all
-applicable Claude, Codex, and IBM Bob projections.
+applicable Claude, Codex, and IBM Bob projections. Migrate the predecessor's remaining
+human-gate concern into one target-owned debt record grounded in the current projections.
 
 ## Requirements and assumptions
 
 - Preserve the upstream MIT license text from Superpowers 6.1.1, copyright Jesse Vincent.
+- Distribute local modifications within the covered derived roots under the same MIT
+  terms, as explicitly authorized by the operator.
 - Attribute every file in each current derived skill root, including local additions and
   modifications beneath those roots.
-- Treat the predecessor repository's ADRs 0015 and 0018 as provenance, not as policy to
-  copy. This repository has native multi-agent projections and no dependency on the old
-  Claude plugin arrangement.
+- Record the canonical upstream repository, tag `v6.1.1`, and exact commit
+  `d884ae04edebef577e82ff7c4e143debd0bbec99` in the attribution inventory.
+- Treat the predecessor repository's ADRs 0015 and 0018 and debt 0009 as provenance, not
+  as policy to copy. This repository has native multi-agent projections and no dependency
+  on the old Claude plugin arrangement.
+- Reserve ADR 0004 for issue #6 and debt 0002 for issue #13. The directory listing is the
+  record index; no hand-maintained index is added.
 - Keep the change to repository documentation and attribution. It does not re-vendor skill
   contents, add a generator, or change installation behavior.
-- Use the issue acceptance criteria as the approved requirement in dispatched design mode.
+- Use both issues' acceptance criteria and the operator's two resolved decisions as the
+  approved requirement in dispatched design mode.
 
 ## Provenance audit
 
-The upstream source is [obra/superpowers at v6.1.1][superpowers-611].
-Its `LICENSE` blob is identical to the predecessor's
-`docs/licenses/superpowers.LICENSE`. Repository history shows all current derived roots
-arrived in the initial public agent-payload commit. The predecessor's ADR 0015 identifies
-the eleven selected skill families; the current tree projects those eleven to Claude and
-Codex and projects the two applicable skills to Bob.
+The upstream source is [obra/superpowers at v6.1.1][superpowers-611], whose annotated tag
+resolves to commit `d884ae04edebef577e82ff7c4e143debd0bbec99`. Its `LICENSE` blob is
+identical to the predecessor's `docs/licenses/superpowers.LICENSE`. Repository history
+shows all current derived roots arrived in the initial public agent-payload commit. The
+predecessor's ADR 0015 identifies the eleven selected skill families; the current tree
+projects those eleven to Claude and Codex and projects two applicable skills to Bob.
 
 The attribution notice will define coverage by directory root. That makes every current
 file below a listed root covered even when an agent projection has local helper files or
 differs from the upstream snapshot.
+
+## Human-gate audit
+
+The audit distinguishes instructions that can stop or redirect execution from examples
+and historical prose that require no action:
+
+| Skill or companion | Claude | Codex | Bob | Classification |
+|---|---|---|---|---|
+| `test-driven-development/SKILL.md` | deployed | deployed | deployed | executable gates |
+| `testing-anti-patterns.md` | deployed | deployed | absent | descriptive quotes |
+| `systematic-debugging/SKILL.md` | deployed | deployed | absent | executable gate |
+| `receiving-code-review/SKILL.md` | deployed | deployed | absent | mixed; gates recorded |
+| `verification-before-completion/SKILL.md` | deployed | deployed | deployed | descriptive history |
+
+The TDD gates require human permission for exceptions and send an unknown test strategy
+to the human. Systematic debugging requires discussion after three failed fixes.
+Review-reception stops on conflicts with prior human decisions and calls for architectural
+escalation; its example speakers and quoted preferences are descriptive. Verification's
+single phrase reports a past loss of trust and is not a gate. Debt 0002 owns only the
+executable residuals and names only the projections that actually deploy them.
 
 ## Approaches considered
 
@@ -54,22 +85,34 @@ Move derived files into one canonical tree and generate per-agent copies. This m
 simplify future attribution, but it changes the repository's ownership and installation
 architecture and is not required to restore the missing records.
 
+### Copy the predecessor debt unchanged
+
+This would preserve its wording but retain Claude-only `shared/skills/` targets and treat
+its four named skills as if all agents deployed them. A new target record instead records
+the current projection matrix and separates executable gates from descriptive references.
+
 ## Design
 
 Create `docs/licenses/superpowers.LICENSE` as a byte-for-byte copy of the upstream
 Superpowers 6.1.1 MIT license. Create `docs/licenses/superpowers.md` as the human-readable
-notice. It records the upstream project, version and copyright; distinguishes original
-work from local modifications; links the license and predecessor provenance; and lists
+notice. It records the upstream project, exact tag and commit, upstream copyright, and MIT
+coverage of local modifications; links the license and predecessor provenance; and lists
 the covered skill roots by agent and skill name.
 
 Add a short README section that points readers to the notice and license rather than
 duplicating the inventory. ADR 0004 owns the durable policy:
 
-- native projection directories are maintained forks owned by this repository;
+- native projection directories are maintained forks distributed under MIT;
 - updates are deliberate upstream diffs that preserve and review local adaptations;
 - all applicable projections are considered together, without requiring byte identity;
-- a caller explicitly asserts dispatched mode, which returns control without integration;
-- only lifecycle skills with interactive gates carry the dispatched-mode adaptation.
+- a caller explicitly asserts dispatched mode;
+- dispatched gates resolve from written policy or return a blocker, never infer permission;
+- later shipping skills retain their own push and merge authorization.
+
+Create debt 0002 for the audited, unadapted TDD, debugging, and review-reception gates. It
+records the projection matrix, sanctioned resolution choices, non-regression boundary,
+predecessor commit, and a 2026-10-31 review date. Closing issue #13 means the migration is
+complete; the record remains open until the skill adaptations and proofs it names land.
 
 No skill body or installer path changes. The existing directory layout remains the source
 of deployable agent-native files.
@@ -85,13 +128,19 @@ of deployable agent-native files.
   normalized merely to make files match.
 - If upstream changes license terms, the re-vendor change must retain the terms applying
   to existing material and add the new terms required by the incoming snapshot.
+- A future dispatched call into a recorded human gate must return a blocker unless written
+  policy fully decides the choice. It may not treat silence as permission.
+- Debt 0002's review date bounds re-evaluation even if no upstream refresh occurs; an
+  observed skipped or weakened test triggers earlier review.
 
 ## Verification
 
 - Compare `docs/licenses/superpowers.LICENSE` byte-for-byte with the verified upstream
   v6.1.1 license blob.
 - Enumerate the current derived roots and confirm each appears in the attribution notice.
-- Run the decision-record checker for ADR 0004.
+- Repeat the human-reference sweep and confirm every result is classified by debt 0002 or
+  documented as descriptive or inapplicable.
+- Run the decision-record checker for ADR 0004 and debt 0002.
 - Run `just verify`, including public-safety, documentation-adjacent record checks, install
   tests, shell lint and formatting, and workflow checks.
 - Review the final diff to ensure it contains no host-specific or private material and no
@@ -99,9 +148,11 @@ of deployable agent-native files.
 
 ## Scope and decomposition
 
-This is one small documentation and provenance change. The license, notice, README link,
-ADR, and design/plan artifacts are one consistency unit and should ship in one pull
-request. No decomposition is needed.
+The operator authorized issue #6 to absorb issue #13 because the general dispatched policy
+and its current residual must be reviewed together. The license, notice, README link, ADR,
+debt record, and design/plan artifacts are one consistency unit and ship in one pull
+request that closes both trackers. Runtime skill adaptations remain deferred to debt 0002.
 
 [adr-0004]: ../../adr/0004-own-vendored-superpowers-skills.md
+[debt-0002]: ../../debt/0002-non-lifecycle-vendored-skills-retain-human-gates.md
 [superpowers-611]: https://github.com/obra/superpowers/tree/v6.1.1
