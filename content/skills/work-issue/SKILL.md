@@ -230,6 +230,10 @@ hold the design.
 Run `$build-tdd` to implement the plan using test-driven development and run the
 guardrail suite. Pass the plan path if one exists.
 
+<!-- SCOPE-RULE:governed-build-handoff -->
+For a governed-small-change, pass build-tdd the selected classification plus the revalidated decision reference, decision kind, accepted status, governed behavior, and acceptance criteria; pass no plan path.
+<!-- SCOPE-RULE:END:governed-build-handoff -->
+
 **Durable artifact:** the committed code and tests, plus the plan's completed
 tasks. Context checkpoint before step 5: the branch name and guardrail commands
 must be recorded somewhere durable (manifest or a note) — TDD red/green output is

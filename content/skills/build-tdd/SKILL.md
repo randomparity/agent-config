@@ -25,10 +25,13 @@ must report back to you instead of presenting an integration menu, and must take
 no merge, push, or discard. That mode is a property of the run, so the
 implementer and reviewer subagents you dispatch inherit it; their prompts say so.
 
-If no plan path is supplied, look for one under `docs/superpowers/plans/`. No plan is
-valid only for a trivial bugfix or a caller-verified `governed-small-change`. For the
-governed path, write and run the focused failing test as the first executable proof. Any
-other non-trivial change without a plan stops and returns to `$design`.
+<!-- SCOPE-RULE:governed-build-input -->
+When the caller supplies a governed-small-change classification with its revalidated decision reference, decision kind, accepted status, governed behavior, and acceptance criteria, reject any supplied or auto-discovered plan and write and run the focused failing test as the first executable proof.
+<!-- SCOPE-RULE:END:governed-build-input -->
+
+Otherwise, if no plan path is supplied, look for one under `docs/superpowers/plans/`.
+No plan is valid only for a trivial bugfix. Any other non-trivial change without a plan
+stops and returns to `$design`.
 
 <!-- SCOPE-RULE:governed-scope-expansion -->
 Build-time scope expansion stops implementation, re-freezes scope, and runs full design without automatically reselecting the abbreviated path.

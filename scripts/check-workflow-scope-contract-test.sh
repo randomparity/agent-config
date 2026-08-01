@@ -189,6 +189,10 @@ check_contract() {
 		"The abbreviated path retains branch review, simplification, repository guardrails, PR creation, CI, and merge handoff." || return 1
 	assert_rule "$build" governed-scope-expansion \
 		"Build-time scope expansion stops implementation, re-freezes scope, and runs full design without automatically reselecting the abbreviated path." || return 1
+	assert_rule "$work" governed-build-handoff \
+		"For a governed-small-change, pass build-tdd the selected classification plus the revalidated decision reference, decision kind, accepted status, governed behavior, and acceptance criteria; pass no plan path." || return 1
+	assert_rule "$build" governed-build-input \
+		"When the caller supplies a governed-small-change classification with its revalidated decision reference, decision kind, accepted status, governed behavior, and acceptance criteria, reject any supplied or auto-discovered plan and write and run the focused failing test as the first executable proof." || return 1
 	assert_rule "$campaign" governed-evidence \
 		"Campaign carries governed-small-change evidence to work-issue; the subtype name alone never authorizes the abbreviated path." || return 1
 	assert_rule "$campaign" governed-dispatch-evidence \
@@ -314,6 +318,22 @@ run_governed_fixtures() {
 		"Infer the new decision and continue implementation."
 	assert_fixture_fails governed-scope-expansion \
 		"rule governed-scope-expansion missing instruction" "$fixture"
+
+	fixture=$(copy_fixture governed-build-handoff)
+	file=$(skill_path "$fixture" work-issue)
+	rewrite_block_line_once "$file" RULE governed-build-handoff \
+		"For a governed-small-change, pass build-tdd the selected classification plus the revalidated decision reference, decision kind, accepted status, governed behavior, and acceptance criteria; pass no plan path." \
+		"Run build-tdd without classification evidence and allow plan discovery."
+	assert_fixture_fails governed-build-handoff \
+		"rule governed-build-handoff missing instruction" "$fixture"
+
+	fixture=$(copy_fixture governed-build-input)
+	file=$(skill_path "$fixture" build-tdd)
+	rewrite_block_line_once "$file" RULE governed-build-input \
+		"When the caller supplies a governed-small-change classification with its revalidated decision reference, decision kind, accepted status, governed behavior, and acceptance criteria, reject any supplied or auto-discovered plan and write and run the focused failing test as the first executable proof." \
+		"When the caller supplies governed-small-change, discover any repository plan first."
+	assert_fixture_fails governed-build-input \
+		"rule governed-build-input missing instruction" "$fixture"
 
 	fixture=$(copy_fixture governed-campaign-evidence)
 	file=$(skill_path "$fixture" campaign)
@@ -540,7 +560,7 @@ run_scope_fixtures
 run_governed_fixtures
 run_extractor_tests
 run_review_fixtures
-[[ "$fixture_count" -eq 20 ]] || fail "expected 20 SCOPE fixtures, got $fixture_count"
+[[ "$fixture_count" -eq 22 ]] || fail "expected 22 SCOPE fixtures, got $fixture_count"
 [[ "$extractor_count" -eq 3 ]] || fail "expected 3 extractor tests, got $extractor_count"
 printf 'workflow-scope-contract-test: ok (%d fixtures, %d extractor tests)\n' \
 	"$fixture_count" "$extractor_count"
