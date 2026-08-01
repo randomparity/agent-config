@@ -7,7 +7,7 @@ description: "Run a proactive repository maintenance sweep for stale issues, dep
 Sweep the four maintenance signals nothing else in this skill set watches, and turn each into
 filed work. `$groom` **produces work; it never does the work.** Its whole write surface is: it
 files issues, it ages issues that have gone quiet (comment → `stale` label → a recoverable
-close, ADR 0022), and it opens one draft PR against deferral records (ADR 0021). It never bumps
+close), and it opens one draft PR against deferral records. It never bumps
 a dependency, edits code, or merges anything.
 
 Run it manually, or on a schedule (see *Trigger* below). Read → report → one confirmation →
@@ -98,17 +98,17 @@ require one explicit user confirmation before any GitHub write, branch push, or 
    with the install command (`install-tools.sh` carries it as optional). Never let an absent
    tool read as a clean sweep.
 
-5. **Sweep D — deferral-record staleness.** Per ADR 0021, this sweep emits a **draft PR that
-   edits records in place**, not issues — ADR 0007 makes the record the owner, and a tracker
-   issue never appears in a diff.
+5. **Sweep D — deferral-record staleness.** This sweep emits a **draft PR that edits records
+   in place**, not issues: the record is the durable owner, and a tracker issue never appears
+   in a diff.
 
    Read `RECORD_DIR` for each profile the repo enables (`RECORD_PROFILES` in its records
    workflow; `docs/debt` for the `debt` profile). Select records that are **open** — `## Status`
    reads `Open`, with no `> **Resolved by ...**` banner — **and** whose `review-by:` date has
-   passed. Open-only is load-bearing on ADR 0021's own terms — a resolved record's `review-by:`
+   passed. Open-only is load-bearing — a resolved record's `review-by:`
    is not a staleness signal, whatever the gate emits — so do not weaken it to "whatever CI
    warned about". `check_review_by` skips resolved records as of #124, so the two agree today;
-   the rule stands on the ADR rather than on that agreement, and outlives it.
+   the rule stands independently of that agreement and outlives it.
 
    If no record qualifies, say so and emit nothing.
 

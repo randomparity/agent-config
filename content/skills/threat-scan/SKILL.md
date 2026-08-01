@@ -29,7 +29,7 @@ parsing*, *Target resolution*, and *File output* sections **verbatim**: same fla
 (`--base <ref>`, `--working-tree`, `--json`, `--out <path>`), same left-to-right token
 classification, same three target modes (branch, working-tree, file-list), same
 working-tree default, and the same line-anchored `CHARTER` stop rule with its
-target-resolution error taxonomy (ADR 0010).
+target-resolution error taxonomy.
 
 Those rules are deliberately not restated here. They are a parsing boundary with one owner,
 and a second copy would be a second thing to keep in sync — so read the owner rather than
@@ -161,7 +161,7 @@ Two differences in how the fields are filled:
   before any verdict. That is what a reader needs to judge whether the scan looked in the
   right places, and it is the field a later reviewer checks the scan against.
 - **`suppressions` carries governing-ADR re-litigation only**, on the same terms as
-  `$challenge` (ADR 0003): a decision an accepted ADR settled is not re-argued here either.
+  `$challenge`: a decision an accepted ADR settled is not re-argued here either.
   A security finding that cites a fact outside that record is new risk, not re-litigation —
   report it. An accepted ADR never settles a vulnerability in the code implementing it.
 

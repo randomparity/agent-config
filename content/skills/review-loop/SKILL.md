@@ -198,8 +198,8 @@ Repeat up to 5 iterations:
    block's newlines. If the transport cannot guarantee that, **stop as blocked** and
    report that it cannot carry a charter. Running uncharterd is not the fallback: the
    charter is what establishes finding ownership, so without it every adjacent defect
-   becomes the loop's to fix and the run drifts to the cap — the failure ADR 0007
-   created the charter to remove.
+   becomes the loop's to fix and the run drifts to the cap — the failure this charter
+   prevents.
 
    (c) *Always pass an explicit target or mode flag ahead of the charter*, evaluated
    **after** the strip in the paragraph below, never before. When the post-strip
@@ -532,9 +532,9 @@ callers still pass it as explicit reinforcement (`$design`'s spec- and plan-revi
 calls) — harmless because the ADR it points at is genuinely settled: `$design` now
 runs a dedicated ADR-review step (as a `$challenge` file-list target) before the
 spec review, so the companion ADR is hardened on its merits first and the later
-spec/plan reviews reinforce an already-reviewed decision, not an unreviewed shield
-(this closes the ADR 0003 / issue #49 residual). You may add focus to emphasise a
-specific ADR, but the default behavior already holds without it.
+spec/plan reviews reinforce an already-reviewed decision, not an unreviewed shield.
+You may add focus to emphasise a specific ADR, but the default behavior already holds
+without it.
 
 ## What to report back
 

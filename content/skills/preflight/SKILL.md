@@ -50,7 +50,7 @@ the two — an ADR file requiring a matching index row, or the reverse. Read the
 recipe rather than trusting its name; the guard is often a script the recipe
 calls. Record a `coupled` / `not coupled` verdict beside the commands, and report
 it to the orchestrator under `$campaign`. Step 6, `$design`, and `$campaign`
-step 6 all branch on it (ADR 0019).
+step 6 all branch on that coupling verdict.
 
 ## 5. Confirm gh authentication
 
@@ -68,12 +68,12 @@ concurrently, honor what the orchestrator handed you:
   orchestrator rather than guessing.
 - Stay strictly within the **file scope** you were given; do not edit files
   another agent owns, even to fix an adjacent nit — flag it instead.
-- **Leave an ADR index alone** (e.g. a table in `docs/adr/README.md`). Write only
+- **Leave an ADR index alone** (e.g. target-repository: `docs/adr/README.md`). Write only
   your own ADR file and report `index row pending`; the orchestrator owns the row.
   Rows appended by parallel agents conflict even when their numbers are disjoint,
   because git conflicts on adjacent insertions.
-  **Unless CI gates the index** (ADR 0019 — the gate outranks the run type, because the
-  row is a merge precondition and this rule is a convention). Take the coupling verdict
+  **Unless CI gates the index** — the gate outranks the run type because the row is a
+  merge precondition and this rule is a convention. Take the coupling verdict
   from your dispatch prompt if the orchestrator supplied one, and otherwise run step 4's
   coupling check yourself; only a check CI hard-gates individually counts, not one
   reachable solely through an umbrella recipe. Where such a check enforces "one index row per ADR

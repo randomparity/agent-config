@@ -54,8 +54,9 @@ existing status line — never by editing the decision itself:
 > **Superseded by [NNNN](NNNN-slug.md)** (YYYY-MM-DD)
 ```
 
-The banner's link must resolve to a sibling record in the same directory. There is
-deliberately no index table in `docs/adr/README.md` — the directory listing is the index,
+The banner's link must resolve to a sibling record in the same directory. At
+target-repository `docs/adr/README.md`, there is deliberately no index table. The directory
+listing is the index,
 so a decision-producing change touches only its own file plus that one banner when it
 supersedes.
 
@@ -111,8 +112,7 @@ Write to these whether or not a repo has the gate:
 - every required section present **and non-empty** — a heading with no content is not a
   record;
 - record numbers are unique;
-- nothing else in the directory besides records — `docs/adr/README.md` is the one named
-  exception;
+- target-repository `docs/adr/README.md` is the only non-record exception;
 - and once a record is merged, its substantive sections are **append-only**. Adding a
   resolution or supersession banner, or appending detail, is fine; removing or rewriting
   what a section already said is not — including the record's own heading lines and the
@@ -160,7 +160,7 @@ moving text between lines or regions:
 
 | from | to |
 |---|---|
-| `# 1. Title`, `# ADR 1: Title` | `# 0001 — Title`, the number from the filename |
+| `# 1. Title`, `# ADR N: Title` | `# 0001 — Title`, the number from the filename |
 | `## Status:`, `## status` | `## Status` |
 | `accepted (2026-07-19)`, `ACCEPTED (2026-07-19)` | `Accepted (2026-07-19)` — case only |
 | `accepted 2026-07-19` | `Accepted (2026-07-19)` — case and parentheses |

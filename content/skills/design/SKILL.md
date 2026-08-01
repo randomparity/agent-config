@@ -110,8 +110,8 @@ Size the record to what the decision governs, not to how much could be said abou
 it. The five sections above are the whole of it: enough context that a reader knows
 why the question arose, the decision, the consequences that reader would otherwise
 discover the hard way, and each rejected alternative with the sentence or two that
-sank it. `docs/adr/0002` settles the shape of an entire command in 57 lines — that
-is the norm, not a terse outlier. A record running longer than the artifact it
+sank it. A 57-line record can settle the shape of an entire command; that is the
+norm, not a terse outlier. A record running longer than the artifact it
 governs has stopped recording the decision and started defending it; a 514-line ADR
 over a 19-line state machine is the failure this bounds. State the decision and stop.
 
@@ -127,7 +127,7 @@ only on a **solo** run; on a **dispatched** run (an orchestrator handed you an A
 number, `$preflight` step 6) write only the ADR file and report `index row pending`
 in your completion report, leaving the row to the orchestrator.
 
-**CI gating the index outranks that split** (ADR 0019): the row is a merge
+**CI gating the index outranks that split**: the row is a merge
 precondition there, and run type is only a convention. `$preflight` step 4 reports the
 coupling verdict — and separates checks CI hard-gates **individually** from ones
 reachable only through an umbrella recipe, since only the former can block a PR. Under
@@ -262,14 +262,14 @@ ADR(s) this design produced with a git predicate — not your recollection of wh
 step 1 wrote one, which a post-compaction resume loses. The changed-ADR set is the
 union of:
 
-- `git diff --name-only <BASE_BRANCH>...HEAD -- docs/adr/ ':(exclude)docs/adr/README.md'`
+- target-repository path: `git diff --name-only <BASE_BRANCH>...HEAD -- docs/adr/ ':(exclude)docs/adr/README.md'`
   — ADRs already committed on the branch, and
-- `git status --short --untracked-files=all -- docs/adr/ ':(exclude)docs/adr/README.md'`
+- target-repository path: `git status --short --untracked-files=all -- docs/adr/ ':(exclude)docs/adr/README.md'`
   — ADRs written but not yet committed (`--untracked-files=all` so a brand-new,
   never-staged ADR is seen regardless of the user's `status.showUntrackedFiles`
   config).
 
-The `':(exclude)docs/adr/README.md'` pathspec drops the index — an index-row edit is
+The target-repository `':(exclude)docs/adr/README.md'` pathspec drops the index — an index-row edit is
 not an ADR to challenge. **Echo an audit line before proceeding** —
 `ADR review: changed-ADR set = <paths, or empty> → reviewed | skipped` — so a
 mis-evaluated predicate leaves an inspectable trace rather than silently reopening
