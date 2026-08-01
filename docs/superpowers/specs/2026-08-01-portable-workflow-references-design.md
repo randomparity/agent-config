@@ -37,12 +37,12 @@ The current inventory contains three categories:
 
 ### Syntax-driven guard — selected
 
-Scan every deployable prose payload under `content/skills/` and each
-`agents/{claude,codex,bob}/shared/` tree. Reject bare numeric ADR citations, bare numeric
-source-issue citations, and concrete relative file references beneath `docs/adr/`,
-`docs/debt/`, `docs/superpowers/specs/`, or `docs/superpowers/plans/`. Permit directory
-contracts and visibly templated references containing `NNNN`, `YYYY-MM-DD`, `<...>`, or a
-glob.
+Scan every regular, non-symlink, non-binary deployed file under `content/skills/` and each
+`agents/{claude,codex,bob}/shared/` tree, regardless of extension. Reject bare numeric ADR
+citations, bare numeric source-issue citations, and concrete relative file references
+beneath `docs/adr/`, `docs/debt/`, `docs/superpowers/specs/`, or
+`docs/superpowers/plans/`. Permit directory contracts and references whose basename is
+visibly templated with `NNNN`, `YYYY-MM-DD`, an angle-bracket placeholder, or a glob.
 
 This catches the known stale epic spec, source issue, and conflicting ADR-number forms
 without making the checker interpret prose. Valid target inputs and examples express their
@@ -63,25 +63,34 @@ resembles a historical exception.
 ## Guard design
 
 `scripts/check-deployed-references.sh` owns discovery and classification. It resolves the
-repository root from its own path, requires `rg`, enumerates regular prose files from the
-canonical and native deployment roots, and reports every violation before exiting nonzero.
-It never follows symlinks or scans repository-only design records.
+repository root from its own path, requires `rg`, enumerates every regular non-symlink file
+from the canonical and native deployment roots, and reports every violation before exiting
+nonzero. `rg`'s binary detection excludes binary payloads, which cannot contain deployed
+prose; file extensions do not affect inclusion. The guard never follows symlinks or scans
+repository-only design records.
 
 The denied forms are:
 
-- case-insensitive `ADR` followed by a concrete number;
-- case-insensitive `issue` followed by `#` and a concrete number; and
+- case-insensitive `ADR` followed by a concrete number, including a Markdown link label;
+- case-insensitive `issue` followed by `#` and a concrete number, including a Markdown link
+  label; and
 - a concrete relative Markdown file below one of the four record/design directories.
 
-The path rule accepts directory references and template/example signals (`NNNN`,
-`YYYY-MM-DD`, angle-bracket placeholders, or `*`). Fully qualified URLs are outside the
-relative-path rule. Diagnostics name the file, line, and reference class.
+Fully qualified provenance therefore uses a descriptive, nonnumeric Markdown label, such
+as `[governing-review decision](https://github.com/owner/repo/blob/<commit>/docs/adr/0019-name.md)`,
+or a bare stable URL. The numeric identifier may occur in the URL path, but not as a bare
+prose citation. The relative-path rule accepts an exact directory reference or requires the
+variable marker (`NNNN`, `YYYY-MM-DD`, `<...>`, or `*`) in the candidate path's basename;
+an unrelated marker elsewhere on the line or in a parent component cannot exempt a concrete
+file. Diagnostics name the file, line, and reference class.
 
 The test script creates a minimal temporary repository fixture and proves both sides of each
 classification boundary. It includes explicit regressions for the stale epic design path,
-the source issue reference, conflicting ADR numbers, fully qualified provenance, target
-directories, and templated examples. It also proves that Claude-, Codex-, and Bob-native
-roots are scanned.
+the source issue reference, conflicting ADR numbers, descriptive-label and bare-URL forms
+of fully qualified ADR/issue provenance, target directories, templated examples, and mixed
+paths whose marker is outside the concrete basename. It proves that canonical Markdown, a
+non-Markdown canonical asset, and Claude-, Codex-, and Bob-native roots are scanned; a
+binary fixture is ignored deliberately.
 
 `just references-check` runs the guard directly. `just test` runs its regression suite, and
 `just verify` includes the guard so the required GitHub check blocks a regression.
