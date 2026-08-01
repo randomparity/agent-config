@@ -9,9 +9,10 @@ description: "Use when reviewing UI changes for accessibility."
 
 Require the caller to supply the same base branch or explicit file list used by the preceding
 branch review. Use the same base branch or explicit file list as the preceding branch review.
-Normalize that input to the files, routes, or components under review and call it the inspected
-target. If the target cannot be resolved, stop with an actionable error that states what target
-is needed. Record the normalized inspected target in every target-resolution error.
+Resolve that input to the files, routes, or components under review.
+When target resolution fails, report the raw unresolved input.
+Also report the accepted base-branch or explicit-file-list forms.
+Create the normalized inspected target only after resolution succeeds.
 
 ## Required project policy
 

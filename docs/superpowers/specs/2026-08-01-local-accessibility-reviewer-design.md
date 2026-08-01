@@ -74,8 +74,8 @@ source with agent-specific destination documentation.
 Create `examples/project-review-skills/accessibility-reviewer/SKILL.md` with portable
 four-line frontmatter and a read-only review workflow. The reviewer:
 
-1. resolves the user-supplied files or base branch, records the normalized target, and
-   uses the same target as the preceding branch review;
+1. resolves the user-supplied files or base branch, uses the same input as the preceding
+   branch review, and records a normalized inspected target only after resolution succeeds;
 2. reads the target project's accessibility policy and relevant UI or design-system
    conventions;
 3. examines semantics, keyboard operation, focus behavior, names and labels, contrast and
@@ -94,8 +94,9 @@ alone. Verdict precedence is deterministic: any source finding returns `needs-at
 otherwise any outstanding runtime or human verification returns `needs-manual-check`;
 otherwise an applicable review returns `approve`. `not-applicable` reports the normalized
 inspected target. The caller applies the target project's shipping policy to manual checks.
-Empty or unresolvable targets produce an actionable error instead of silently reviewing
-unrelated files.
+Empty or unresolvable targets produce an actionable error containing the raw unresolved
+input and the accepted base-branch or explicit-file-list forms instead of creating a
+normalized inspected target or silently reviewing unrelated files.
 
 ### Integration documentation
 
@@ -133,7 +134,9 @@ ADR 0020's exception cannot widen silently.
   findings.
 - Evidence requiring runtime inspection: return `needs-manual-check`, identify the check
   and expected evidence, and leave the shipping decision to project instructions.
-- Unresolvable review target: stop with the unresolved input and suggested valid forms.
+- Unresolvable review target: stop with the raw unresolved input and accepted base-branch
+  or explicit-file-list forms; reserve the normalized inspected target for successful
+  resolution and verdicts.
 - Unsupported agent placement: the example remains ordinary Agent Skills content; the
   documentation promises only the three repository-supported destinations.
 - Mixed source findings and manual checks: return `needs-attention`; report the manual

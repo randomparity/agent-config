@@ -13,9 +13,9 @@ ${AGENT_CONFIG_PRIVATE_DIR:-$HOME/.config/agent-config}/hosts/<host>/<agent>/
 
 Keep shared prose in `content/` only when it is agent-neutral. Reusable installed workflow
 sources live only under `content/skills/`; ADR 0020 permits the sole non-installed, copyable
-exception under `examples/project-review-skills/`. Keep native settings, instruction files,
-commands, skills, modes, and MCP files under `agents/<agent>/shared/`; agent-native trees must
-not define skills or commands.
+exception under `examples/project-review-skills/`.
+Keep native settings, instruction files, modes, and MCP files under `agents/<agent>/shared/`.
+Agent-native trees must not define skills or commands.
 
 Run `just setup` before local development to install repo tooling and enable
 git hooks.

@@ -69,6 +69,7 @@ case_count=0
 
 example_skill="$repo_root/examples/project-review-skills/accessibility-reviewer/SKILL.md"
 bob_instructions="$repo_root/examples/bob-project/AGENTS.md"
+repo_instructions="$repo_root/AGENTS.md"
 legacy_bob_skill="$repo_root/examples/bob-project/.bob/skills/project-context/SKILL.md"
 root="$(new_fixture)"
 mkdir -p "$root/examples/other"
@@ -102,13 +103,19 @@ assert_contains 'Identify the policy and the owner or action needed to declare r
 assert_contains "Do not return \`approve\` for a policy with no declared accessibility requirements." \
 	"$example_skill"
 assert_contains 'Record the normalized inspected target in every verdict.' "$example_skill"
-assert_contains 'Record the normalized inspected target in every target-resolution error.' \
+assert_contains 'When target resolution fails, report the raw unresolved input.' \
+	"$example_skill"
+assert_contains 'Also report the accepted base-branch or explicit-file-list forms.' \
+	"$example_skill"
+assert_contains 'Create the normalized inspected target only after resolution succeeds.' \
 	"$example_skill"
 assert_contains 'Use the same base branch or explicit file list as the preceding branch review.' \
 	"$example_skill"
 assert_contains \
 	"Keep outstanding manual checks in the report when source findings return \`needs-attention\`." \
 	"$example_skill"
+assert_contains 'Keep native settings, instruction files, modes, and MCP files under' \
+	"$repo_instructions"
 
 output="$(cd "$repo_root" && bash scripts/check-skill-layout.sh)"
 [[ "$output" == 'skills-check: ok (35 canonical skills, 2 project review examples)' ]] || fail "$output"

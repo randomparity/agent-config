@@ -212,7 +212,9 @@ Extend the existing example-content assertions to require these exact behavioral
 Any source finding takes precedence over outstanding manual checks: return `needs-attention`.
 Apply only accessibility requirements named by the project policy.
 Record the normalized inspected target in every verdict.
-Record the normalized inspected target in every target-resolution error.
+When target resolution fails, report the raw unresolved input.
+Also report the accepted base-branch or explicit-file-list forms.
+Create the normalized inspected target only after resolution succeeds.
 Use the same base branch or explicit file list as the preceding branch review.
 Keep outstanding manual checks in the report when source findings return `needs-attention`.
 Copy `project-context` from `examples/project-review-skills/project-context/` to `.bob/skills/project-context/`.
@@ -255,8 +257,10 @@ Expected: `cmp` exits 0 with no output.
 - [ ] **Step 3: Complete the Accessibility Reviewer contract**
 
 Require the caller to supply the same base branch or explicit file list used by the
-preceding branch review. Normalize and report that target in all four verdicts and target
-errors. Read the project's declared accessibility policy plus relevant UI or design-system
+preceding branch review. After successful resolution, normalize and report that target in
+all four verdicts. On resolution failure, report the raw unresolved input and accepted
+base-branch or explicit-file-list forms without creating a normalized inspected target.
+Read the project's declared accessibility policy plus relevant UI or design-system
 conventions. Apply only requirements named by that policy. Define mixed-result precedence:
 source findings return `needs-attention` while manual checks remain listed; only manual
 checks return `needs-manual-check`; neither returns `approve`.
