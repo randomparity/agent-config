@@ -31,13 +31,24 @@ set -euo pipefail
 printf '%q ' "$@" >>"$GH_CALL_LOG"
 printf '\n' >>"$GH_CALL_LOG"
 
+if [[ $1 == repo && $2 == view ]]; then
+  host=github.com
+  [[ ${GH_SCENARIO:-success} == ghes ]] && host=ghe.example.com
+  printf 'https://%s/example/repo\n' "$host"
+  exit 0
+fi
+
 if [[ $1 == issue && $2 == create ]]; then
   if [[ ${GH_SCENARIO:-success} == unresolved-create ]]; then
     printf 'created\n'
   else
     host=github.com
     [[ ${GH_SCENARIO:-success} == ghes ]] && host=ghe.example.com
+    [[ ${GH_SCENARIO:-success} == wrong-create-host ]] && host=ghe.example.com
     printf 'https://%s/example/repo/issues/%s\n' "$host" "${GH_ISSUE_NUMBER:-101}"
+    if [[ ${GH_SCENARIO:-success} == create-error-with-url ]]; then
+      exit 1
+    fi
   fi
   exit 0
 fi
@@ -67,6 +78,7 @@ if [[ $1 == issue && $2 == view ]]; then
   parent='{"number":42}'
   case ${GH_SCENARIO:-success} in
     wrong-title | combined) title='Observed title' ;;
+    control-title) title=$'Observed\n::error::forged' ;;
   esac
   case ${GH_SCENARIO:-success} in
     missing-label | combined) labels='[{"name":"bug"}]' ;;
@@ -83,6 +95,8 @@ if [[ $1 == issue && $2 == view ]]; then
   [[ ${GH_SCENARIO:-success} == wrong-number ]] && response_number=102
   response_repo=example/repo
   [[ ${GH_SCENARIO:-success} == wrong-url ]] && response_repo=other/repo
+  url_suffix=''
+  [[ ${GH_SCENARIO:-success} == control-url ]] && url_suffix=$'\n::error::forged'
   jq -cn \
     --argjson number "$response_number" \
     --arg title "$title" \
@@ -91,7 +105,16 @@ if [[ $1 == issue && $2 == view ]]; then
     --argjson parent "$parent" \
     --arg host "$host" \
     --arg response_repo "$response_repo" \
-    '{number:$number,title:$title,body:$body,labels:$labels,parent:$parent,state:"OPEN",url:("https://"+$host+"/"+$response_repo+"/issues/"+($number|tostring))}'
+    --arg url_suffix "$url_suffix" \
+    '{
+      number:$number,
+      title:$title,
+      body:$body,
+      labels:$labels,
+      parent:$parent,
+      state:"OPEN",
+      url:("https://"+$host+"/"+$response_repo+"/issues/"+($number|tostring)+$url_suffix)
+    }'
   exit 0
 fi
 
@@ -144,7 +167,11 @@ else
 	fail 'GHES scenario failed'
 fi
 
-for scenario in empty-body missing-section malformed-json wrong-title missing-label wrong-parent malformed-label malformed-parent; do
+failure_scenarios=(
+	empty-body missing-section malformed-json wrong-title missing-label wrong-parent
+	malformed-label malformed-parent
+)
+for scenario in "${failure_scenarios[@]}"; do
 	if run_case "$scenario"; then
 		fail "$scenario unexpectedly passed"
 	fi
@@ -168,18 +195,53 @@ for scenario in wrong-host wrong-url wrong-number; do
 	assert_count 1 '^issue view ' "$fixture/calls"
 done
 run_case wrong-host || true
-assert_contains "url: expected 'https://github.com/example/repo/issues/101', observed 'https://ghe.example.com/example/repo/issues/101'" "$fixture/stderr"
+expected='url: expected "https://github.com/example/repo/issues/101",'
+expected+=' observed "https://ghe.example.com/example/repo/issues/101"'
+assert_contains "$expected" "$fixture/stderr"
 run_case wrong-url || true
-assert_contains "url: expected 'https://github.com/example/repo/issues/101', observed 'https://github.com/other/repo/issues/101'" "$fixture/stderr"
+expected='url: expected "https://github.com/example/repo/issues/101",'
+expected+=' observed "https://github.com/other/repo/issues/101"'
+assert_contains "$expected" "$fixture/stderr"
 run_case wrong-number || true
 assert_contains 'number: expected #101, observed #102' "$fixture/stderr"
+
+if run_case wrong-create-host; then
+	fail 'wrong create host unexpectedly passed'
+fi
+assert_contains 'does not match canonical repository URL' "$fixture/stderr"
+assert_count 0 '^issue view ' "$fixture/calls"
+
+if run_case create-error-with-url; then
+	fail 'failed create with URL unexpectedly passed'
+fi
+assert_contains 'https://github.com/example/repo/issues/101' "$fixture/stderr"
+assert_contains 'creation command failed with exit 1; creation was not retried' "$fixture/stderr"
+assert_count 1 '^issue create ' "$fixture/calls"
+assert_count 0 '^issue view ' "$fixture/calls"
+
+if run_case control-title; then
+	fail 'control-character title unexpectedly passed'
+fi
+assert_contains 'observed "Observed\n::error::forged"' "$fixture/stderr"
+if rg -n '^::error::forged$' "$fixture/stderr" >/dev/null; then
+	fail 'title control characters reached diagnostics'
+fi
+
+if run_case control-url; then
+	fail 'control-character URL unexpectedly passed'
+fi
+expected='observed "https://github.com/example/repo/issues/101\n::error::forged"'
+assert_contains "$expected" "$fixture/stderr"
+if rg -n '^::error::forged$' "$fixture/stderr" >/dev/null; then
+	fail 'URL control characters reached diagnostics'
+fi
 
 if run_case combined; then
 	fail 'combined mismatch unexpectedly passed'
 fi
-assert_contains "title: expected 'Confirmed title', observed 'Observed title'" "$fixture/stderr"
+assert_contains 'title: expected "Confirmed title", observed "Observed title"' "$fixture/stderr"
 assert_contains "body: missing section 'Proposed approach'" "$fixture/stderr"
-assert_contains "label: missing 'status:ready'" "$fixture/stderr"
+assert_contains 'label: missing "status:ready"' "$fixture/stderr"
 assert_contains 'parent: expected #42, observed #41' "$fixture/stderr"
 
 if run_case view-error; then
@@ -226,6 +288,7 @@ for entry in '101:success' '102:wrong-title' '103:success'; do
 done
 assert_count 2 '^issue create ' "$fixture/decompose-calls"
 assert_contains 'https://github.com/example/repo/issues/102' "$fixture/decompose-report"
-assert_contains "title: expected 'Confirmed title', observed 'Observed title'" "$fixture/decompose-report"
+expected='title: expected "Confirmed title", observed "Observed title"'
+assert_contains "$expected" "$fixture/decompose-report"
 
 printf 'create-verified-issue-test: ok\n'
