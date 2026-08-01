@@ -19,11 +19,14 @@ human-gate concern into one target-owned debt record grounded in the current pro
 - Preserve the upstream MIT license text from Superpowers 6.1.1, copyright Jesse Vincent.
 - Distribute local modifications within the covered derived roots under the same MIT
   terms, as explicitly confirmed by the repository owner. Future covered-root
-  contributions require the same inbound grant.
+  submissions expressly offer the change under MIT and represent the contributor's
+  authority to grant those rights; the README and attribution notice publish that rule.
 - Attribute every file in each current derived skill root, including local additions and
   modifications beneath those roots.
 - Record the canonical upstream repository, tag `v6.1.1`, and exact commit
   `d884ae04edebef577e82ff7c4e143debd0bbec99` in the attribution inventory.
+- Make license and additional-notice compatibility a re-vendor precondition. An
+  incompatible upstream revision requires a superseding ADR before import.
 - Treat the predecessor repository's ADRs 0015 and 0018 and debt 0009 as provenance, not
   as policy to copy. This repository has native multi-agent projections and no dependency
   on the old Claude plugin arrangement.
@@ -109,16 +112,21 @@ Create `docs/licenses/superpowers.LICENSE` as a byte-for-byte copy of the upstre
 Superpowers 6.1.1 MIT license. Create `docs/licenses/superpowers.md` as the human-readable
 notice. It records the upstream project, exact tag and commit, upstream copyright, and MIT
 coverage of local modifications; links the license and predecessor provenance; and lists
-the covered skill roots by agent and skill name.
+the covered skill roots by agent and skill name. It also states the covered-root inbound
+MIT offer and authority representation.
 
 Add a short README section that points readers to the notice and license rather than
-duplicating the inventory. ADR 0004 owns the durable policy:
+duplicating the inventory, and tells contributors that submitting a covered-root change
+offers it under MIT while representing authority to do so. Git history retains the merged
+submission. ADR 0004 owns the durable policy:
 
 - native projection directories are maintained forks distributed under MIT;
 - updates are deliberate upstream diffs that preserve and review local adaptations;
+- re-vendor updates verify license and notice compatibility before importing;
 - all applicable projections are considered together, without requiring byte identity;
 - a caller explicitly asserts dispatched mode;
-- dispatched gates resolve from written policy or return a blocker, never infer permission;
+- dispatched gates target resolution from written policy or a returned blocker, never
+  inferred permission; debt 0002 enumerates the only current exceptions;
 - later shipping skills retain their own push and merge authorization.
 
 Extend the existing `install_common_content` entry point in `install.sh`. It installs the
