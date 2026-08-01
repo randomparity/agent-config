@@ -13,6 +13,17 @@ Ensure work happens in an isolated workspace, always **outside** the repository 
 
 **Announce at start:** "I'm using the using-git-worktrees skill to set up an isolated workspace."
 
+## Mode
+
+Interactive mode is the default. Dispatched mode applies only when a caller or
+orchestrator explicitly states it, and the resolved mode remains in effect for this run.
+
+At a failed baseline gate, written authority is deliberately narrow.
+An applicable caller instruction or repository rule must explicitly address the failed baseline.
+Generic dispatch, autonomy, or task-completion language does not resolve the gate.
+Apply normal instruction priority when multiple sources address the gate.
+If instruction priority does not yield one unambiguous action, return the blocker.
+
 ## Step 0: Detect Existing Isolation
 
 **Before creating anything, check if you are already in an isolated workspace.**
@@ -141,7 +152,15 @@ Run tests to ensure workspace starts clean:
 npm test / cargo test / pytest / go test ./...
 ```
 
-**If tests fail:** Report failures, ask whether to proceed or investigate.
+**If tests fail:**
+
+- **Interactive mode:**
+  Report the failures, ask whether to proceed or investigate, and wait.
+- **Dispatched mode with resolving authority:** Report the failures, then follow the
+  explicit applicable instruction or repository rule.
+- **Dispatched mode without resolving authority:**
+  Report the failures as a blocker and return to the caller.
+  Do not ask an unavailable user, infer permission to continue, or start implementation.
 
 **If tests pass:** Report ready.
 
@@ -167,7 +186,9 @@ Ready to implement <feature-name>
 | Instructions name a path inside the repo | Say so, use an external path anyway |
 | Worktree landed inside the repo | Remove it, recreate outside — never gitignore around it |
 | Permission error on create | Sandbox fallback, work in place |
-| Tests fail during baseline | Report failures + ask |
+| Tests fail in interactive mode | Report failures + ask + wait |
+| Tests fail in dispatched mode with explicit authority | Report failures + follow it |
+| Tests fail in dispatched mode otherwise | Return failures as a blocker |
 | No package.json/Cargo.toml | Skip dependency install |
 
 ## Common Mistakes
@@ -192,10 +213,12 @@ Ready to implement <feature-name>
 - **Problem:** Creates inconsistency, violates project conventions
 - **Fix:** Follow priority: explicit instructions > existing sibling worktree root > default `../<repo>-worktrees/`
 
-### Proceeding with failing tests
+### Proceeding with failing baseline tests
 
 - **Problem:** Can't distinguish new bugs from pre-existing issues
-- **Fix:** Report failures, get explicit permission to proceed
+- **Fix:** In interactive mode, report failures and wait for the answer. In dispatched
+  mode, follow only authority that explicitly addresses the failed baseline; otherwise
+  return the blocker.
 
 ## Red Flags
 
@@ -205,7 +228,8 @@ Ready to implement <feature-name>
 - Skip Step 1a by jumping straight to Step 1b's git commands, without first checking where the native tool would place the worktree
 - Create a worktree inside the repository tree — including a project-local `.worktrees/`, even a gitignored one
 - Skip baseline test verification
-- Proceed with failing tests without asking
+- Treat generic dispatch or task-completion instructions as permission to proceed after a
+  failed baseline
 
 **Always:**
 - Run Step 0 detection first
@@ -214,3 +238,5 @@ Ready to implement <feature-name>
 - Verify the created worktree resolves outside the repository root
 - Auto-detect and run project setup
 - Verify clean test baseline
+- Preserve the interactive decision gate or return unresolved dispatched failures to the
+  caller
