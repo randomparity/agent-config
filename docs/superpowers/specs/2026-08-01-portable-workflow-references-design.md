@@ -129,6 +129,21 @@ is missing. It accumulates violations so one run shows the complete repair set. 
 uses Bash with `set -euo pipefail`, portable `rg` expressions, and temporary files allocated
 by `mktemp`; the tests remove only their owned scratch directory.
 
+## Threat model
+
+Repository contributors control deployed filenames and contents; a local caller or CI runner
+may also supply the repository-root argument. The guard canonicalizes that root and scans only
+four fixed deployment subtrees, passes paths as quoted command operands, and never evaluates
+matched text. Work is bounded by the size of those trees. `rg` output supplies file and line
+operands to the classifier; unusual delimiter-bearing filenames may make that parsing fail,
+but `set -e` and explicit `rg` status checks fail the gate closed rather than accepting a
+reference. Diagnostics intentionally disclose local paths and matching prose to the local or
+CI log because both are already visible to the actor running the repository check.
+
+The regression harness allocates one uniquely owned temporary directory and constrains cleanup
+to that name pattern. The change adds no network, privilege, authentication, secret,
+deserialization, cryptography, dependency, or persistent-storage boundary.
+
 ## Verification
 
 Development follows red-green TDD: install the failing fixtures first, observe the missing

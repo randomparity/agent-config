@@ -54,10 +54,10 @@ report_matches() { # class pattern
 	esac
 }
 
-report_matches bare-adr '\bADR[[:space:]]+[0-9]{1,4}\b'
+report_matches bare-adr '\bADR[[:space:]]+#?[0-9]{1,4}\b'
 report_matches bare-issue '\bissue[[:space:]]+#[0-9]+\b'
 
-path_pattern='(?<![[:alnum:]/])docs/(adr|debt|superpowers/(specs|plans))/[A-Za-z0-9_.*<>/-]+\.md'
+path_pattern='(?<![[:alnum:]/])(?:\.\.?/)*\Kdocs/(adr|debt|superpowers/(specs|plans))/[A-Za-z0-9_.*<>/-]+\.md'
 set +e
 path_matches=$(rg -n -I --hidden --with-filename --pcre2 -o \
 	"$path_pattern" "${scan_paths[@]}" 2>&1)

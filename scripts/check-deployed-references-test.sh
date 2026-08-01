@@ -63,11 +63,18 @@ assert_fails() {
 
 assert_fails 'bare ADR' bare-adr \
 	'content/skills/example/SKILL.md' 'Governed by ADR 0019.'
+assert_fails 'bare ADR with hash' bare-adr \
+	'content/skills/example/SKILL.md' 'Governed by ADR #0019.'
 assert_fails 'bare source issue' bare-issue \
 	'agents/claude/shared/CLAUDE.md' 'This closes issue #49.'
 assert_fails 'stale epic spec' concrete-relative-path \
 	'content/skills/example/SKILL.md' \
 	'docs/superpowers/specs/2026-07-19-epic-command-design.md'
+assert_fails 'dot-prefixed stale spec' concrete-relative-path \
+	'content/skills/example/SKILL.md' \
+	'./docs/superpowers/specs/2026-07-19-epic-command-design.md'
+assert_fails 'parent-prefixed stale record' concrete-relative-path \
+	'content/skills/example/SKILL.md' '../docs/adr/0019-source-local.md'
 assert_fails 'mixed concrete plan path' concrete-relative-path \
 	'agents/codex/shared/AGENTS.md' \
 	'docs/superpowers/plans/template/YYYY-MM-DD/actual-plan.md'
