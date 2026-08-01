@@ -131,6 +131,11 @@ it, so no swap arises there.
    propose the swap and note the cleared dependency. Do not infer priority beyond what
    the issue text actually states.
 
+   This explicit path is a **manual reassessment fallback**, not the required release
+   mechanism. `$merge-cleanup` owns automatic release when a blocker closes, and
+   `$recover-orphans` repairs a missed release under confirmation. Keep this fallback for
+   an operator who intentionally requests a broader re-triage.
+
    Propose a `risk:` value **only when the available label set holds all three** — say so
    plainly when you skip the dimension, since a silently absent judgment is
    indistinguishable from a deliberate one. Apply the `github-tracking` criteria and its

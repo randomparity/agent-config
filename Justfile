@@ -45,6 +45,7 @@ test:
   ./install-tools-test.sh
   ./scripts/check-public-safety-test.sh
   ./scripts/check-workflow-scope-contract-test.sh
+  ./scripts/check-cleared-dependencies-test.sh
 
 skills-check:
   ./scripts/check-skill-layout.sh
