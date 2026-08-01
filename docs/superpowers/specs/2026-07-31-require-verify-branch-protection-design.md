@@ -60,20 +60,24 @@ Before the write, capture:
 
 - `gh pr checks 19 --json name,state,link,bucket,workflow`, which reports the
   emitted check name as `verify`;
+- the matching check run from PR #19's head commit, which reports GitHub Actions
+  app ID `15368` as the producer;
 - classic protection for `main`;
 - repository rulesets; and
 - effective rules for `main`.
 
-The captured baseline is empty. Create classic branch protection with:
+Re-read the same policy immediately before writing and stop if it changed after
+capture. The captured baseline is empty. Create classic branch protection with:
 
-- required status checks: `strict: false`, contexts: `verify`;
+- required status checks: `strict: false`, checks: `verify` from app ID `15368`;
 - enforce administrators: `true`; and
 - every unrelated protection feature left disabled or unset.
 
-`strict: false` avoids adding an up-to-date-branch requirement that issue #16 did
-not request. The required check still must succeed for the pull request's latest
-head commit. After the write, read the setting back and assert the context list,
-strictness, and admin enforcement exactly.
+Binding the context to GitHub Actions prevents a same-named result from another
+producer from satisfying the gate. `strict: false` avoids adding an up-to-date-branch
+requirement that issue #16 did not request. The required check still must succeed for
+the pull request's latest head commit. After the write, read the setting back and
+assert the context, app ID, strictness, and admin enforcement exactly.
 
 ### Failing proof
 
@@ -85,6 +89,7 @@ pull request.
 Wait for the `verify` check to finish, then require all of these observations:
 
 - the check name is exactly `verify`;
+- its producer is GitHub Actions app ID `15368`;
 - its state is `FAILURE`;
 - the pull request reports `mergeable: MERGEABLE` (the git histories do not
   conflict); and
@@ -102,10 +107,10 @@ Add a branch-protection subsection to `README.md` that states the required conte
 is the lowercase job name `verify`, shows how to copy current names from a real pull
 request, and shows how to inspect and update required status-check protection.
 
-Recovery replaces the required context only after a real run emits the replacement.
-This handles a renamed check and a permanently pending stale context without disabling
-protection. The instructions preserve admin enforcement and avoid rewriting unrelated
-protection fields by patching only the required-status-check endpoint.
+Recovery replaces the required context and app binding only after a real run emits the
+replacement. This handles a renamed check and a permanently pending stale context without
+disabling protection. The instructions preserve admin enforcement and avoid rewriting
+unrelated protection fields by patching only the required-status-check endpoint.
 
 Resolve the debt record by replacing `Open` and `review-by:` with a dated resolution
 banner naming issue #16 and the recorded enforcement proof. Its substantive sections
@@ -115,8 +120,10 @@ remain immutable.
 
 - If the baseline contains an unexpected protection or ruleset, stop before writing
   rather than overwrite it.
-- If policy read-back differs from the requested context or admin enforcement, restore
-  the captured baseline and stop.
+- If policy read-back differs from the requested context, app binding, or admin
+  enforcement, re-read live policy. Restore the captured baseline only when live policy
+  exactly equals this run's expected post-write snapshot; otherwise stop and report both
+  snapshots for manual reconciliation without overwriting the concurrent change.
 - If the proof check does not fail for the expected record-gate reason, close and clean
   the proof artifacts, then diagnose before claiming enforcement.
 - If the pull request is not `BLOCKED`, leave the debt open, remove or restore the new
@@ -143,7 +150,8 @@ temporary proof branch but must treat it as known-bad input that cannot reach `m
 
 ### Controls
 
-- Resolve the exact check context from a real successful PR rather than prose or memory.
+- Resolve the exact check context and producer app ID from a real successful PR rather
+  than prose or memory.
 - Enable admin enforcement so the authenticated owner receives the same required-check
   gate during the proof.
 - Inspect live policy before and after the write and change no unrelated setting.
@@ -162,10 +170,10 @@ general guarantee about future GitHub behavior.
 
 - A pre-write policy query proves `main` had no protection or ruleset.
 - PR #19 reports one successful check named exactly `verify`.
-- Post-write protection reports only `verify`, `strict: false`, and admin enforcement.
+- Post-write protection reports only `verify` from app ID `15368`, `strict: false`, and
+  admin enforcement.
 - The temporary proof PR reports failed `verify`, a conflict-free head, and `BLOCKED`.
 - The proof PR is closed and its local and remote branches and worktree are absent.
 - README recovery commands preserve the rest of branch protection.
 - The existing debt record carries a valid dated resolution marker.
 - `just verify` passes on the real feature branch.
-
