@@ -35,6 +35,19 @@ blocks starting sub-project 1.
    shell code using arrays. Every run so far has been under the host's bash 5.
    Nothing proves the claim.
 
+6. **`target-url` failure diagnostics are captured and discarded.**
+   `create-verified-issue.sh` captures the tracker's stderr, then on failure
+   prints only "canonical repository URL could not be resolved for <repo>" and
+   never emits what it captured. The engine does classify the failure — auth,
+   not-found or transport, with gh's message — so the information exists and is
+   dropped one frame later. An operator sees a generic line where a specific one
+   was available.
+7. **The absent-label idempotency assertion cannot fail under its stub.** The
+   suite asserts that `label-edit --remove not-present` exits zero, but the stub
+   in force exits zero for anything, and models no notion of which labels an
+   issue carries. The assertion holds for any argument and would keep passing if
+   the behavior regressed.
+
 ## Why deferred
 
 The first four are questions about how to *test* a layer that did not exist
@@ -47,6 +60,14 @@ technique the implementation then has to work around.
 Finding 3 needs the call sites: the bound `search` requires is whatever
 `/issue`'s dedup, `/campaign` and `/groom` actually need, and those migrate in
 sub-projects 5 and 6, where a wrong guess made now would be discovered late.
+
+Findings 6 and 7 are observability and test-strength gaps that cannot produce a
+wrong write: 6 loses detail from a message that already fails correctly, and 7 is
+an assertion weaker than it reads rather than a wrong one. They were left when
+the branch review was stopped under its self-collision rule — four passes at
+13, 7, 8 and 7 findings, with each round's highest-severity item introduced by
+the previous round's fix. The operator chose to stop and record rather than run
+a fifth pass.
 
 Finding 5 needs a bash 3.2 to run against, which this host does not have. The
 empty-array expansions are individually guarded (`"${arr[@]+"${arr[@]}"}"`), so
@@ -85,6 +106,12 @@ criterion 2 alone does not carry it.
 
 Finding 3: a result bound and a truncation signal on `search`, decided against
 the real call sites when they migrate under #47 and #48.
+
+Finding 6: pass the engine's classified stderr through to the operator, so an
+auth failure against the canonical-URL read is distinguishable from a network
+one. Finding 7: give the stub a notion of which labels an issue carries, so the
+assertion can fail. Both are small and belong with the next change that touches
+those paths.
 
 Finding 5: running `tracker-test.sh` and `create-verified-issue-test.sh` under a
 real bash 3.2 — a macOS CI leg or a pinned container — and fixing whatever it
