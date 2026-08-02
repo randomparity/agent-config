@@ -139,7 +139,27 @@ Derived from actual call sites across the twelve skills.
 | `state-set` (id, open\|closed) | `/merge-cleanup`, `/groom` |
 | `link-parent` (child, parent) | `/epic`, `/issue` decompose |
 | `link-blocks` (blocker, blocked) | `/issue` decompose |
-| `label-history` (id, label) → timestamp | `/recover-orphans`, `/retro` |
+| `label-history` (id, label) → ISO-8601 timestamp, or `unknown` | `/recover-orphans`, `/retro` |
+| `target-url` () → canonical URL for the target | `create-verified-issue.sh` |
+
+`label-history` returns an ISO-8601 timestamp or the literal `unknown` — never
+an empty string and never a guess. `unknown` is a value the tracking skill
+already defines behavior for (stale-unknown: do not act on age, surface for a
+human), and it is the value a profile with no label timeline declares itself
+degraded to.
+
+**Every operation takes a `--target`** — a repo slug on GitHub, a project key on
+Jira — defaulting to the current repository. `create-verified-issue.sh` already
+takes `--repo OWNER/NAME` and rejects any created URL that does not match the
+canonical one from `gh repo view`, so without a target parameter and
+`target-url` that guard would either drop (contradicting criterion 2) or stay a
+raw `gh` call in the one caller this sub-project migrates — proving less about
+the seam than the slice claims.
+
+Tracker resolution stays per-invocation from `git rev-parse --show-toplevel` of
+the working directory; `--target` selects the object *within* that tracker, and
+never a second one. A target outside the resolved tracker's scope is a usage
+error, not a second resolution path.
 
 `create` takes a **body file**, not a string, matching `comment-add` and the
 existing gated path — `create-verified-issue.sh` already requires a populated
@@ -153,11 +173,14 @@ actually use: `label`, `state`, `parent`, `text`, `updated-before`. Each profile
 translates them. A call site that needs something outside this set is a signal
 to extend it, not to add a raw escape hatch.
 
-`label-edit` is a **delta** operation. It must not be implemented as a
-read-modify-write of the full label set: the state machine's single-active-`status:`
-invariant depends on add and remove applying as a delta, and a full-set write
-races any concurrent labeller. Removing a label the issue does not carry is a
-success, not an error.
+`label-edit` is a **delta** operation and must be **atomic**. It is not a
+read-modify-write of the full label set — that races any concurrent labeller —
+and its adds and removes travel in a *single* underlying invocation. Splitting
+them breaks the single-active-`status:` invariant either way: add-then-remove
+leaves two `status:` labels if the second call fails, remove-then-add leaves
+none, and `/work-issue` and `/campaign` read that label to decide the next
+write, so a half-applied delta produces a wrong action rather than a stuck
+issue. Removing a label the issue does not carry is a success, not an error.
 
 `link-blocks` is where the abstraction pays immediately: GitHub needs the
 `Blocked by #N` prose grammar and its ~90 lines of parsing in
@@ -183,6 +206,18 @@ operation therefore shares one exit taxonomy:
 On any non-zero exit the operation emits a JSON error object on stdout —
 `{"error": "<class>", "message": "…", "partial": {…}}` — and leaves the
 underlying command's raw combined output on stderr.
+
+**No operation retries.** The engine never re-issues an underlying command, on
+any exit class. Every diagnostic in `create-verified-issue.sh` ends with
+"creation was not retried", and that invariant — not merely the exit-5
+*distinction* — is what the recent hardening defends: a retried `create` on a
+transport failure produces duplicate live issues, and on Jira there is no
+`gh issue delete` to undo one. A caller that wants a retry decides so itself,
+with the partial identity in hand.
+
+`partial` is per-operation, not create-only. For `create` it carries whatever
+identity was observed; for `label-edit` it names which labels were actually
+applied, so a caller can repair a half-applied delta rather than guess.
 
 Exit 5 exists for the case `create-verified-issue.sh` already hardens: a create
 that fails while still printing a resolvable URL. That script computes its
@@ -265,7 +300,7 @@ The only sub-project this design specifies for implementation now.
 All paths under `content/skills/github-tracking/assets/`, per the placement note
 above; sub-project 2's rename carries them.
 
-- `tracker.sh` — engine implementing the eleven operations and the failure
+- `tracker.sh` — engine implementing the twelve operations and the failure
   taxonomy, dispatching to a profile resolved per ADR 0021 from the repo's
   declaration alone. No environment variable participates.
 - `profiles/github.sh` — `gh`-backed implementation, declaring each operation
@@ -275,8 +310,11 @@ above; sub-project 2's rename carries them.
   mechanism ships untested.
 - `tracker-test.sh` — contract suite, parameterized by profile, run by
   `just verify`.
-- `create-verified-issue.sh` refactored to call `tracker.sh create` + `view`,
-  preserving its current assertions, diagnostics and exit codes.
+- `content/skills/issue/scripts/create-verified-issue.sh` — **not** under the
+  assets directory; it stays where it lives. Refactored to call `tracker.sh`
+  `create`, `view` and `target-url`, preserving its current assertions,
+  diagnostics and exit codes. It locates the engine by a path relative to its
+  own `BASH_SOURCE`, the way `check-records.sh` finds its profiles.
 - `Justfile`: `tracker-test.sh` added to `test`; new scripts added to `lint`
   and `format-check`.
 
@@ -286,7 +324,11 @@ root, matching `^issue-tracker: ([a-z0-9-]+)$`. The root is
 checkout, which would resolve every consuming repo to this one. Absent file,
 absent line, or no git root at all resolves to `github`. A line present but
 malformed is an error, not an absence: silently treating a typo as "no
-declaration" is the wrong-tracker write by another route.
+declaration" is the wrong-tracker write by another route. More than one matching
+line is also an error rather than first-wins, and matching is anchored to a
+whole line at column one so an example inside a fenced code block — which
+`AGENTS.md` will carry once sub-project 3 documents the format — is not a
+declaration.
 
 ### Explicitly out of scope
 
@@ -319,12 +361,14 @@ Those are sub-projects 2–6.
    `ATLASSIAN_MCP_BASIC_AUTH` and asserting exit zero. Stubbing is by `PATH`
    interposition of a fixture `bin`, the technique
    `create-verified-issue-test.sh` already uses.
-7. `label-edit` issues a delta call, asserted by the suite against the recorded
-   `gh` invocation — not a full-label-set write. Removing an absent label exits
-   zero.
-8. `shellcheck` and `shfmt` clean, matching the two-space style the Justfile
+7. `label-edit` issues **exactly one** recorded invocation carrying both the
+   adds and the removes — not a full-label-set write, and not two calls.
+   Removing an absent label exits zero.
+8. **No operation retries.** A simulated transport failure on `create` produces
+   exactly one underlying invocation in the recorded call log.
+9. `shellcheck` and `shfmt` clean, matching the two-space style the Justfile
    already applies to `.github/scripts/`.
-9. No skill's observable behavior changes, and `git diff` touches no `SKILL.md`.
+10. No skill's observable behavior changes, and `git diff` touches no `SKILL.md`.
    Both hold because the assets land under the existing `github-tracking/`
    skill, which already has a conforming `SKILL.md`.
 
