@@ -69,6 +69,7 @@ These are load-bearing; if one is wrong the design changes.
 | HTML comment markers render **visibly** in Jira | stored as `<p>&lt;!-- WORK:TRAJECTORY --&gt;</p>`; ADF has no comment node |
 | Jira has native typed issue links | `blocks` / `is blocked by`, replacing the `Blocked by #N` prose grammar |
 | No MCP tool can create a Jira status | all 43 tools enumerated; statuses are admin-UI configuration |
+| Jira has a `resolution` field distinct from status | present on `SCRUM-1` (null), one resolution defined site-wide; the Done transition sets `resolution` **and** `resolutiondate` on `SCRUM-2`. It is driven by the status write, so it does not make doneness independent of it |
 | A team-managed project's workflow may be tiny and unguarded | `SCRUM` has 4 statuses, every transition global and unconditional |
 
 The REST result is the pivotal one: it means the tracker layer can be a tested
@@ -199,8 +200,8 @@ The only sub-project this design specifies for implementation now.
 ### Deliverables
 
 - `content/skills/issue-tracking/assets/tracker.sh` — engine implementing the
-  eleven operations, dispatching to a profile resolved per ADR 0021: the repo's
-  declaration is the source, `ISSUE_TRACKER` is an explicit override only.
+  eleven operations, dispatching to a profile resolved per ADR 0021 from the
+  repo's declaration alone — no environment variable participates.
 - `content/skills/issue-tracking/assets/profiles/github.sh` — `gh`-backed
   implementation.
 - `content/skills/issue-tracking/assets/tracker-test.sh` — contract suite,
@@ -223,13 +224,13 @@ Those are sub-projects 2–6.
 3. `tracker-test.sh` exercises every operation in the surface table against
    `profiles/github.sh` and fails if any is unimplemented.
 4. A repo with no tracker declaration resolves to `github`, preserving today's
-   behavior — that is what every repo is today. Any declaration or override
-   naming a tracker with no profile fails with an actionable message giving the
-   value and the profiles that exist, never a silent fallback to GitHub, which
-   would run a write against the wrong tracker. Sub-project 1 ships the
-   resolution rule; sub-project 3 supplies the declaration `/preflight` reads,
-   so there is one mechanism throughout rather than an env var retrofitted
-   later.
+   behavior — that is what every repo is today. A declaration naming a tracker
+   with no profile fails with an actionable message giving the value and the
+   profiles that exist, never a silent fallback to GitHub, which would run a
+   write against the wrong tracker. No environment variable selects a profile;
+   the contract suite selects one with an explicit flag. Sub-project 1 ships
+   the resolution rule and sub-project 3 supplies the declaration `/preflight`
+   reads, so there is one mechanism throughout.
 5. `shellcheck` and `shfmt` clean, matching the two-space style the Justfile
    already applies to `.github/scripts/`.
 6. No skill's observable behavior changes; `git diff` touches no `SKILL.md`.

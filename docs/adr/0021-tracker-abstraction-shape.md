@@ -36,17 +36,14 @@ resolves the active profile, dispatches, and normalizes results to one JSON
 shape, so no caller branches on tracker. A contract test suite runs every
 operation against every profile and is wired into `just verify`.
 
-Resolution has **one** source: the repo's own declaration in its instruction
-files. `ISSUE_TRACKER` is an explicit per-invocation override and nothing more.
-A repo declaring nothing is a GitHub repo, which is what every repo is today. A
-declaration naming a tracker with no profile is an actionable error and never a
-fallback to GitHub — falling back would route a write into the wrong tracker,
-and unlike `gh issue delete`, a live Jira tenant has no comparable undo.
-
-Environment state is not the source. It is per-shell, invisible in a diff or a
-resumed session, and absent by default, so in a Jira-tracked repo an unset
-variable would be precisely that silent wrong-tracker write — reached by
-omission rather than by typo, which is the likelier of the two.
+Resolution has one source: the repo's own declaration in its instruction files.
+No environment variable participates, as override or otherwise — ambient
+per-shell state that survives into a resumed session can route a write to the
+wrong tracker silently, and a live Jira tenant has no `gh issue delete`. A repo
+declaring nothing is a GitHub repo, which is what every repo is today; a
+declaration naming a tracker with no profile is an actionable error, never a
+fallback. Where the contract suite must select a profile it passes an explicit
+`tracker.sh` flag, visible at the call site.
 
 This mirrors `check-records.sh` + `profiles/{adr,debt}.sh`, already in this
 repo and already carrying two record kinds.
@@ -55,11 +52,8 @@ The split between script and prose does not move: mechanical, verifiable
 operations go behind the contract; judgment — drafting bodies, ranking dedup
 candidates, assigning taxonomy — stays in the skill.
 
-Pull requests are out of scope, on the **assumption** that code hosting stays
-GitHub wherever issues live. That assumption cuts more scope than any other
-sentence here — roughly half the affected surface — and unlike this record's
-other premises it is a claim about the operator rather than about a system, so
-nothing verified it. Its falsifier is explicit: an adopter hosting code
+Pull requests are out of scope, on the assumption — not a verified fact — that
+code hosting stays GitHub wherever issues live. An adopter hosting code
 elsewhere, plausibly Bitbucket alongside Jira, supersedes this record rather
 than extending it.
 
@@ -69,7 +63,9 @@ than extending it.
 - `create-verified-issue.sh` keeps its exit-code gate on every tracker;
   verification does not degrade into agent-loop judgment.
 - A contract suite can test the tracker layer with no network and no live
-  tracker, so `just verify` covers it.
+  tracker, so `just verify` covers it. It proves normalization, not tenant
+  compatibility: a profile's first real write is its first real test, and CI can
+  be green while a Jira write path is broken.
 - The contract is fixed against one implementation first, which is where
   interface mistakes hide. The profile that lands second is permitted to amend
   it.

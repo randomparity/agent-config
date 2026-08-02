@@ -45,13 +45,22 @@ On Jira, native status is additionally written as a derived projection:
 | `in-review`, `awaiting-merge` | In Review |
 | `blocked`, `needs-human` | In Progress |
 | issue closed | Done |
+| issue reopened | the status its current `status:` label maps to, or To Do |
 | `epic`-labeled (carries no `status:`) | no projection write |
 
+The `epic` row wins over every other, including `issue closed`: an epic's state
+derives from its sub-issues on both trackers, so its board position carries no
+meaning and nothing should write it.
+
 Terminal state is the exception, and it is not cosmetic. GitHub carries
-doneness in closed-state, a field independent of the label set. Jira has no
-such field, and `github-tracking` establishes there is no `status:done` label
-to carry it. So on Jira the Done projection *is* where doneness lives, and the
-normalized `done` field reads it back through `statusCategory == "done"`.
+doneness in closed-state, a field independent of the label set, and
+`github-tracking` therefore defines no `status:done` label. Jira does have a
+distinct doneness field — `resolution`, which the Done transition populates
+along with `resolutiondate`, verified on the tenant — but it is set *by* that
+transition rather than independently, so it does not remove the dependence on
+the write. On Jira the Done projection is therefore where doneness lives, and
+the normalized `done` field reads it back through `statusCategory == "done"`,
+which is stable across project types where resolution names are not.
 
 That yields two tiers with different guarantees:
 
@@ -63,9 +72,6 @@ That yields two tiers with different guarantees:
   and no other field records the outcome, so a silent failure here would leave
   `done` false permanently. The missing-status skip does not apply to it.
 
-Doneness is exposed as one normalized `done` field — GitHub closed-state, Jira
-`statusCategory == "done"` — so no caller reimplements it.
-
 ## Consequences
 
 - The seven-state machine and its transition rules survive intact; skills need
@@ -75,35 +81,40 @@ Doneness is exposed as one normalized `done` field — GitHub closed-state, Jira
 - Every Jira state change costs a second write. Best-effort on the four
   in-flight arms; blocking on the Done arm.
 - **Jira doneness depends on a write succeeding, where GitHub doneness does
-  not.** This is the asymmetry to remember when reading `done`: on GitHub it is
-  a field the tracker maintains, on Jira it is a field this pipeline maintains.
+  not** — on GitHub the tracker maintains that field, on Jira this pipeline
+  does.
 - **The Jira board cannot distinguish parked from active.** `blocked` and
   `needs-human` both project to In Progress, so a human reads the label, not
-  the board, to tell a stalled issue from a moving one. The alternative —
-  leaving native status stale — misinforms in a way that is harder to notice.
+  the board, to tell a stalled issue from a moving one.
 - **Jira epics get no projection** and stay in whatever status they were
   created in. Their state derives from sub-issues, exactly as on GitHub, so the
   board position of an epic carries no meaning on either tracker.
-- Native status can be edited in the Jira UI and will be silently overwritten
-  by the next transition. This is intended — a mirror that could be edited
-  back would be a second source of truth.
-- Doneness on Jira reads `statusCategory`, which is stable across project
-  types, rather than status names, which are not.
+- Native status on the **four in-flight arms** can be edited in the Jira UI and
+  will be silently overwritten by the next transition. This is intended — a
+  mirror that could be edited back would be a second source of truth.
+- **On the Done arm that protection does not exist.** A user dragging a closed
+  issue out of Done falsifies the field the pipeline reads for `done`, and
+  nothing re-drives a terminal transition to repair it. The pipeline cannot
+  detect this; a human must.
 
 ## Considered & rejected
 
 - **Native Jira workflow authoritative.** Rejected because the pipeline needs
   seven states, no tool can provision the missing ones, and the skill would
   fail on any project an operator had not hand-configured.
-- **Labels only; ignore native status.** Rejected because every issue sits in
-  To Do forever, and a Jira board that never moves reads as a broken
-  integration to anyone using the UI. This is the closest call of the four:
-  what it avoids is not merely one extra write but the whole two-tier
-  guarantee above — a blocking Done arm, a board that cannot show parked, and
-  doneness that depends on a write. It loses because dropping the projection
-  does not remove the doneness problem, it only leaves it unsolved: with no
-  native status and no `status:done` label, a Jira issue would have no
-  representable terminal state at all.
+- **Labels only; ignore native status.** Rejected because dropping the
+  projection does not remove the doneness problem, it only leaves it unsolved:
+  with no native status written and no terminal label, a Jira issue would have
+  no representable terminal state. The never-moving board is the visible cost;
+  this is the disqualifying one.
+- **A terminal `status:` label carrying doneness on every tracker.** This
+  preserves the record's own thesis most faithfully and would dissolve the
+  two-tier split, the blocking Done write, and the UI-edit residual above.
+  Rejected because it forks the vocabulary from GitHub, where closed-state is
+  independently authoritative and a `status:done` label would be a second,
+  desynchronizable source of truth for the same fact — `github-tracking` omits
+  that value deliberately. Adopting it later is a supersession of this record,
+  not an amendment.
 - **A reduced state vocabulary that both trackers express natively.** Rejected
   because the states with no Jira equivalent are the ones carrying the most
   operational meaning; collapsing `awaiting-merge` into `needs-human` is
