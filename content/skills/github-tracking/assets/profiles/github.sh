@@ -165,3 +165,176 @@ profile_search() {
 		die "$(github_classify "$status" "$out")" transport "$out"
 	printf '%s\n' "$out"
 }
+
+# One gh invocation, never retried. A failed create may still have landed, so it
+# exits partial carrying whatever URL was observed rather than claiming the
+# write did not happen: a retry here produces duplicate live issues, and a live
+# tenant has no undo.
+profile_create() {
+	github_require_target
+	local title='' body_file='' parent='' status=0 out url
+	local -a labels=()
+	while (($#)); do
+		case $1 in
+		--title)
+			(($# >= 2)) || die "$EXIT_USAGE" usage '--title needs a value'
+			title=$2
+			shift 2
+			;;
+		--body-file)
+			(($# >= 2)) || die "$EXIT_USAGE" usage '--body-file needs a value'
+			body_file=$2
+			shift 2
+			;;
+		--label)
+			(($# >= 2)) || die "$EXIT_USAGE" usage '--label needs a value'
+			labels+=("$2")
+			shift 2
+			;;
+		--parent)
+			(($# >= 2)) || die "$EXIT_USAGE" usage '--parent needs a value'
+			parent=$2
+			shift 2
+			;;
+		*) die "$EXIT_USAGE" usage "unknown create argument: $1" ;;
+		esac
+	done
+	[[ -n $title && -n $body_file ]] ||
+		die "$EXIT_USAGE" usage 'create needs --title and --body-file'
+	[[ -f $body_file && -s $body_file ]] ||
+		die "$EXIT_USAGE" usage "body file must be a populated regular file: $body_file"
+
+	local -a args=(issue create --repo "$TRACKER_TARGET" --title "$title"
+		--body-file "$body_file")
+	if ((${#labels[@]})); then
+		local label
+		for label in "${labels[@]}"; do args+=(--label "$label"); done
+	fi
+	[[ -z $parent ]] || args+=(--parent "$parent")
+
+	out=$(gh "${args[@]}" 2>&1) || status=$?
+	url=$(printf '%s\n' "$out" |
+		rg -o 'https://[^/[:space:]]+/[^/[:space:]]+/[^/[:space:]]+/issues/[0-9]+' |
+		tail -n 1 || true)
+	if ((status != 0)); then
+		jq -Rrn --arg m "$out" --arg u "$url" \
+			'{error: "partial", message: $m, partial: {url: $u}}' >&2
+		exit "$EXIT_PARTIAL"
+	fi
+	[[ -n $url ]] ||
+		die "$EXIT_TRANSPORT" transport 'created issue URL could not be resolved'
+	jq -n --arg u "$url" '{id: ($u | split("/") | last), url: $u}'
+}
+
+# Adds and removes travel together. Splitting them breaks the canonical-state
+# record's single-active-status invariant in both possible orders: add-then-
+# remove leaves two status labels if the second call fails, remove-then-add
+# leaves none.
+profile_label_edit() {
+	github_require_target
+	local id=$1 status=0 out
+	shift
+	local -a args=(issue edit "$id" --repo "$TRACKER_TARGET")
+	local -a applied=()
+	while (($#)); do
+		case $1 in
+		--add)
+			(($# >= 2)) || die "$EXIT_USAGE" usage '--add needs a value'
+			args+=(--add-label "$2")
+			applied+=("$2")
+			shift 2
+			;;
+		--remove)
+			(($# >= 2)) || die "$EXIT_USAGE" usage '--remove needs a value'
+			args+=(--remove-label "$2")
+			shift 2
+			;;
+		*) die "$EXIT_USAGE" usage "unknown label-edit argument: $1" ;;
+		esac
+	done
+	out=$(gh "${args[@]}" 2>&1) || status=$?
+	if ((status != 0)); then
+		# partial names what was requested, so a caller can repair rather than
+		# guess which half of the delta landed.
+		printf '%s\n' "${applied[@]+"${applied[@]}"}" |
+			jq -Rrn --arg m "$out" \
+				'{error: "partial", message: $m, partial: {requested_adds: [inputs | select(. != "")]}}' >&2
+		exit "$EXIT_PARTIAL"
+	fi
+	printf '{}\n'
+}
+
+profile_label_ensure() {
+	github_require_target
+	local name=$1 color=$2 description=$3 status=0 out
+	out=$(gh label create "$name" --repo "$TRACKER_TARGET" --color "$color" \
+		--description "$description" 2>&1) || status=$?
+	((status == 0)) && {
+		printf '{}\n'
+		return 0
+	}
+	# An already-existing label is the ordinary case, not a failure. Masking a
+	# no-scope failure as success is what this distinction exists to prevent.
+	case $out in
+	*'already exists'*)
+		printf '{}\n'
+		return 0
+		;;
+	esac
+	die "$(github_classify "$status" "$out")" transport "$out"
+}
+
+profile_comment_add() {
+	github_require_target
+	local id=$1 body_file=$2 status=0 out
+	[[ -f $body_file && -s $body_file ]] ||
+		die "$EXIT_USAGE" usage "body file must be a populated regular file: $body_file"
+	out=$(gh issue comment "$id" --repo "$TRACKER_TARGET" \
+		--body-file "$body_file" 2>&1) || status=$?
+	((status == 0)) || die "$EXIT_PARTIAL" partial "$out"
+	printf '{}\n'
+}
+
+profile_state_set() {
+	github_require_target
+	local id=$1 state=$2 status=0 out verb
+	case $state in
+	open) verb=reopen ;;
+	closed) verb=close ;;
+	*) die "$EXIT_USAGE" usage "state must be open or closed: $state" ;;
+	esac
+	out=$(gh issue "$verb" "$id" --repo "$TRACKER_TARGET" 2>&1) || status=$?
+	((status == 0)) || die "$EXIT_PARTIAL" partial "$out"
+	printf '{}\n'
+}
+
+profile_link_parent() {
+	github_require_target
+	local child=$1 parent=$2 status=0 out
+	out=$(gh api "repos/$TRACKER_TARGET/issues/$parent/sub_issues" \
+		-f "sub_issue_id=$child" 2>&1) || status=$?
+	((status == 0)) || die "$(github_classify "$status" "$out")" transport "$out"
+	printf '{}\n'
+}
+
+# GitHub has no typed dependency edge, so a body line is the record. That is
+# exactly why this is profile detail rather than a convention every skill has to
+# know: a tracker with native links implements the same operation differently.
+profile_link_blocks() {
+	github_require_target
+	local blocker=$1 blocked=$2 body status=0 out='' tmp
+	body=$(gh issue view "$blocked" --repo "$TRACKER_TARGET" --json body \
+		--jq .body 2>&1) || status=$?
+	((status == 0)) || die "$(github_classify "$status" "$body")" transport "$body"
+	if ! printf '%s\n' "$body" | rg -q "^Blocked by #$blocker\$"; then
+		body="$body
+Blocked by #$blocker"
+	fi
+	tmp=$(mktemp)
+	printf '%s\n' "$body" >"$tmp"
+	out=$(gh issue edit "$blocked" --repo "$TRACKER_TARGET" --body-file "$tmp" 2>&1) ||
+		status=$?
+	rm -f -- "$tmp"
+	((status == 0)) || die "$EXIT_PARTIAL" partial "$out"
+	printf '{}\n'
+}

@@ -77,6 +77,11 @@ if [[ $1 == repo && $2 == view ]]; then
 	printf 'https://github.com/example/repo\n'
 	exit 0
 fi
+if [[ $1 == issue && $2 == create ]]; then
+	printf 'Creating issue in example/repo\n'
+	printf 'https://github.com/example/repo/issues/101\n'
+	exit 0
+fi
 if [[ $1 == issue && $2 == view ]]; then
 	case ${GH_VIEW_SHAPE:-good} in
 	malformed-parent)
@@ -128,5 +133,73 @@ status=0
 PATH="$fixture/bin:$PATH" "$tracker" target-url --profile github \
 	>"$fixture/out" 2>"$fixture/err" || status=$?
 assert_exit 1 "$status" 'target-url without --target'
+
+# --- GitHub profile: writes ------------------------------------------------
+# label-edit is atomic: adds and removes travel in one invocation. Splitting
+# them leaves an issue with two status labels or none, and the pipeline reads
+# that label to choose its next write.
+: >"$fixture/calls"
+GH_CALL_LOG="$fixture/calls" PATH="$fixture/bin:$PATH" \
+	"$tracker" label-edit --profile github --target example/repo 101 \
+	--add status:in-progress --remove status:ready \
+	>"$fixture/out" 2>"$fixture/err" || fail 'label-edit exited non-zero'
+edits=$(rg -c '^issue edit ' "$fixture/calls" || true)
+[[ ${edits:-0} == 1 ]] || fail "label-edit made ${edits:-0} invocations, expected 1"
+assert_contains 'add-label' "$fixture/calls"
+assert_contains 'remove-label' "$fixture/calls"
+
+# create succeeds and reports the normalized identity.
+: >"$fixture/calls"
+printf 'body\n' >"$fixture/body.md"
+GH_CALL_LOG="$fixture/calls" PATH="$fixture/bin:$PATH" \
+	"$tracker" create --profile github --target example/repo \
+	--title T --body-file "$fixture/body.md" --label status:ready \
+	>"$fixture/out" 2>"$fixture/err" || fail 'create exited non-zero'
+jq -e '.id == "101" and (.url | test("issues/101$"))' >/dev/null <"$fixture/out" ||
+	fail 'create did not report identity'
+
+# create never retries, and a failed write is partial (5) carrying any URL seen.
+cat >"$fixture/bin/gh" <<'FAKE_GH'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%q ' "$@" >>"$GH_CALL_LOG"
+printf '\n' >>"$GH_CALL_LOG"
+if [[ $1 == issue && $2 == create ]]; then
+	printf 'https://github.com/example/repo/issues/101\n'
+	printf 'boom\n' >&2
+	exit 1
+fi
+exit 0
+FAKE_GH
+chmod +x "$fixture/bin/gh"
+: >"$fixture/calls"
+status=0
+GH_CALL_LOG="$fixture/calls" PATH="$fixture/bin:$PATH" \
+	"$tracker" create --profile github --target example/repo \
+	--title T --body-file "$fixture/body.md" \
+	>"$fixture/out" 2>"$fixture/err" || status=$?
+assert_exit 5 "$status" 'create on failed write'
+creates=$(rg -c '^issue create ' "$fixture/calls" || true)
+[[ ${creates:-0} == 1 ]] || fail "create retried: ${creates:-0} invocations"
+assert_contains 'issues/101' "$fixture/err"
+
+# label-ensure treats an existing label as success, not an error.
+cat >"$fixture/bin/gh" <<'FAKE_GH'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%q ' "$@" >>"$GH_CALL_LOG"
+printf '\n' >>"$GH_CALL_LOG"
+if [[ $1 == label && $2 == create ]]; then
+	printf 'label already exists\n' >&2
+	exit 1
+fi
+exit 0
+FAKE_GH
+chmod +x "$fixture/bin/gh"
+: >"$fixture/calls"
+GH_CALL_LOG="$fixture/calls" PATH="$fixture/bin:$PATH" \
+	"$tracker" label-ensure --profile github --target example/repo \
+	status:ready 0e8a16 'triaged' >"$fixture/out" 2>"$fixture/err" ||
+	fail 'label-ensure treated an existing label as failure'
 
 printf 'tracker-test: all assertions passed\n'
