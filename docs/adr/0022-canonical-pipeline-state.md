@@ -42,7 +42,11 @@ them is the whole of this decision.
 **In-flight state: a cosmetic mirror.** Written after each label transition so
 boards read correctly, and best-effort throughout — a failed write does not fail
 the transition, a project missing a mapped status skips it, and the next
-transition re-drives it.
+transition re-drives it. The mirror also skips any status whose `statusCategory`
+is `done`, however it is named: categories are admin-set per status, so a
+project that files its review or staging status under Done would otherwise let a
+write this decision calls cosmetic flip `done` to true for an issue that is
+still in flight.
 
 | `status:` label | Jira status |
 |---|---|
@@ -50,7 +54,7 @@ transition re-drives it.
 | `in-progress` | In Progress |
 | `in-review`, `awaiting-merge` | In Review |
 | `blocked`, `needs-human` | In Progress |
-| `epic`-labeled (carries no `status:`) | no write, overriding every row below |
+| `epic`-labeled (carries no `status:`) | no write, overriding every row above |
 
 **Terminal state: the record itself, not a mirror of one.** GitHub keeps
 doneness in closed state, independent of labels, which is why `github-tracking`

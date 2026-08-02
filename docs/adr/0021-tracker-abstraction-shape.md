@@ -36,6 +36,14 @@ resolves the active profile, dispatches, and normalizes results to one JSON
 shape, so no caller branches on tracker. A contract test suite runs every
 operation against every profile and is wired into `just verify`.
 
+Total coverage is not total implementation. Each profile declares every
+operation as implemented or as degraded to a named value — `unknown` for
+`label-history` where a tracker keeps no label timeline, a no-op for
+`label-ensure` where colour and description carry no meaning — and the suite
+asserts the declared behavior rather than mere existence. An operation neither
+implemented nor declared degraded fails the gate, so a profile that forgot one
+cannot pass as a profile that legitimately degrades.
+
 Resolution has one source: a declaration in the repo's tracked `AGENTS.md`.
 Tracked and committed is the requirement, not an incidental detail — an
 untracked `CLAUDE.local.md`, a user-global `~/.claude/CLAUDE.md`, or an
