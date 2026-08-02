@@ -25,6 +25,23 @@ link_blocks:implemented"
 # Validates rather than echoes. A die inside $(github_target) would exit only
 # the command substitution's subshell, letting an empty target reach gh and be
 # misclassified as a transport failure.
+# gh writes non-fatal material to stderr while exiting 0, so merging the streams
+# turns a release-update notice into the payload. GH_OUT is the value; GH_ERR is
+# read only to build a failure message.
+github_err_file=''
+GH_OUT=''
+GH_ERR=''
+github_run() { # gh-args...
+	local status=0
+	[[ -n $github_err_file ]] || {
+		github_err_file=$(mktemp)
+		trap 'rm -f -- "$github_err_file"' EXIT
+	}
+	GH_OUT=$(gh "$@" 2>"$github_err_file") || status=$?
+	GH_ERR=$(cat "$github_err_file")
+	return "$status"
+}
+
 github_require_target() {
 	[[ -n ${TRACKER_TARGET:-} ]] ||
 		die "$EXIT_USAGE" usage 'operation needs --target OWNER/NAME'
@@ -63,9 +80,10 @@ github_die() {
 profile_target_url() {
 	github_require_target
 	local out status=0 url
-	out=$(gh repo view "$TRACKER_TARGET" --json url --jq .url 2>&1) || status=$?
+	github_run repo view "$TRACKER_TARGET" --json url --jq .url || status=$?
+	out=$GH_OUT
 	((status == 0)) ||
-		github_die "$out"
+		github_die "$GH_ERR"
 	url=${out%/}
 	printf '%s\n' "$url"
 }
@@ -74,10 +92,11 @@ profile_view() {
 	github_require_target
 	(($# >= 1)) || die "$EXIT_USAGE" usage 'view needs an issue id'
 	local id=$1 out status=0
-	out=$(gh issue view "$id" --repo "$TRACKER_TARGET" \
-		--json number,title,body,labels,parent,state,url,updatedAt 2>&1) || status=$?
+	github_run issue view "$id" --repo "$TRACKER_TARGET" \
+		--json number,title,body,labels,parent,state,url,updatedAt || status=$?
+	out=$GH_OUT
 	((status == 0)) ||
-		github_die "$out"
+		github_die "$GH_ERR"
 	# Validate the source shape before normalizing. The jq below indexes
 	# .parent.number and .labels[].name; a payload carrying "parent":"bad" or
 	# "labels":["bad"] would crash it and surface as a transport error rather
@@ -93,7 +112,7 @@ profile_view() {
 		and ((.parent == null) or
 			((.parent | type == "object") and (.parent.number | type == "number")))
 	' >/dev/null 2>&1 <<<"$out" ||
-		die "$EXIT_NOT_FOUND" malformed \
+		die "$EXIT_TRANSPORT" transport \
 			'read-back returned malformed or incomplete JSON'
 	jq '{
 		id: (.number | tostring),
@@ -113,10 +132,11 @@ profile_comment_list() {
 	github_require_target
 	(($# >= 1)) || die "$EXIT_USAGE" usage 'comment-list needs an issue id'
 	local id=$1 out status=0
-	out=$(gh issue view "$id" --repo "$TRACKER_TARGET" --json comments 2>&1) ||
+	github_run issue view "$id" --repo "$TRACKER_TARGET" --json comments ||
 		status=$?
+	out=$GH_OUT
 	((status == 0)) ||
-		github_die "$out"
+		github_die "$GH_ERR"
 	jq '[.comments[].body]' <<<"$out"
 }
 
@@ -133,11 +153,12 @@ profile_label_history() {
 		die "$EXIT_USAGE" usage "label cannot be queried safely: $label"
 	# --slurp aggregates pages before filtering. Without it gh applies --jq to
 	# each page separately and a paginated timeline yields one line per page.
-	out=$(gh api "repos/$TRACKER_TARGET/issues/$id/timeline" --paginate --slurp \
-		--jq "[.[][] | select(.event==\"labeled\" and .label.name==\"$label\")] | last | .created_at // \"unknown\"" \
-		2>&1) || status=$?
+	github_run api "repos/$TRACKER_TARGET/issues/$id/timeline" --paginate --slurp \
+		--jq "[.[][] | select(.event==\"labeled\" and .label.name==\"$label\")] | last | .created_at // \"unknown\"" ||
+		status=$?
+	out=$GH_OUT
 	((status == 0)) ||
-		github_die "$out"
+		github_die "$GH_ERR"
 	[[ -n $out && $out != null ]] || out=unknown
 	printf '%s\n' "$out"
 }
@@ -184,10 +205,11 @@ profile_search() {
 	[[ -z $parent ]] || query="$query parent-issue:$parent"
 	[[ -z $updated_before ]] || query="$query updated:<$updated_before"
 	[[ -z $text ]] || query="$query $text"
-	out=$(gh search issues "$query" --json number \
-		--jq '[.[].number | tostring]' 2>&1) || status=$?
+	github_run search issues "$query" --json number \
+		--jq '[.[].number | tostring]' || status=$?
+	out=$GH_OUT
 	((status == 0)) ||
-		github_die "$out"
+		github_die "$GH_ERR"
 	printf '%s\n' "$out"
 }
 
@@ -242,7 +264,8 @@ profile_create() {
 	fi
 	[[ -z $parent ]] || args+=(--parent "$parent")
 
-	out=$(gh "${args[@]}" 2>&1) || status=$?
+	github_run "${args[@]}" || status=$?
+	out=$GH_OUT
 	url=$(printf '%s\n' "$out" |
 		rg -o 'https://[^/[:space:]]+/[^/[:space:]]+/[^/[:space:]]+/issues/[0-9]+' |
 		tail -n 1 || true)
@@ -251,8 +274,13 @@ profile_create() {
 			'{error: "partial", message: $m, partial: {url: $u}}' >&2
 		exit "$EXIT_PARTIAL"
 	fi
-	[[ -n $url ]] ||
-		die "$EXIT_TRANSPORT" transport 'created issue URL could not be resolved'
+	if [[ -z $url ]]; then
+		# The write landed; only the identity is unknown. Partial, never a
+		# failure -- an operator told "creation failed" re-runs it.
+		jq -Rrn --arg m 'created issue URL could not be resolved' \
+			'{error: "partial", message: $m, partial: {}}' >&2
+		exit "$EXIT_PARTIAL"
+	fi
 	jq -n --arg u "$url" '{id: ($u | split("/") | last), url: $u}'
 }
 
@@ -266,30 +294,36 @@ profile_label_edit() {
 	local id=$1 status=0 out
 	shift
 	local -a args=(issue edit "$id" --repo "$TRACKER_TARGET")
-	local -a applied=()
+	local -a requested_adds=() requested_removes=()
 	while (($#)); do
 		case $1 in
 		--add)
 			(($# >= 2)) || die "$EXIT_USAGE" usage '--add needs a value'
 			args+=(--add-label "$2")
-			applied+=("$2")
+			requested_adds+=("$2")
 			shift 2
 			;;
 		--remove)
 			(($# >= 2)) || die "$EXIT_USAGE" usage '--remove needs a value'
 			args+=(--remove-label "$2")
+			requested_removes+=("$2")
 			shift 2
 			;;
 		*) die "$EXIT_USAGE" usage "unknown label-edit argument: $1" ;;
 		esac
 	done
-	out=$(gh "${args[@]}" 2>&1) || status=$?
+	github_run "${args[@]}" || status=$?
+	out=$GH_OUT
 	if ((status != 0)); then
 		# partial names what was requested, so a caller can repair rather than
 		# guess which half of the delta landed.
-		printf '%s\n' "${applied[@]+"${applied[@]}"}" |
-			jq -Rrn --arg m "$out" \
-				'{error: "partial", message: $m, partial: {requested_adds: [inputs | select(. != "")]}}' >&2
+		jq -Rrn --arg m "$GH_ERR" \
+			--argjson adds "$(printf '%s\n' "${requested_adds[@]+"${requested_adds[@]}"}" |
+				jq -Rn '[inputs | select(. != "")]')" \
+			--argjson removes "$(printf '%s\n' "${requested_removes[@]+"${requested_removes[@]}"}" |
+				jq -Rn '[inputs | select(. != "")]')" \
+			'{error: "partial", message: $m,
+			  partial: {requested_adds: $adds, requested_removes: $removes}}' >&2
 		exit "$EXIT_PARTIAL"
 	fi
 	printf '{}\n'
@@ -299,21 +333,23 @@ profile_label_ensure() {
 	github_require_target
 	(($# >= 3)) || die "$EXIT_USAGE" usage 'label-ensure needs a name, colour and description'
 	local name=$1 color=$2 description=$3 status=0 out
-	out=$(gh label create "$name" --repo "$TRACKER_TARGET" --color "$color" \
-		--description "$description" 2>&1) || status=$?
+	github_run label create "$name" --repo "$TRACKER_TARGET" --color "$color" \
+		--description "$description" || status=$?
+	out=$GH_OUT
 	((status == 0)) && {
 		printf '{}\n'
 		return 0
 	}
-	# An already-existing label is the ordinary case, not a failure. Masking a
-	# no-scope failure as success is what this distinction exists to prevent.
-	case $out in
+	# An already-existing label is the ordinary case, not a failure. gh reports
+	# it on stderr, so this reads GH_ERR; masking a no-scope failure as success
+	# is what this distinction exists to prevent.
+	case $GH_ERR in
 	*'already exists'*)
 		printf '{}\n'
 		return 0
 		;;
 	esac
-	github_die "$out"
+	github_die "$GH_ERR"
 }
 
 profile_comment_add() {
@@ -322,9 +358,10 @@ profile_comment_add() {
 	local id=$1 body_file=$2 status=0 out
 	[[ -f $body_file && -s $body_file ]] ||
 		die "$EXIT_USAGE" usage "body file must be a populated regular file: $body_file"
-	out=$(gh issue comment "$id" --repo "$TRACKER_TARGET" \
-		--body-file "$body_file" 2>&1) || status=$?
-	((status == 0)) || die "$EXIT_PARTIAL" partial "$out"
+	github_run issue comment "$id" --repo "$TRACKER_TARGET" \
+		--body-file "$body_file" || status=$?
+	out=$GH_OUT
+	((status == 0)) || die "$EXIT_PARTIAL" partial "$GH_ERR"
 	printf '{}\n'
 }
 
@@ -337,8 +374,9 @@ profile_state_set() {
 	closed) verb=close ;;
 	*) die "$EXIT_USAGE" usage "state must be open or closed: $state" ;;
 	esac
-	out=$(gh issue "$verb" "$id" --repo "$TRACKER_TARGET" 2>&1) || status=$?
-	((status == 0)) || die "$EXIT_PARTIAL" partial "$out"
+	github_run issue "$verb" "$id" --repo "$TRACKER_TARGET" || status=$?
+	out=$GH_OUT
+	((status == 0)) || die "$EXIT_PARTIAL" partial "$GH_ERR"
 	printf '{}\n'
 }
 
@@ -349,15 +387,16 @@ profile_link_parent() {
 	github_require_target
 	(($# >= 2)) || die "$EXIT_USAGE" usage 'link-parent needs a child and a parent id'
 	local child=$1 parent=$2 status=0 out child_db_id
-	child_db_id=$(gh api "repos/$TRACKER_TARGET/issues/$child" --jq .id 2>&1) ||
-		status=$?
-	((status == 0)) || github_die "$child_db_id"
+	github_run api "repos/$TRACKER_TARGET/issues/$child" --jq .id || status=$?
+	child_db_id=$GH_OUT
+	((status == 0)) || github_die "$GH_ERR"
 	[[ $child_db_id =~ ^[0-9]+$ ]] ||
 		die "$EXIT_TRANSPORT" transport \
 			"could not resolve a database id for issue $child"
-	out=$(gh api "repos/$TRACKER_TARGET/issues/$parent/sub_issues" \
-		-F "sub_issue_id=$child_db_id" 2>&1) || status=$?
-	((status == 0)) || github_die "$out"
+	github_run api "repos/$TRACKER_TARGET/issues/$parent/sub_issues" \
+		-F "sub_issue_id=$child_db_id" || status=$?
+	out=$GH_OUT
+	((status == 0)) || github_die "$GH_ERR"
 	printf '{}\n'
 }
 
@@ -370,9 +409,10 @@ profile_link_blocks() {
 	local blocker=$1 blocked=$2 body status=0 out='' tmp
 	[[ $blocker =~ ^[0-9]+$ ]] ||
 		die "$EXIT_USAGE" usage "blocker must be an issue number: $blocker"
-	body=$(gh issue view "$blocked" --repo "$TRACKER_TARGET" --json body \
-		--jq .body 2>&1) || status=$?
-	((status == 0)) || github_die "$body"
+	github_run issue view "$blocked" --repo "$TRACKER_TARGET" --json body \
+		--jq .body || status=$?
+	body=$GH_OUT
+	((status == 0)) || github_die "$GH_ERR"
 	# \r? because GitHub stores web-authored bodies with CRLF and rg's $ does not
 	# match before \r -- without it the guard never fires and every call appends
 	# another line. create-verified-issue.sh already does this for its sections.
@@ -387,9 +427,10 @@ profile_link_blocks() {
 Blocked by #$blocker"
 	tmp=$(mktemp)
 	printf '%s\n' "$body" >"$tmp"
-	out=$(gh issue edit "$blocked" --repo "$TRACKER_TARGET" --body-file "$tmp" 2>&1) ||
+	github_run issue edit "$blocked" --repo "$TRACKER_TARGET" --body-file "$tmp" ||
 		status=$?
+	out=$GH_OUT
 	rm -f -- "$tmp"
-	((status == 0)) || die "$EXIT_PARTIAL" partial "$out"
+	((status == 0)) || die "$EXIT_PARTIAL" partial "$GH_ERR"
 	printf '{}\n'
 }

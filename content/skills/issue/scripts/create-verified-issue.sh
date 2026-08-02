@@ -96,9 +96,18 @@ created_output=$("$tracker" create --target "$repo" "${create_args[@]}" 2>&1) ||
 # The engine reports a taxonomy class; this script's contract reports 1. The
 # distinction between "failed" and "failed but may have landed" is carried by
 # the URL check below, exactly as it was before.
+create_class=$create_status
 ((create_status == 0)) || create_status=1
 issue_url_pattern='https://[^/[:space:]]+/[^/[:space:]]+/[^/[:space:]]+/issues/[0-9]+'
 issue_url=$(printf '%s\n' "$created_output" | rg -o "$issue_url_pattern" | tail -n 1 || true)
+# A partial carrying no identity means the write landed and only its URL could
+# not be parsed. Reporting that as a failed command invites a re-run and a
+# duplicate live issue, which is the outcome this script exists to prevent.
+if ((create_class == 5)) && [[ -z $issue_url ]]; then
+	printf 'issue was created but its durable issue URL could not be resolved;' >&2
+	printf ' creation was not retried\n' >&2
+	exit 1
+fi
 if ((create_status != 0)); then
 	if [[ -n $issue_url && $issue_url == "$canonical_url/issues/${issue_url##*/}" ]]; then
 		printf '%s: creation command failed with exit %d; creation was not retried\n' \

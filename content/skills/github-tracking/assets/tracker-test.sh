@@ -444,4 +444,69 @@ GH_FAIL=notfound GH_CALL_LOG="$fixture/calls" PATH="$fixture/bin:$PATH" \
 assert_exit 2 "$status" 'label-history against a missing repo'
 assert_error "$fixture/err" not-found "gh's real 404 wording"
 
+# --- stderr must never become the payload -----------------------------------
+# gh prints its release-update notice on stderr while exiting 0. Merging the
+# streams made that notice part of the value.
+cat >"$fixture/bin/gh" <<'FAKE_GH'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%q ' "$@" >>"$GH_CALL_LOG"
+printf '\n' >>"$GH_CALL_LOG"
+printf 'A new release of gh is available: 2.60.0\n' >&2
+if [[ $1 == repo && $2 == view ]]; then
+	printf 'https://github.com/example/repo\n'
+	exit 0
+fi
+if [[ $1 == issue && $2 == view ]]; then
+	printf '%s\n' '{"number":101,"title":"T","body":"B","labels":[],"parent":null,"state":"OPEN","url":"u","updatedAt":"2026-01-01T00:00:00Z"}'
+	exit 0
+fi
+exit 0
+FAKE_GH
+chmod +x "$fixture/bin/gh"
+
+run_op target-url-noise -- target-url --profile github --target example/repo
+[[ $(cat "$fixture/out") == 'https://github.com/example/repo' ]] ||
+	fail "stderr noise leaked into the payload: $(cat "$fixture/out")"
+
+run_op view-noise -- view --profile github --target example/repo 101
+jq -e '.id == "101"' >/dev/null <"$fixture/out" ||
+	fail 'stderr noise broke the view payload'
+
+# --- link-blocks actually writes when the link is absent --------------------
+cat >"$fixture/bin/gh" <<'FAKE_GH'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%q ' "$@" >>"$GH_CALL_LOG"
+printf '\n' >>"$GH_CALL_LOG"
+if [[ $1 == issue && $2 == view ]]; then
+	printf 'a body with no link\n'
+	exit 0
+fi
+if [[ $1 == issue && $2 == edit ]]; then
+	for arg in "$@"; do
+		[[ -f $arg ]] && cp "$arg" "$GH_BODY_COPY"
+	done
+	exit 0
+fi
+exit 0
+FAKE_GH
+chmod +x "$fixture/bin/gh"
+: >"$fixture/calls"
+GH_BODY_COPY="$fixture/written-body" GH_CALL_LOG="$fixture/calls" \
+	PATH="$fixture/bin:$PATH" \
+	"$tracker" link-blocks --profile github --target example/repo 7 101 \
+	>"$fixture/out" 2>"$fixture/err" || fail 'link-blocks write path failed'
+rg -q '^issue edit ' "$fixture/calls" ||
+	fail 'link-blocks did not write when the link was absent'
+assert_contains 'Blocked by #7' "$fixture/written-body"
+assert_contains 'a body with no link' "$fixture/written-body"
+
+# A non-numeric blocker never reaches the regex it would be spliced into.
+status=0
+PATH="$fixture/bin:$PATH" "$tracker" link-blocks --profile github \
+	--target example/repo 'x)|(' 101 >"$fixture/out" 2>"$fixture/err" || status=$?
+assert_exit 1 "$status" 'link-blocks with a non-numeric blocker'
+assert_error "$fixture/err" usage 'non-numeric blocker'
+
 printf 'tracker-test: all assertions passed\n'
