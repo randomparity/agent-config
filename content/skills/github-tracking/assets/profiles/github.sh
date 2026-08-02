@@ -33,21 +33,27 @@ github_require_target() {
 # gh does not expose a machine-readable failure class, so classification is by
 # message. An unmatched failure is transport, the class whose contract is "the
 # caller decides whether to retry" — never the engine.
+# Emits "<exit-code> <class>" so the JSON error object's class always agrees
+# with the exit code. Passing a hardcoded class alongside a computed code is how
+# a 401 comes to report itself as a transport failure.
 github_classify() {
-	local status=$1 output=$2
-	((status == 0)) && {
-		printf '%s' 0
-		return 0
-	}
+	local output=$1
 	case $output in
 	*'Could not resolve'* | *'not found'* | *'no such'*)
-		printf '%s' "$EXIT_NOT_FOUND"
+		printf '%s %s' "$EXIT_NOT_FOUND" not-found
 		;;
 	*'authentication'* | *'HTTP 401'* | *'HTTP 403'* | *'gh auth login'*)
-		printf '%s' "$EXIT_AUTH"
+		printf '%s %s' "$EXIT_AUTH" auth
 		;;
-	*) printf '%s' "$EXIT_TRANSPORT" ;;
+	*) printf '%s %s' "$EXIT_TRANSPORT" transport ;;
 	esac
+}
+
+# Single exit path for a failed gh call, so code and class cannot disagree.
+github_die() {
+	local output=$1 code class
+	read -r code class <<<"$(github_classify "$output")"
+	die "$code" "$class" "$output"
 }
 
 profile_target_url() {
@@ -55,18 +61,19 @@ profile_target_url() {
 	local out status=0 url
 	out=$(gh repo view "$TRACKER_TARGET" --json url --jq .url 2>&1) || status=$?
 	((status == 0)) ||
-		die "$(github_classify "$status" "$out")" transport "$out"
+		github_die "$out"
 	url=${out%/}
 	printf '%s\n' "$url"
 }
 
 profile_view() {
 	github_require_target
+	(($# >= 1)) || die "$EXIT_USAGE" usage 'view needs an issue id'
 	local id=$1 out status=0
 	out=$(gh issue view "$id" --repo "$TRACKER_TARGET" \
 		--json number,title,body,labels,parent,state,url 2>&1) || status=$?
 	((status == 0)) ||
-		die "$(github_classify "$status" "$out")" transport "$out"
+		github_die "$out"
 	# Validate the source shape before normalizing. The jq below indexes
 	# .parent.number and .labels[].name; a payload carrying "parent":"bad" or
 	# "labels":["bad"] would crash it and surface as a transport error rather
@@ -100,11 +107,12 @@ profile_view() {
 
 profile_comment_list() {
 	github_require_target
+	(($# >= 1)) || die "$EXIT_USAGE" usage 'comment-list needs an issue id'
 	local id=$1 out status=0
 	out=$(gh issue view "$id" --repo "$TRACKER_TARGET" --json comments 2>&1) ||
 		status=$?
 	((status == 0)) ||
-		die "$(github_classify "$status" "$out")" transport "$out"
+		github_die "$out"
 	jq '[.comments[].body]' <<<"$out"
 }
 
@@ -113,12 +121,15 @@ profile_comment_list() {
 # already define a behavior for.
 profile_label_history() {
 	github_require_target
+	(($# >= 2)) || die "$EXIT_USAGE" usage 'label-history needs an issue id and a label'
 	local id=$1 label=$2 out status=0
-	out=$(gh api "repos/$TRACKER_TARGET/issues/$id/timeline" --paginate \
-		--jq "[.[] | select(.event==\"labeled\" and .label.name==\"$label\")] | last | .created_at" \
+	# --slurp aggregates pages before filtering. Without it gh applies --jq to
+	# each page separately and a paginated timeline yields one line per page.
+	out=$(gh api "repos/$TRACKER_TARGET/issues/$id/timeline" --paginate --slurp \
+		--jq "[.[][] | select(.event==\"labeled\" and .label.name==\"$label\")] | last | .created_at // \"unknown\"" \
 		2>&1) || status=$?
 	((status == 0)) ||
-		die "$(github_classify "$status" "$out")" transport "$out"
+		github_die "$out"
 	[[ -n $out && $out != null ]] || out=unknown
 	printf '%s\n' "$out"
 }
@@ -162,7 +173,7 @@ profile_search() {
 	out=$(gh search issues "$query" --json number \
 		--jq '[.[].number | tostring]' 2>&1) || status=$?
 	((status == 0)) ||
-		die "$(github_classify "$status" "$out")" transport "$out"
+		github_die "$out"
 	printf '%s\n' "$out"
 }
 
@@ -232,6 +243,7 @@ profile_create() {
 # leaves none.
 profile_label_edit() {
 	github_require_target
+	(($# >= 1)) || die "$EXIT_USAGE" usage 'label-edit needs an issue id'
 	local id=$1 status=0 out
 	shift
 	local -a args=(issue edit "$id" --repo "$TRACKER_TARGET")
@@ -266,6 +278,7 @@ profile_label_edit() {
 
 profile_label_ensure() {
 	github_require_target
+	(($# >= 3)) || die "$EXIT_USAGE" usage 'label-ensure needs a name, colour and description'
 	local name=$1 color=$2 description=$3 status=0 out
 	out=$(gh label create "$name" --repo "$TRACKER_TARGET" --color "$color" \
 		--description "$description" 2>&1) || status=$?
@@ -281,11 +294,12 @@ profile_label_ensure() {
 		return 0
 		;;
 	esac
-	die "$(github_classify "$status" "$out")" transport "$out"
+	github_die "$out"
 }
 
 profile_comment_add() {
 	github_require_target
+	(($# >= 2)) || die "$EXIT_USAGE" usage 'comment-add needs an issue id and a body file'
 	local id=$1 body_file=$2 status=0 out
 	[[ -f $body_file && -s $body_file ]] ||
 		die "$EXIT_USAGE" usage "body file must be a populated regular file: $body_file"
@@ -297,6 +311,7 @@ profile_comment_add() {
 
 profile_state_set() {
 	github_require_target
+	(($# >= 2)) || die "$EXIT_USAGE" usage 'state-set needs an issue id and a state'
 	local id=$1 state=$2 status=0 out verb
 	case $state in
 	open) verb=reopen ;;
@@ -310,10 +325,11 @@ profile_state_set() {
 
 profile_link_parent() {
 	github_require_target
+	(($# >= 2)) || die "$EXIT_USAGE" usage 'link-parent needs a child and a parent id'
 	local child=$1 parent=$2 status=0 out
 	out=$(gh api "repos/$TRACKER_TARGET/issues/$parent/sub_issues" \
 		-f "sub_issue_id=$child" 2>&1) || status=$?
-	((status == 0)) || die "$(github_classify "$status" "$out")" transport "$out"
+	((status == 0)) || github_die "$out"
 	printf '{}\n'
 }
 
@@ -322,10 +338,11 @@ profile_link_parent() {
 # know: a tracker with native links implements the same operation differently.
 profile_link_blocks() {
 	github_require_target
+	(($# >= 2)) || die "$EXIT_USAGE" usage 'link-blocks needs a blocker and a blocked id'
 	local blocker=$1 blocked=$2 body status=0 out='' tmp
 	body=$(gh issue view "$blocked" --repo "$TRACKER_TARGET" --json body \
 		--jq .body 2>&1) || status=$?
-	((status == 0)) || die "$(github_classify "$status" "$body")" transport "$body"
+	((status == 0)) || github_die "$body"
 	if ! printf '%s\n' "$body" | rg -q "^Blocked by #$blocker\$"; then
 		body="$body
 Blocked by #$blocker"

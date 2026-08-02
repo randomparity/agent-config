@@ -28,7 +28,7 @@ available for both trackers.
 
 Introduce a tracker engine that deliberately lacks tracker knowledge, plus one
 profile per tracker that supplies it, under
-`content/skills/issue-tracking/assets/`: `tracker.sh` with
+the tracking skill's `assets/` directory: `tracker.sh` with
 `profiles/github.sh` and, later, `profiles/jira.sh`.
 
 Skills invoke `tracker.sh <operation>` rather than `gh issue`. The engine

@@ -22,12 +22,34 @@ assert_contains() {
 	rg -F -- "$needle" "$file" >/dev/null || fail "missing '$needle' in $file"
 }
 
-# A repo whose AGENTS.md declares nothing resolves to github.
+# Three distinct paths default to github, and each is a place where a
+# regression would silently change which tracker a write reaches.
+# (a) no git root at all
 mkdir -p "$fixture/norepo"
 status=0
 (cd "$fixture/norepo" && "$tracker" resolve) >"$fixture/out" 2>"$fixture/err" ||
 	status=$?
-assert_exit 0 "$status" 'resolve with no declaration'
+assert_exit 0 "$status" 'resolve outside a git repo'
+assert_contains 'github' "$fixture/out"
+
+# (b) a git root with no AGENTS.md
+mkdir -p "$fixture/noagents"
+git -C "$fixture/noagents" init -q
+status=0
+(cd "$fixture/noagents" && "$tracker" resolve) >"$fixture/out" 2>"$fixture/err" ||
+	status=$?
+assert_exit 0 "$status" 'resolve with no AGENTS.md'
+assert_contains 'github' "$fixture/out"
+
+# (c) an AGENTS.md with content but no issue-tracker line -- must reach the
+# default, not the malformed-typo die
+mkdir -p "$fixture/noline"
+git -C "$fixture/noline" init -q
+printf '# Instructions\n\nNothing about trackers here.\n' >"$fixture/noline/AGENTS.md"
+status=0
+(cd "$fixture/noline" && "$tracker" resolve) >"$fixture/out" 2>"$fixture/err" ||
+	status=$?
+assert_exit 0 "$status" 'resolve with AGENTS.md lacking a declaration'
 assert_contains 'github' "$fixture/out"
 
 # A malformed declaration is an error, not an absence: silently treating a typo
@@ -220,13 +242,114 @@ status=0
 	status=$?
 assert_exit 1 "$status" 'undeclared operation'
 
-# Every operation the GitHub profile offers must carry a declaration, and every
-# declaration must name an operation that exists. This is the assertion that
-# makes the gate meaningful rather than decorative.
-for op in view target-url comment-list label-history search create label-edit \
-	label-ensure comment-add state-set link-parent link-blocks; do
-	"$tracker" declares --profile github "$op" >/dev/null 2>&1 ||
-		fail "github profile does not declare '$op'"
+# Both directions, derived from the profile rather than a hand-kept list: an
+# operation added without a declaration must fail the gate immediately, and a
+# declaration naming no function must fail it too.
+# Named so they do not themselves match profile_*, which would make each helper
+# look like an undeclared operation. Sourcing only binds names, so no stubs for
+# die or the exit constants are needed.
+list_profile_functions() { # profile-path
+	(
+		# shellcheck source=/dev/null
+		. "$1"
+		declare -F | sed -n 's/^declare -f profile_//p'
+	)
+}
+list_profile_declarations() { # profile-path
+	(
+		# shellcheck source=/dev/null
+		. "$1"
+		printf '%s\n' "$PROFILE_DECLARES" | sed -n 's/:.*//p'
+	)
+}
+
+for prof in github fixture; do
+	path="$script_dir/profiles/$prof.sh"
+	while IFS= read -r fn; do
+		[[ -n $fn ]] || continue
+		list_profile_declarations "$path" | rg -qx -- "$fn" ||
+			fail "$prof defines profile_$fn with no declaration"
+	done < <(list_profile_functions "$path")
+	while IFS= read -r decl; do
+		[[ -n $decl ]] || continue
+		list_profile_functions "$path" | rg -qx -- "$decl" ||
+			fail "$prof declares '$decl' but defines no profile_$decl"
+	done < <(list_profile_declarations "$path")
 done
+
+# A degraded operation must actually return its declared value, not merely be
+# listed as degraded.
+declared=$("$tracker" declares --profile fixture label-history)
+[[ $declared == degraded=* ]] || fail 'fixture label-history is not declared degraded'
+observed=$("$tracker" label-history --profile fixture 1 label)
+[[ $observed == "${declared#degraded=}" ]] ||
+	fail "fixture label-history returned '$observed', declared '${declared#degraded=}'"
+
+# --- error payload contract -------------------------------------------------
+# Assert exit codes by value and parse the object: a substring match would pass
+# on any non-zero exit, which is how a wrong class stays invisible.
+assert_error() { # file expected-class label
+	local file=$1 class=$2 label=$3
+	jq -e --arg c "$class" '.error == $c' >/dev/null <"$file" ||
+		fail "$label: error class is not '$class' (payload: $(cat "$file"))"
+}
+
+cat >"$fixture/bin/gh" <<'FAKE_GH'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%q ' "$@" >>"$GH_CALL_LOG"
+printf '\n' >>"$GH_CALL_LOG"
+case ${GH_FAIL:-none} in
+notfound) printf 'gh: issue not found\n' >&2; exit 1 ;;
+auth) printf 'gh: HTTP 401 authentication required\n' >&2; exit 1 ;;
+transport) printf 'gh: dial tcp: i/o timeout\n' >&2; exit 1 ;;
+esac
+exit 0
+FAKE_GH
+chmod +x "$fixture/bin/gh"
+
+status=0
+GH_FAIL=notfound GH_CALL_LOG="$fixture/calls" PATH="$fixture/bin:$PATH" \
+	"$tracker" view --profile github --target example/repo 101 \
+	>"$fixture/out" 2>"$fixture/err" || status=$?
+assert_exit 2 "$status" 'view against a missing issue'
+assert_error "$fixture/err" not-found 'not-found'
+
+status=0
+GH_FAIL=auth GH_CALL_LOG="$fixture/calls" PATH="$fixture/bin:$PATH" \
+	"$tracker" view --profile github --target example/repo 101 \
+	>"$fixture/out" 2>"$fixture/err" || status=$?
+assert_exit 3 "$status" 'view with expired auth'
+assert_error "$fixture/err" auth 'auth'
+
+status=0
+GH_FAIL=transport GH_CALL_LOG="$fixture/calls" PATH="$fixture/bin:$PATH" \
+	"$tracker" view --profile github --target example/repo 101 \
+	>"$fixture/out" 2>"$fixture/err" || status=$?
+assert_exit 4 "$status" 'view with a transport failure'
+assert_error "$fixture/err" transport 'transport'
+
+# A missing positional is a usage error carrying the contract's object, not a
+# raw bash unbound-variable abort leaking a local path.
+status=0
+PATH="$fixture/bin:$PATH" "$tracker" view --profile github --target example/repo \
+	>"$fixture/out" 2>"$fixture/err" || status=$?
+assert_exit 1 "$status" 'view with no issue id'
+assert_error "$fixture/err" usage 'missing positional'
+
+# label-edit names what it requested so a caller can repair a half-applied delta.
+status=0
+GH_FAIL=transport GH_CALL_LOG="$fixture/calls" PATH="$fixture/bin:$PATH" \
+	"$tracker" label-edit --profile github --target example/repo 101 \
+	--add status:ready >"$fixture/out" 2>"$fixture/err" || status=$?
+assert_exit 5 "$status" 'label-edit on a failed write'
+jq -e '.partial.requested_adds | index("status:ready")' >/dev/null <"$fixture/err" ||
+	fail 'label-edit partial does not name the requested adds'
+
+# Removing a label the issue does not carry is a success.
+GH_CALL_LOG="$fixture/calls" PATH="$fixture/bin:$PATH" \
+	"$tracker" label-edit --profile github --target example/repo 101 \
+	--remove not-present >"$fixture/out" 2>"$fixture/err" ||
+	fail 'removing an absent label was treated as failure'
 
 printf 'tracker-test: all assertions passed\n'

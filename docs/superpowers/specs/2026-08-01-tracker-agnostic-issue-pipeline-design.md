@@ -203,9 +203,11 @@ operation therefore shares one exit taxonomy:
 | 4 | transport | network, timeout, or unparseable tracker response |
 | 5 | partial | a write may have landed; identity emitted if observed |
 
-On any non-zero exit the operation emits a JSON error object on stdout —
-`{"error": "<class>", "message": "…", "partial": {…}}` — and leaves the
-underlying command's raw combined output on stderr.
+On any non-zero exit the operation emits a JSON error object on **stderr** —
+`{"error": "<class>", "message": "…", "partial": {…}}` — carrying the
+underlying command's raw combined output in `message`. Stdout is the success
+channel only, so a caller capturing it for data never receives an error object
+where it expected a result. `.error` always agrees with the exit code.
 
 **No operation retries.** The engine never re-issues an underlying command, on
 any exit class. Every diagnostic in `create-verified-issue.sh` ends with

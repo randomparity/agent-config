@@ -63,7 +63,7 @@ done
 [[ -z $parent || $parent =~ ^[0-9]+$ ]] || usage
 
 create_args=(--title "$title" --body-file "$body_file")
-for label in "${labels[@]}"; do
+for label in "${labels[@]+"${labels[@]}"}"; do
 	create_args+=(--label "$label")
 done
 if [[ -n $parent ]]; then
@@ -175,7 +175,7 @@ for section in 'Problem' 'Evidence' 'Expected' 'Proposed approach'; do
 		mismatches+=("body: missing section '$section'")
 	fi
 done
-for label in "${labels[@]}"; do
+for label in "${labels[@]+"${labels[@]}"}"; do
 	found=false
 	while IFS= read -r observed_label; do
 		if [[ $observed_label == "$label" ]]; then
