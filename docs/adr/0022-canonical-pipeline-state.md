@@ -33,10 +33,16 @@ percent-encoding defect that afflicts `gh issue list --label`.
 
 ## Decision
 
-`status:` labels remain the single source of truth for **in-flight** state on
-every tracker, with the value vocabulary unchanged.
+`status:` labels are the single source of truth for **in-flight** state on every
+tracker, with the value vocabulary unchanged.
 
-On Jira, native status is additionally written as a derived projection:
+Jira's native status field then carries two unrelated things, and separating
+them is the whole of this decision.
+
+**In-flight state: a cosmetic mirror.** Written after each label transition so
+boards read correctly, and best-effort throughout — a failed write does not fail
+the transition, a project missing a mapped status skips it, and the next
+transition re-drives it.
 
 | `status:` label | Jira status |
 |---|---|
@@ -44,33 +50,19 @@ On Jira, native status is additionally written as a derived projection:
 | `in-progress` | In Progress |
 | `in-review`, `awaiting-merge` | In Review |
 | `blocked`, `needs-human` | In Progress |
-| issue closed | Done |
-| issue reopened | the status its current `status:` label maps to, or To Do |
-| `epic`-labeled (carries no `status:`) | no projection write |
+| `epic`-labeled (carries no `status:`) | no write, overriding every row below |
 
-The `epic` row wins over every other, including `issue closed`: an epic's state
-derives from its sub-issues on both trackers, so its board position carries no
-meaning and nothing should write it.
-
-Terminal state is the exception, and it is not cosmetic. GitHub carries
-doneness in closed-state, a field independent of the label set, and
-`github-tracking` therefore defines no `status:done` label. Jira does have a
-distinct doneness field — `resolution`, which the Done transition populates
-along with `resolutiondate`, verified on the tenant — but it is set *by* that
-transition rather than independently, so it does not remove the dependence on
-the write. On Jira the Done projection is therefore where doneness lives, and
-the normalized `done` field reads it back through `statusCategory == "done"`,
-which is stable across project types where resolution names are not.
-
-That yields two tiers with different guarantees:
-
-- **The four in-flight arms are cosmetic and best-effort.** A failed write does
-  not fail the transition, and a project lacking a mapped status skips it. The
-  label stays authoritative and the next transition re-drives the mirror.
-- **The Done arm is authoritative and must succeed.** A failed close projection
-  fails the operation and reports it. Nothing re-drives a terminal transition,
-  and no other field records the outcome, so a silent failure here would leave
-  `done` false permanently. The missing-status skip does not apply to it.
+**Terminal state: the record itself, not a mirror of one.** GitHub keeps
+doneness in closed state, independent of labels, which is why `github-tracking`
+defines no `status:done`. Jira has no independent equivalent: `resolution` is a
+real doneness field, but the same transition drives it — verified on the tenant,
+where closing set `resolution` and `resolutiondate` and reopening cleared both.
+So on Jira the close write *is* the doneness record, and it is not best-effort.
+It fails the operation and reports, because nothing re-drives a terminal
+transition and no other field would hold the outcome. Closing projects to Done;
+reopening projects back to whatever the issue's current `status:` label maps to,
+or To Do if it carries none. `done` reads `statusCategory == "done"`, stable
+across project types where status and resolution names are not.
 
 ## Consequences
 
@@ -78,24 +70,24 @@ That yields two tiers with different guarantees:
   no per-tracker state logic.
 - Jira boards stay meaningful without native status becoming a second writer
   for in-flight state.
-- Every Jira state change costs a second write. Best-effort on the four
-  in-flight arms; blocking on the Done arm.
+- Every Jira state change costs a second write: best-effort for the mirror,
+  blocking for the close.
 - **Jira doneness depends on a write succeeding, where GitHub doneness does
   not** — on GitHub the tracker maintains that field, on Jira this pipeline
   does.
 - **The Jira board cannot distinguish parked from active.** `blocked` and
   `needs-human` both project to In Progress, so a human reads the label, not
   the board, to tell a stalled issue from a moving one.
-- **Jira epics get no projection** and stay in whatever status they were
-  created in. Their state derives from sub-issues, exactly as on GitHub, so the
-  board position of an epic carries no meaning on either tracker.
-- Native status on the **four in-flight arms** can be edited in the Jira UI and
-  will be silently overwritten by the next transition. This is intended — a
-  mirror that could be edited back would be a second source of truth.
-- **On the Done arm that protection does not exist.** A user dragging a closed
-  issue out of Done falsifies the field the pipeline reads for `done`, and
-  nothing re-drives a terminal transition to repair it. The pipeline cannot
-  detect this; a human must.
+- **Jira epics get no status write at all** and stay wherever they were created.
+  Their state derives from sub-issues, exactly as on GitHub, so an epic's board
+  position carries no meaning on either tracker.
+- A UI edit to the **mirror** is silently overwritten by the next transition.
+  That is intended: a mirror that could be edited back would be a second source
+  of truth.
+- **The close write has no such protection.** A user dragging a closed issue out
+  of Done falsifies the field the pipeline reads for `done`, and nothing
+  re-drives a terminal transition to repair it. The pipeline cannot detect this;
+  a human must.
 
 ## Considered & rejected
 

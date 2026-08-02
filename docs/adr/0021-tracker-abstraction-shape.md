@@ -36,14 +36,16 @@ resolves the active profile, dispatches, and normalizes results to one JSON
 shape, so no caller branches on tracker. A contract test suite runs every
 operation against every profile and is wired into `just verify`.
 
-Resolution has one source: the repo's own declaration in its instruction files.
-No environment variable participates, as override or otherwise — ambient
-per-shell state that survives into a resumed session can route a write to the
-wrong tracker silently, and a live Jira tenant has no `gh issue delete`. A repo
-declaring nothing is a GitHub repo, which is what every repo is today; a
-declaration naming a tracker with no profile is an actionable error, never a
-fallback. Where the contract suite must select a profile it passes an explicit
-`tracker.sh` flag, visible at the call site.
+Resolution has one source: a declaration in the repo's tracked `AGENTS.md`.
+Tracked and committed is the requirement, not an incidental detail — an
+untracked `CLAUDE.local.md`, a user-global `~/.claude/CLAUDE.md`, or an
+environment variable are all machine-local and invisible in a diff, so any of
+them could route a write to the wrong tracker silently, and a live Jira tenant
+has no `gh issue delete`. No environment variable participates, as override or
+otherwise; where the contract suite must select a profile it passes an explicit
+`tracker.sh` flag, visible at the call site. A repo declaring nothing is a
+GitHub repo, which is what every repo is today; a declaration naming a tracker
+with no profile is an actionable error, never a fallback.
 
 This mirrors `check-records.sh` + `profiles/{adr,debt}.sh`, already in this
 repo and already carrying two record kinds.
@@ -93,7 +95,10 @@ than extending it.
   syntax — `gh issue view --json` against JQL — which reinstates the per-tracker
   branch in the ten skills this record exists to keep uniform. The asymmetry it
   identifies is real and survives in the design: reads are the operations
-  permitted to degrade, as `label-history` may on Jira, where a write is not.
+  normally permitted to degrade, as `label-history` may on Jira. The line is not
+  clean — `label-ensure` is a write whose colour and description have no Jira
+  meaning, so it degrades to a no-op there — which is why the contract is drawn
+  per operation rather than by read/write class.
 - **Route every tracker call through the Rovo MCP server.** Rejected because
   MCP tools cannot be invoked from a shell script, which forfeits the same
   exit-code guarantee, and it makes the GitHub path depend on an MCP server it
