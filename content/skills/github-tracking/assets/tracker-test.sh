@@ -509,4 +509,81 @@ PATH="$fixture/bin:$PATH" "$tracker" link-blocks --profile github \
 assert_exit 1 "$status" 'link-blocks with a non-numeric blocker'
 assert_error "$fixture/err" usage 'non-numeric blocker'
 
+# --- a failure that cannot have written is not partial ----------------------
+cat >"$fixture/bin/gh" <<'FAKE_GH'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%q ' "$@" >>"$GH_CALL_LOG"
+printf '\n' >>"$GH_CALL_LOG"
+printf '%s\n' "${GH_ERR_TEXT:-boom}" >&2
+exit 1
+FAKE_GH
+chmod +x "$fixture/bin/gh"
+
+# 401: nothing was written, so claiming the issue may exist is worse than
+# reporting the failure.
+status=0
+GH_ERR_TEXT='gh: HTTP 401: Bad credentials' GH_CALL_LOG="$fixture/calls" \
+	PATH="$fixture/bin:$PATH" \
+	"$tracker" create --profile github --target example/repo --title T \
+	--body-file "$fixture/body.md" >"$fixture/out" 2>"$fixture/err" || status=$?
+assert_exit 3 "$status" 'create against bad credentials'
+assert_error "$fixture/err" auth 'create auth failure is not partial'
+
+# A transport failure genuinely may have written, so it stays partial.
+status=0
+GH_ERR_TEXT='dial tcp: i/o timeout' GH_CALL_LOG="$fixture/calls" \
+	PATH="$fixture/bin:$PATH" \
+	"$tracker" create --profile github --target example/repo --title T \
+	--body-file "$fixture/body.md" >"$fixture/out" 2>"$fixture/err" || status=$?
+assert_exit 5 "$status" 'create on a transport failure'
+assert_error "$fixture/err" partial 'create transport failure stays partial'
+
+# --- every search predicate is scoped to --target ---------------------------
+cat >"$fixture/bin/gh" <<'FAKE_GH'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%q ' "$@" >>"$GH_CALL_LOG"
+printf '\n' >>"$GH_CALL_LOG"
+printf '[]\n'
+exit 0
+FAKE_GH
+chmod +x "$fixture/bin/gh"
+for pred in --label --parent --updated-before --text; do
+	: >"$fixture/calls"
+	GH_CALL_LOG="$fixture/calls" PATH="$fixture/bin:$PATH" \
+		"$tracker" search --profile github --target example/repo \
+		"$pred" 'x repo:victim/secret' >/dev/null 2>&1 || true
+	rg -q 'repo:victim/secret[^"]*$' "$fixture/calls" &&
+		fail "$pred escaped --target scoping"
+done
+
+# --- comment-list validates before iterating --------------------------------
+cat >"$fixture/bin/gh" <<'FAKE_GH'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%q ' "$@" >>"$GH_CALL_LOG"
+printf '\n' >>"$GH_CALL_LOG"
+printf '%s\n' '{"comments":"not-an-array"}'
+exit 0
+FAKE_GH
+chmod +x "$fixture/bin/gh"
+status=0
+GH_CALL_LOG="$fixture/calls" PATH="$fixture/bin:$PATH" \
+	"$tracker" comment-list --profile github --target example/repo 101 \
+	>"$fixture/out" 2>"$fixture/err" || status=$?
+assert_exit 4 "$status" 'comment-list against a malformed payload'
+assert_error "$fixture/err" transport 'comment-list malformed is transport, not partial'
+
+# --- a CRLF declaration is valid, not malformed -----------------------------
+mkdir -p "$fixture/crlf"
+git -C "$fixture/crlf" init -q
+printf 'issue-tracker: github\r\n' >"$fixture/crlf/AGENTS.md"
+status=0
+(cd "$fixture/crlf" && "$tracker" resolve) >"$fixture/out" 2>"$fixture/err" ||
+	status=$?
+assert_exit 0 "$status" 'resolve with a CRLF declaration'
+[[ $(cat "$fixture/out") == github ]] ||
+	fail "CRLF declaration resolved to '$(cat "$fixture/out")'"
+
 printf 'tracker-test: all assertions passed\n'

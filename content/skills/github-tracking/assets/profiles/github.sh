@@ -137,6 +137,11 @@ profile_comment_list() {
 	out=$GH_OUT
 	((status == 0)) ||
 		github_die "$GH_ERR"
+	jq -e '(.comments | type == "array")
+		and all(.comments[]; type == "object" and (.body | type == "string"))' \
+		>/dev/null 2>&1 <<<"$out" ||
+		die "$EXIT_TRANSPORT" transport \
+			'read-back returned malformed or incomplete JSON'
 	jq '[.comments[].body]' <<<"$out"
 }
 
@@ -199,18 +204,24 @@ profile_search() {
 		*) die "$EXIT_USAGE" usage "unknown search predicate: $1" ;;
 		esac
 	done
+	# Every value is quoted, not just --text: GitHub ORs multiple repo:
+	# qualifiers, so one unquoted predicate carrying "repo:other/private"
+	# widens the search past --target and returns issues from another repo.
+	local value
+	for value in "$state" "$label" "$parent" "$updated_before" "$text"; do
+		[[ $value != *'"'* ]] ||
+			die "$EXIT_USAGE" usage 'search values cannot contain a double quote'
+	done
+	case $state in
+	open | closed | any) ;;
+	*) die "$EXIT_USAGE" usage "state must be open, closed or any: $state" ;;
+	esac
 	query="repo:$TRACKER_TARGET"
 	[[ $state == any ]] || query="$query state:$state"
-	[[ -z $label ]] || query="$query label:$label"
-	[[ -z $parent ]] || query="$query parent-issue:$parent"
-	[[ -z $updated_before ]] || query="$query updated:<$updated_before"
-	# Quoted, so a fragment carrying a qualifier cannot widen the search past
-	# --target. A literal double quote would break the quoting, so reject it.
-	if [[ -n $text ]]; then
-		[[ $text != *'"'* ]] ||
-			die "$EXIT_USAGE" usage 'search text cannot contain a double quote'
-		query="$query \"$text\""
-	fi
+	[[ -z $label ]] || query="$query label:\"$label\""
+	[[ -z $parent ]] || query="$query parent-issue:\"$parent\""
+	[[ -z $updated_before ]] || query="$query updated:<\"$updated_before\""
+	[[ -z $text ]] || query="$query \"$text\""
 	github_run search issues "$query" --json number \
 		--jq '[.[].number | tostring]' || status=$?
 	out=$GH_OUT
@@ -271,7 +282,15 @@ profile_create() {
 		rg -o 'https://[^/[:space:]]+/[^/[:space:]]+/[^/[:space:]]+/issues/[0-9]+' |
 		tail -n 1 || true)
 	if ((status != 0)); then
-		jq -Rrn --arg m "$out" --arg u "$url" \
+		# A failure that cannot have written is not partial. Reporting an
+		# auth or not-found error as "the write may have landed" tells an
+		# operator an issue exists when none does.
+		local code class
+		read -r code class <<<"$(github_classify "$GH_ERR")"
+		if [[ $class == auth || $class == not-found ]] && [[ -z $url ]]; then
+			die "$code" "$class" "$GH_ERR"
+		fi
+		jq -Rrn --arg m "$GH_ERR" --arg u "$url" \
 			'{error: "partial", message: $m, partial: {url: $u}}' >&2
 		exit "$EXIT_PARTIAL"
 	fi

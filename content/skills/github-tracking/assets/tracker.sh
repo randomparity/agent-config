@@ -55,7 +55,10 @@ resolve_tracker() {
 		printf 'github\n'
 		return 0
 	}
-	matches=$(rg -c '^issue-tracker: [a-z0-9-]+$' "$agents" || true)
+	# \r? throughout: a checkout with CRLF endings would otherwise fail the
+	# strict pattern, match the loose probe, and report a correct declaration
+	# as malformed -- failing every operation in that clone.
+	matches=$(rg -c '^issue-tracker: [a-z0-9-]+\r?$' "$agents" || true)
 	matches=${matches:-0}
 	if ((matches == 0)); then
 		# A line that opens the declaration but fails the grammar is a typo,
@@ -71,7 +74,7 @@ resolve_tracker() {
 		die "$EXIT_USAGE" usage \
 			"$matches issue-tracker declarations in $agents; expected one"
 	fi
-	rg -o --replace '$1' '^issue-tracker: ([a-z0-9-]+)$' "$agents"
+	rg -o --replace '$1' '^issue-tracker: ([a-z0-9-]+)\r?$' "$agents" | tr -d '\r'
 }
 
 (($#)) || die "$EXIT_USAGE" usage 'no operation given'
