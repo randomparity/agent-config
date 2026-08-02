@@ -202,4 +202,31 @@ GH_CALL_LOG="$fixture/calls" PATH="$fixture/bin:$PATH" \
 	status:ready 0e8a16 'triaged' >"$fixture/out" 2>"$fixture/err" ||
 	fail 'label-ensure treated an existing label as failure'
 
+# --- declared-degraded gate -------------------------------------------------
+# Total coverage is not total implementation. A profile declares each operation
+# implemented or degraded to a named value, and the suite asserts the
+# declaration -- so a forgotten operation cannot pass as a legitimate
+# degradation.
+"$tracker" declares --profile fixture label-history >"$fixture/out" 2>&1 ||
+	fail 'declares exited non-zero'
+assert_contains 'degraded=unknown' "$fixture/out"
+
+"$tracker" declares --profile github view >"$fixture/out" 2>&1 ||
+	fail 'declares github view exited non-zero'
+assert_contains 'implemented' "$fixture/out"
+
+status=0
+"$tracker" declares --profile fixture undeclared-op >"$fixture/out" 2>"$fixture/err" ||
+	status=$?
+assert_exit 1 "$status" 'undeclared operation'
+
+# Every operation the GitHub profile offers must carry a declaration, and every
+# declaration must name an operation that exists. This is the assertion that
+# makes the gate meaningful rather than decorative.
+for op in view target-url comment-list label-history search create label-edit \
+	label-ensure comment-add state-set link-parent link-blocks; do
+	"$tracker" declares --profile github "$op" >/dev/null 2>&1 ||
+		fail "github profile does not declare '$op'"
+done
+
 printf 'tracker-test: all assertions passed\n'
