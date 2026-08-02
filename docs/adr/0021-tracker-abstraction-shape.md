@@ -32,10 +32,21 @@ profile per tracker that supplies it, under
 `profiles/github.sh` and, later, `profiles/jira.sh`.
 
 Skills invoke `tracker.sh <operation>` rather than `gh issue`. The engine
-resolves the active profile from `ISSUE_TRACKER`, dispatches, and normalizes
-results to one JSON shape, so no caller branches on tracker. A contract test
-suite runs every operation against every profile and is wired into
-`just verify`.
+resolves the active profile, dispatches, and normalizes results to one JSON
+shape, so no caller branches on tracker. A contract test suite runs every
+operation against every profile and is wired into `just verify`.
+
+Resolution has **one** source: the repo's own declaration in its instruction
+files. `ISSUE_TRACKER` is an explicit per-invocation override and nothing more.
+A repo declaring nothing is a GitHub repo, which is what every repo is today. A
+declaration naming a tracker with no profile is an actionable error and never a
+fallback to GitHub — falling back would route a write into the wrong tracker,
+and unlike `gh issue delete`, a live Jira tenant has no comparable undo.
+
+Environment state is not the source. It is per-shell, invisible in a diff or a
+resumed session, and absent by default, so in a Jira-tracked repo an unset
+variable would be precisely that silent wrong-tracker write — reached by
+omission rather than by typo, which is the likelier of the two.
 
 This mirrors `check-records.sh` + `profiles/{adr,debt}.sh`, already in this
 repo and already carrying two record kinds.
@@ -44,8 +55,13 @@ The split between script and prose does not move: mechanical, verifiable
 operations go behind the contract; judgment — drafting bodies, ranking dedup
 candidates, assigning taxonomy — stays in the skill.
 
-Pull requests are out of scope. Code lives on GitHub wherever issues live, so
-PR operations remain `gh`.
+Pull requests are out of scope, on the **assumption** that code hosting stays
+GitHub wherever issues live. That assumption cuts more scope than any other
+sentence here — roughly half the affected surface — and unlike this record's
+other premises it is a claim about the operator rather than about a system, so
+nothing verified it. Its falsifier is explicit: an adopter hosting code
+elsewhere, plausibly Bitbucket alongside Jira, supersedes this record rather
+than extending it.
 
 ## Consequences
 
@@ -59,8 +75,9 @@ PR operations remain `gh`.
   it.
 - Skill prose gains an indirection: a reader must consult the contract to know
   what a call does, where previously the `gh` invocation was literal.
-- `github-tracking` becomes `issue-tracking`, updating twelve referencing
-  files.
+- `github-tracking` becomes `issue-tracking`, updating every referencing file:
+  twelve under `content/skills/`, plus `scripts/check-cleared-dependencies-test.sh`,
+  which hardcodes the skill's path and breaks on the rename.
 
 ## Considered & rejected
 
@@ -73,6 +90,14 @@ PR operations remain `gh`.
   return an exit code. `create-verified-issue.sh`'s read-back assertions would
   have no Jira equivalent, and recent work has been hardening exactly that
   path.
+- **A writes-only shim: contract the mutating operations, leave reads in
+  prose.** The exit-code argument above applies only to writes, so this buys the
+  whole stated justification for roughly half the surface. Rejected because a
+  read left in prose is still a read every skill performs in tracker-specific
+  syntax — `gh issue view --json` against JQL — which reinstates the per-tracker
+  branch in the ten skills this record exists to keep uniform. The asymmetry it
+  identifies is real and survives in the design: reads are the operations
+  permitted to degrade, as `label-history` may on Jira, where a write is not.
 - **Route every tracker call through the Rovo MCP server.** Rejected because
   MCP tools cannot be invoked from a shell script, which forfeits the same
   exit-code guarantee, and it makes the GitHub path depend on an MCP server it

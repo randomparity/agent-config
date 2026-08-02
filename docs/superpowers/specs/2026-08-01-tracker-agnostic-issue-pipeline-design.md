@@ -30,8 +30,9 @@ used.
 
 ## Non-goals
 
-- **Pull requests stay GitHub-only.** Code lives on GitHub regardless of where
-  issues live, so `/ship-pr`, `/merge-cleanup`'s PR half, and every PR
+- **Pull requests stay GitHub-only**, assuming code hosting stays GitHub
+  wherever issues live (ADR 0021 records this as an assumption with an explicit
+  falsifier, not a fact). `/ship-pr`, `/merge-cleanup`'s PR half, and every PR
   operation remain `gh`. Only issue and epic tracking is pluggable. This
   roughly halves the affected surface.
 - No migration tooling for moving existing issues between trackers.
@@ -198,8 +199,8 @@ The only sub-project this design specifies for implementation now.
 ### Deliverables
 
 - `content/skills/issue-tracking/assets/tracker.sh` — engine implementing the
-  eleven operations, dispatching to a profile resolved from
-  `ISSUE_TRACKER` (default `github`).
+  eleven operations, dispatching to a profile resolved per ADR 0021: the repo's
+  declaration is the source, `ISSUE_TRACKER` is an explicit override only.
 - `content/skills/issue-tracking/assets/profiles/github.sh` — `gh`-backed
   implementation.
 - `content/skills/issue-tracking/assets/tracker-test.sh` — contract suite,
@@ -221,10 +222,14 @@ Those are sub-projects 2–6.
    preserved behavior. This is the primary regression signal.
 3. `tracker-test.sh` exercises every operation in the surface table against
    `profiles/github.sh` and fails if any is unimplemented.
-4. `ISSUE_TRACKER` unset resolves to `github`, preserving today's behavior.
-   `ISSUE_TRACKER` set to a name with no profile fails with an actionable
-   message naming the value and the profiles that do exist — never a silent
-   fallback to GitHub, which would run a write against the wrong tracker.
+4. A repo with no tracker declaration resolves to `github`, preserving today's
+   behavior — that is what every repo is today. Any declaration or override
+   naming a tracker with no profile fails with an actionable message giving the
+   value and the profiles that exist, never a silent fallback to GitHub, which
+   would run a write against the wrong tracker. Sub-project 1 ships the
+   resolution rule; sub-project 3 supplies the declaration `/preflight` reads,
+   so there is one mechanism throughout rather than an env var retrofitted
+   later.
 5. `shellcheck` and `shfmt` clean, matching the two-space style the Justfile
    already applies to `.github/scripts/`.
 6. No skill's observable behavior changes; `git diff` touches no `SKILL.md`.
