@@ -37,8 +37,8 @@ blocks starting sub-project 1.
 
 ## Why deferred
 
-All four are questions about how to *test* a layer that does not exist yet, and
-each has a cheap empirical answer once it does. Findings 1 and 4 in particular
+The first four are questions about how to *test* a layer that did not exist
+when they were raised, and each has a cheap empirical answer now that it does. Findings 1 and 4 in particular
 ask for a stubbing design — how the fixture distinguishes an auth failure from a
 transport failure, and how the suite proves no egress — that is better settled by
 writing the stub than by specifying it in advance; the spec would otherwise fix a
@@ -56,11 +56,12 @@ pinned bash 3.2 container, is what would settle it.
 None of the first four can produce a wrong write against a live tracker. They bound
 how much confidence the gate carries, not whether the layer is correct.
 
-The loop was stopped under the same self-collision pattern as the ADR review:
-findings rose from eight to eleven across two passes with roughly two-thirds
-citing text the loop's own fixes had written. The operator authorised proceeding
-to implementation. Seven of the eleven were fixed, including every finding that
-could cause a wrong write; these four remained.
+Findings 1 to 4 come from the spec review, stopped under the same
+self-collision pattern as the record review: findings rose from eight to eleven
+across two passes with roughly two-thirds citing text the loop's own fixes had
+written. The operator authorised proceeding to implementation. Seven of the
+eleven were fixed, including every finding that could cause a wrong write.
+Finding 5 comes from the branch review that followed.
 
 ## Non-regression boundary
 
@@ -92,7 +93,7 @@ reports. Done when the suite is green on 3.2 as well as 5.
 ## Provenance
 
 target: docs/superpowers/specs/2026-08-01-tracker-agnostic-issue-pipeline-design.md
-Adversarial review of the tracker design spec, 2 passes, 2026-08-01.
-Nineteen findings raised across both passes, fifteen accepted and fixed, these
-four deferred.
+Adversarial review of the tracker design spec (2 passes) and of the branch
+(3 passes), 2026-08-01. Findings 1 to 4 deferred from the spec review, finding 5
+from the branch review.
 tracker: #43
