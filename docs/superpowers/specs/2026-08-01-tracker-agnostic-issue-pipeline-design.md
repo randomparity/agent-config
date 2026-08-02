@@ -57,20 +57,23 @@ operator was interviewed for these.
 
 ## Verified facts
 
-Established against a live Jira tenant (`randomparity.atlassian.net`, project
-`SCRUM`, cloudId `53530fe5-674e-47fd-8f61-b8ef039b329f`) rather than assumed.
-These are load-bearing; if one is wrong the design changes.
+Established against a live Jira tenant rather than assumed. The tenant host,
+cloud ID and project key are deliberately omitted: this repo is public, and
+`AGENTS.md` bars tenant-specific identifiers from tracked files. They live in
+the operator's gitignored `CLAUDE.local.md`.
+
+These facts are load-bearing; if one is wrong the design changes.
 
 | Fact | Evidence |
 |---|---|
-| Jira labels accept `status:`-style colons | `status:triage` round-tripped intact on `SCRUM-1` |
+| Jira labels accept `status:`-style colons | `status:triage` round-tripped intact on a test issue |
 | A scoped token drives the Jira REST API directly | `GET` 200, `PUT` 204, `POST` 201 against `api.atlassian.com/ex/jira/{cloudId}/rest/api/3` |
 | Markdown converts to real rich content | `renderedFields` shows `<h2>`, `<ul>`, syntax-highlighted code |
 | HTML comment markers render **visibly** in Jira | stored as `<p>&lt;!-- WORK:TRAJECTORY --&gt;</p>`; ADF has no comment node |
 | Jira has native typed issue links | `blocks` / `is blocked by`, replacing the `Blocked by #N` prose grammar |
 | No MCP tool can create a Jira status | all 43 tools enumerated; statuses are admin-UI configuration |
-| Jira has a `resolution` field distinct from status | present on `SCRUM-1` (null), one resolution defined site-wide; the Done transition sets `resolution` **and** `resolutiondate` on `SCRUM-2`. It is driven by the status write, so it does not make doneness independent of it |
-| A team-managed project's workflow may be tiny and unguarded | `SCRUM` has 4 statuses, every transition global and unconditional |
+| Jira has a `resolution` field distinct from status | present but null on an open test issue, one resolution defined site-wide; the Done transition sets `resolution` **and** `resolutiondate`, and reopening clears both. It is driven by the status write, so it does not make doneness independent of it |
+| A team-managed project's workflow may be tiny and unguarded | the test project has 4 statuses, every transition global and unconditional |
 
 The REST result is the pivotal one: it means the tracker layer can be a tested
 shell script with a real exit code, rather than verification degrading into
