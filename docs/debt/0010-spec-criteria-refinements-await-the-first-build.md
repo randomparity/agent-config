@@ -29,6 +29,12 @@ blocks starting sub-project 1.
    not *require* credentials; it does not prove the suite makes no network call,
    which is the property that keeps it running in CI.
 
+5. **bash 3.2 compatibility is asserted but never exercised.** The plan's global
+   constraints require it — macOS ships 3.2 as `/bin/bash`, and `"${arr[@]}"` on
+   an empty array is fatal there under `set -u` — and this is the repo's first
+   shell code using arrays. Every run so far has been under the host's bash 5.
+   Nothing proves the claim.
+
 ## Why deferred
 
 All four are questions about how to *test* a layer that does not exist yet, and
@@ -42,7 +48,12 @@ Finding 3 needs the call sites: the bound `search` requires is whatever
 `/issue`'s dedup, `/campaign` and `/groom` actually need, and those migrate in
 sub-projects 5 and 6, where a wrong guess made now would be discovered late.
 
-None of the four can produce a wrong write against a live tracker. They bound
+Finding 5 needs a bash 3.2 to run against, which this host does not have. The
+empty-array expansions are individually guarded (`"${arr[@]+"${arr[@]}"}"`), so
+the risk is a missed site rather than a known break; a CI job on macOS, or a
+pinned bash 3.2 container, is what would settle it.
+
+None of the first four can produce a wrong write against a live tracker. They bound
 how much confidence the gate carries, not whether the layer is correct.
 
 The loop was stopped under the same self-collision pattern as the ADR review:
@@ -73,6 +84,10 @@ criterion 2 alone does not carry it.
 
 Finding 3: a result bound and a truncation signal on `search`, decided against
 the real call sites when they migrate under #47 and #48.
+
+Finding 5: running `tracker-test.sh` and `create-verified-issue-test.sh` under a
+real bash 3.2 — a macOS CI leg or a pinned container — and fixing whatever it
+reports. Done when the suite is green on 3.2 as well as 5.
 
 ## Provenance
 

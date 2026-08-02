@@ -204,7 +204,13 @@ profile_search() {
 	[[ -z $label ]] || query="$query label:$label"
 	[[ -z $parent ]] || query="$query parent-issue:$parent"
 	[[ -z $updated_before ]] || query="$query updated:<$updated_before"
-	[[ -z $text ]] || query="$query $text"
+	# Quoted, so a fragment carrying a qualifier cannot widen the search past
+	# --target. A literal double quote would break the quoting, so reject it.
+	if [[ -n $text ]]; then
+		[[ $text != *'"'* ]] ||
+			die "$EXIT_USAGE" usage 'search text cannot contain a double quote'
+		query="$query \"$text\""
+	fi
 	github_run search issues "$query" --json number \
 		--jq '[.[].number | tostring]' || status=$?
 	out=$GH_OUT
@@ -241,11 +247,6 @@ profile_create() {
 		--parent)
 			(($# >= 2)) || die "$EXIT_USAGE" usage '--parent needs a value'
 			parent=$2
-			shift 2
-			;;
-		--updated-before)
-			(($# >= 2)) || die "$EXIT_USAGE" usage '--updated-before needs a value'
-			updated_before=$2
 			shift 2
 			;;
 		*) die "$EXIT_USAGE" usage "unknown create argument: $1" ;;
