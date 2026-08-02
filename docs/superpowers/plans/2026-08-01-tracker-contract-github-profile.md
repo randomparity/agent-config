@@ -36,6 +36,16 @@ Closes #43.
   `content/skills` tree they join, and are added to the tab-style `shfmt` list.
 - **Exit taxonomy:** `0` success, `1` usage, `2` not-found, `3` auth,
   `4` transport, `5` partial.
+- **Structured errors go to stderr.** `die` emits its JSON error object with
+  `>&2`. Success payloads go to stdout. Callers capture stdout for data and read
+  stderr for diagnosis; every test assertion on an error reads the stderr file.
+- **No bare `ADR NNNN` or `issue #N` in any file under `content/skills/`.**
+  `references-check` — a `just verify` dependency via
+  `scripts/check-deployed-references.sh` — fails on
+  `\bADR[[:space:]]+#?[0-9]{1,4}\b`, case-insensitive, across the whole
+  `content/skills` tree; only `decision-records/assets/` is exempt. Cite a
+  decision by name ("the tracker abstraction record"), never by number. This
+  applies to code comments, which is where it is easiest to trip.
 - **Guardrail:** `just verify` after every task. Run it **bare** — a pipe
   masks the exit code.
 
@@ -92,15 +102,25 @@ status=0
 assert_exit 0 "$status" 'resolve with no declaration'
 assert_contains 'github' "$fixture/out"
 
-# An unknown tracker name is an actionable error, never a silent fallback.
+# A malformed declaration is an error, not an absence.
 mkdir -p "$fixture/badrepo"
-printf 'issue-tracker: nosuchtracker\n' >"$fixture/badrepo/AGENTS.md"
+git -C "$fixture/badrepo" init -q
+printf 'issue-tracker: NotValid!\n' >"$fixture/badrepo/AGENTS.md"
 status=0
 (cd "$fixture/badrepo" && "$tracker" resolve) >"$fixture/out" 2>"$fixture/err" ||
 	status=$?
-assert_exit 1 "$status" 'resolve with unknown tracker'
+assert_exit 1 "$status" 'resolve with malformed declaration'
+assert_contains 'malformed' "$fixture/err"
+
+# A tracker with no profile is an actionable error at the operation boundary,
+# never a silent fallback. Tested with --profile so it needs no profiles on
+# disk: Task 1 ships none, and the code path is the same one a declaration
+# reaches.
+status=0
+"$tracker" view --profile nosuchtracker 1 >"$fixture/out" 2>"$fixture/err" ||
+	status=$?
+assert_exit 1 "$status" 'operation with unknown profile'
 assert_contains 'nosuchtracker' "$fixture/err"
-assert_contains 'github' "$fixture/err"
 
 # An unknown operation is a usage error.
 status=0
@@ -134,7 +154,7 @@ asset_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
 die() { # exit-code class message
 	local code=$1 class=$2 message=$3
 	jq -Rrn --arg class "$class" --arg message "$message" \
-		'{error: $class, message: $message, partial: {}}'
+		'{error: $class, message: $message, partial: {}}' >&2
 	exit "$code"
 }
 
@@ -149,13 +169,17 @@ available_profiles() {
 
 # The repo's tracked AGENTS.md is the only resolution input. No environment
 # variable participates: ambient state surviving into a resumed session would
-# route a write to the wrong tracker silently (ADR 0021).
+# route a write to the wrong tracker silently, which the tracker abstraction
+# record forbids.
 resolve_tracker() {
 	local root agents matches
 	root=$(git rev-parse --show-toplevel 2>/dev/null) || {
 		printf 'github\n'
 		return 0
 	}
+	# The invoking repo's declaration, not --target's. --target selects an
+	# object within the resolved tracker and never reaches a second one; a
+	# target outside that tracker's scope is a usage error.
 	agents="$root/AGENTS.md"
 	[[ -f $agents ]] || {
 		printf 'github\n'
@@ -205,6 +229,10 @@ export TRACKER_TARGET
 
 [[ -n $profile_name ]] || profile_name=$(resolve_tracker)
 
+# `resolve` is a pure query and prints whatever was declared. Profile existence
+# is enforced at the operation boundary below, so a declaration naming an
+# unimplemented tracker fails every write with an actionable message rather
+# than falling back to GitHub.
 if [[ $operation == resolve ]]; then
 	printf '%s\n' "$profile_name"
 	exit 0
@@ -371,9 +399,23 @@ profile_view() {
 		--json number,title,body,labels,parent,state,url 2>&1) || status=$?
 	((status == 0)) ||
 		die "$(github_classify "$status" "$out")" transport "$out"
-	jq -e 'type == "object" and (.number | type == "number")' \
-		>/dev/null 2>&1 <<<"$out" ||
-		die "$EXIT_TRANSPORT" transport 'read-back returned malformed JSON'
+	# Validate the SOURCE shape before normalizing. The normalizing jq below
+	# indexes .parent.number and .labels[].name; a fixture carrying
+	# "parent":"bad" or "labels":["bad"] would crash it under set -e and
+	# surface as a transport error instead of a malformed-payload one.
+	jq -e '
+		type == "object"
+		and (.number | type == "number")
+		and (.title | type == "string")
+		and (.body | type == "string")
+		and (.labels | type == "array")
+		and all(.labels[]; type == "object" and (.name | type == "string"))
+		and (.url | type == "string")
+		and ((.parent == null) or
+			((.parent | type == "object") and (.parent.number | type == "number")))
+	' >/dev/null 2>&1 <<<"$out" ||
+		die "$EXIT_NOT_FOUND" malformed \
+			'read-back returned malformed or incomplete JSON'
 	jq '{
 		id: (.number | tostring),
 		ref: ("#" + (.number | tostring)),
@@ -529,22 +571,29 @@ creates=$(rg -c '^issue create ' "$fixture/calls" || true)
 [[ ${creates:-0} == 1 ]] || fail "create retried: ${creates:-0} invocations"
 ```
 
-- [ ] **Step 2: Run it to verify it fails**
+- [ ] **Step 2: Normalize hyphens to underscores in the engine**
 
-Run: `./content/skills/github-tracking/assets/tracker-test.sh`
-Expected: FAIL — `profile 'github' has no operation 'label-edit'`.
+This is a required engine change, not an incidental note. `tracker.sh` resolves
+`label-edit` to `profile_label-edit`, which is not a legal Bash function name,
+so dispatch fails before the profile is consulted.
 
-Note: `tracker.sh` resolves `label-edit` to `profile_label-edit`, which is not a
-legal function name. Add hyphen-to-underscore normalization in `tracker.sh`
-before dispatch:
+In `content/skills/github-tracking/assets/tracker.sh`, immediately after
+`operation=$1; shift`, add:
 
 ```bash
 operation_fn=${operation//-/_}
 ```
 
-and use `profile_$operation_fn` in both the `declare -F` check and the call.
+and replace both uses of `profile_$operation` with `profile_$operation_fn` — in
+the `declare -F` guard and in the final dispatch call.
 
-- [ ] **Step 3: Write the write operations**
+- [ ] **Step 3: Run the test to verify it fails for the right reason**
+
+Run: `./content/skills/github-tracking/assets/tracker-test.sh`
+Expected: FAIL — `profile 'github' has no operation 'label_edit'`, i.e. dispatch
+now resolves and the operation is genuinely missing.
+
+- [ ] **Step 4: Write the write operations**
 
 Append to `profiles/github.sh`:
 
@@ -602,8 +651,8 @@ profile_create() {
 	jq -rn --arg u "$url" '{id: ($u | split("/") | last), url: $u}'
 }
 
-# Adds and removes travel together. Splitting them breaks the
-# single-active-status invariant in both possible orders (ADR 0022).
+# Adds and removes travel together. Splitting them breaks the canonical-state
+# record's single-active-status invariant in both possible orders.
 profile_label_edit() {
 	local id=$1 status=0 out
 	shift
@@ -677,10 +726,10 @@ profile_link_parent() {
 # GitHub has no typed dependency edge; the body line is the record, which is
 # why this is profile detail rather than a convention every skill knows.
 profile_link_blocks() {
-	local blocker=$1 blocked=$2 body status=0 out
+	local blocker=$1 blocked=$2 body status=0 out=
 	body=$(gh issue view "$blocked" --repo "$(github_target)" --json body --jq .body 2>&1) ||
 		status=$?
-	((status == 0)) || die "$(github_classify "$status" "$out")" transport "$body"
+	((status == 0)) || die "$(github_classify "$status" "$body")" transport "$body"
 	if ! printf '%s\n' "$body" | rg -q "^Blocked by #$blocker\$"; then
 		body="$body
 Blocked by #$blocker"
@@ -696,17 +745,17 @@ Blocked by #$blocker"
 }
 ```
 
-- [ ] **Step 4: Run the test to verify it passes**
+- [ ] **Step 5: Run the test to verify it passes**
 
 Run: `./content/skills/github-tracking/assets/tracker-test.sh`
 Expected: `tracker-test: all assertions passed`
 
-- [ ] **Step 5: Verify the no-retry assertion bites**
+- [ ] **Step 6: Verify the no-retry assertion bites**
 
 Wrap the `gh "${args[@]}"` call in `profile_create` in a two-iteration retry
 loop, re-run, and confirm `create retried: 2 invocations` fires. Revert.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
 git add content/skills/github-tracking/assets/profiles/github.sh \
@@ -825,10 +874,22 @@ git commit -m "feat: gate profiles on per-operation declarations"
 - Consumes: `tracker.sh` `target-url`, `create`, `view` from Tasks 1–3.
 - Produces: unchanged CLI and unchanged stderr diagnostics.
 
-**This is the regression gate.** The existing test asserts
-`assert_count 1 '^issue create '`, `assert_count 1 '^issue view '`, and
-`assert_count 0 '^issue view '` on failure paths. Because the profile issues the
-same `gh` invocations, the same PATH-interposed stub satisfies both.
+**This is the regression gate**, and identical `gh` invocations are necessary
+but *not sufficient*. Two assertions break for reasons the invocations do not
+cover, and both must be handled explicitly:
+
+1. **Exit value.** `create-verified-issue-test.sh:214-218` asserts the literal
+   string `creation command failed with exit 1`, and
+   `create-verified-issue.sh:87-88` prints `$create_status` verbatim. After the
+   refactor `create_status` is the *tracker's* class — `5` (partial) on any
+   failed create — so the diagnostic would read `exit 5`. The taxonomy is a
+   contract-level fact; the caller's message is a caller-level one. Map at the
+   call site.
+2. **Read-back shape.** The `malformed-parent` and `malformed-label` fixtures
+   return `"parent":"bad"` and `"labels":["bad"]`. Task 2's `profile_view` now
+   validates the source shape before normalizing and dies with class
+   `malformed`, so the caller must map that class to its own
+   `malformed or incomplete JSON` branch rather than to `read-back failed`.
 
 - [ ] **Step 1: Run the existing test to establish the baseline**
 
@@ -870,14 +931,40 @@ parent_args=()
 [[ -z $parent ]] || parent_args=(--parent "$parent")
 ```
 
-Replace lines 109-110:
+Delete the now-dead `create_args` block at lines 62-68 — the profile builds
+those arguments.
+
+Immediately after the create call, collapse the tracker's exit class onto the
+caller's contract, because the test pins the literal digit:
 
 ```bash
-if ! issue_json=$("$tracker" view --target "$repo" "$issue_number"); then
+((create_status == 0)) || create_status=1
 ```
 
-and update the read-back validation to the normalized shape: `.id` is a string,
-`.labels` is an array of strings, `.parent` is a string or null.
+Replace lines 109-110, capturing the error stream so the class is readable:
+
+```bash
+view_status=0
+issue_json=$("$tracker" view --target "$repo" "$issue_number" \
+	2>"$fixture_err") || view_status=$?
+if ((view_status != 0)); then
+	if rg -q 'malformed or incomplete JSON' "$fixture_err"; then
+		printf '%s: read-back returned malformed or incomplete JSON\n' \
+			"$issue_url" >&2
+	else
+		printf '%s: read-back failed; creation was not retried\n' "$issue_url" >&2
+	fi
+	exit 1
+fi
+```
+
+with `fixture_err=$(mktemp)` declared above it and removed on exit.
+
+Then update the read-back validation and extraction to the **normalized** shape:
+`.id` is a string, `.labels` is an array of strings (so
+`observed_labels=$(jq -r '.labels[]' …)`), and `.parent` is a string or null —
+which also means line 136's `jq -r '.parent.number // "none"'` becomes
+`jq -r '.parent // "none"'`.
 
 - [ ] **Step 3: Run the existing test — it must pass unmodified**
 
@@ -913,7 +1000,13 @@ git commit -m "refactor: route create-verified-issue.sh through the tracker cont
 ### Task 6: Wire the guardrails
 
 **Files:**
-- Modify: `Justfile:32-39` (`lint`, `format-check`), `Justfile:45-51` (`test`)
+- Modify: `Justfile` — `lint` (line 31), `format-check` (36), `format` (41),
+  `test` (45)
+
+Note an existing asymmetry: `format-check` checks
+`content/skills/issue/scripts/*.sh` but `format` does not write it. Add the new
+assets to **both** so the pair stays consistent, and leave the pre-existing gap
+alone — fixing it is not this task's scope.
 
 **Interfaces:**
 - Consumes: every script from Tasks 1–5.
@@ -938,10 +1031,18 @@ Append to the `shellcheck` argument list:
 
 - [ ] **Step 3: Add the new scripts to `format-check` and `format`**
 
-Add to the tab-style `shfmt` invocation in both recipes:
+Append a line to `format-check` (after its `content/skills/issue/scripts` line):
 
 ```
   shfmt -d content/skills/github-tracking/assets/*.sh \
+    content/skills/github-tracking/assets/profiles/*.sh
+```
+
+and the matching write form to `format` (which currently has no
+`content/skills` line at all):
+
+```
+  shfmt -w content/skills/github-tracking/assets/*.sh \
     content/skills/github-tracking/assets/profiles/*.sh
 ```
 
