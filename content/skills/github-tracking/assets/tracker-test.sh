@@ -352,4 +352,96 @@ GH_CALL_LOG="$fixture/calls" PATH="$fixture/bin:$PATH" \
 	--remove not-present >"$fixture/out" 2>"$fixture/err" ||
 	fail 'removing an absent label was treated as failure'
 
+# --- every declared-implemented operation is actually exercised --------------
+# A name-symmetry check passes whether the function works, silently no-ops, or
+# posts a malformed body. link-parent shipped broken behind exactly that gap.
+cat >"$fixture/bin/gh" <<'FAKE_GH'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%q ' "$@" >>"$GH_CALL_LOG"
+printf '\n' >>"$GH_CALL_LOG"
+if [[ ${GH_FAIL:-none} == notfound ]]; then
+	printf 'gh: Not Found (HTTP 404)\n' >&2
+	exit 1
+fi
+if [[ $1 == issue && $2 == view ]]; then
+	case " $* " in
+	*" comments "*) printf '%s\n' '{"comments":[{"body":"first"},{"body":"second"}]}' ;;
+	*" body "*) printf 'existing body\r\nBlocked by #7\r\n' ;;
+	*) printf '%s\n' '{"number":101,"title":"T","body":"B","labels":[],"parent":null,"state":"OPEN","url":"u","updatedAt":"2026-01-01T00:00:00Z"}' ;;
+	esac
+	exit 0
+fi
+if [[ $1 == api ]]; then
+	case " $* " in
+	*"/timeline"*) printf '2026-01-02T03:04:05Z\n' ;;
+	*"/sub_issues"*) printf '{}\n' ;;
+	*) printf '5039780970\n' ;;
+	esac
+	exit 0
+fi
+if [[ $1 == search ]]; then
+	printf '%s\n' '["101","102"]'
+	exit 0
+fi
+exit 0
+FAKE_GH
+chmod +x "$fixture/bin/gh"
+run_op() { # label -- args...
+	local label=$1
+	shift 2
+	: >"$fixture/calls"
+	GH_CALL_LOG="$fixture/calls" PATH="$fixture/bin:$PATH" \
+		"$tracker" "$@" >"$fixture/out" 2>"$fixture/err" ||
+		fail "$label exited non-zero: $(cat "$fixture/err")"
+}
+
+run_op comment-list -- comment-list --profile github --target example/repo 101
+jq -e 'length == 2 and .[0] == "first"' >/dev/null <"$fixture/out" ||
+	fail 'comment-list did not return the comment bodies'
+
+run_op label-history -- label-history --profile github --target example/repo 101 status:ready
+assert_contains '2026-01-02T03:04:05Z' "$fixture/out"
+rg -q -- '--slurp' "$fixture/calls" ||
+	fail 'label-history did not aggregate pages before filtering'
+
+run_op search -- search --profile github --target example/repo --label status:ready \
+	--updated-before 2026-01-01
+jq -e 'length == 2' >/dev/null <"$fixture/out" || fail 'search did not return ids'
+rg -q 'updated:' "$fixture/calls" || fail 'search dropped the updated-before predicate'
+
+run_op comment-add -- comment-add --profile github --target example/repo 101 "$fixture/body.md"
+rg -q '^issue comment ' "$fixture/calls" || fail 'comment-add did not comment'
+
+run_op state-set -- state-set --profile github --target example/repo 101 closed
+rg -q '^issue close ' "$fixture/calls" || fail 'state-set closed did not close'
+run_op state-set-open -- state-set --profile github --target example/repo 101 open
+rg -q '^issue reopen ' "$fixture/calls" || fail 'state-set open did not reopen'
+
+# link-parent must send the child's database id, typed -- not its issue number.
+run_op link-parent -- link-parent --profile github --target example/repo 43 4
+rg -q -- '-F sub_issue_id=5039780970' "$fixture/calls" ||
+	fail 'link-parent did not send a typed database id'
+rg -q -- 'sub_issue_id=43' "$fixture/calls" &&
+	fail 'link-parent sent the issue number instead of the database id'
+
+# link-blocks is idempotent against a CRLF body.
+run_op link-blocks -- link-blocks --profile github --target example/repo 7 101
+edits=$(rg -c '^issue edit ' "$fixture/calls" || true)
+[[ ${edits:-0} == 0 ]] ||
+	fail 'link-blocks rewrote a body that already carried the link (CRLF guard)'
+
+# view now carries a real updated timestamp rather than a permanent null.
+run_op view-updated -- view --profile github --target example/repo 101
+jq -e '.updated == "2026-01-01T00:00:00Z"' >/dev/null <"$fixture/out" ||
+	fail 'view did not populate updated'
+
+# gh's real 404 wording classifies as not-found on the REST paths too.
+status=0
+GH_FAIL=notfound GH_CALL_LOG="$fixture/calls" PATH="$fixture/bin:$PATH" \
+	"$tracker" label-history --profile github --target example/repo 101 status:ready \
+	>"$fixture/out" 2>"$fixture/err" || status=$?
+assert_exit 2 "$status" 'label-history against a missing repo'
+assert_error "$fixture/err" not-found "gh's real 404 wording"
+
 printf 'tracker-test: all assertions passed\n'

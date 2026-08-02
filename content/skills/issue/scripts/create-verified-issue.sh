@@ -70,7 +70,16 @@ if [[ -n $parent ]]; then
 	create_args+=(--parent "$parent")
 fi
 
-canonical_url=$("$tracker" target-url --target "$repo")
+# The engine reports its taxonomy class; this script's exit surface is 2 for
+# usage and 1 for any operational failure, so an unreachable repository must not
+# surface as 2 and read as "called with bad arguments".
+target_status=0
+canonical_url=$("$tracker" target-url --target "$repo" 2>&1) || target_status=$?
+if ((target_status != 0)); then
+	printf 'canonical repository URL could not be resolved for %s\n' \
+		"$(diagnostic_value "$repo")" >&2
+	exit 1
+fi
 canonical_url=${canonical_url%/}
 canonical_path=${canonical_url#https://}
 canonical_path=${canonical_path#*/}

@@ -37,12 +37,16 @@ github_require_target() {
 # with the exit code. Passing a hardcoded class alongside a computed code is how
 # a 401 comes to report itself as a transport failure.
 github_classify() {
-	local output=$1
-	case $output in
-	*'Could not resolve'* | *'not found'* | *'no such'*)
+	local output=$1 lowered
+	# gh emits "Not Found (HTTP 404)" from the REST paths and "Could not resolve
+	# to an issue" from the GraphQL ones. Matching case-sensitively caught only
+	# the second, so a permanently-missing object reported as retryable.
+	lowered=$(printf '%s' "$output" | tr '[:upper:]' '[:lower:]')
+	case $lowered in
+	*'could not resolve'* | *'not found'* | *'no such'* | *'http 404'*)
 		printf '%s %s' "$EXIT_NOT_FOUND" not-found
 		;;
-	*'authentication'* | *'HTTP 401'* | *'HTTP 403'* | *'gh auth login'*)
+	*'authentication'* | *'http 401'* | *'http 403'* | *'gh auth login'*)
 		printf '%s %s' "$EXIT_AUTH" auth
 		;;
 	*) printf '%s %s' "$EXIT_TRANSPORT" transport ;;
@@ -71,7 +75,7 @@ profile_view() {
 	(($# >= 1)) || die "$EXIT_USAGE" usage 'view needs an issue id'
 	local id=$1 out status=0
 	out=$(gh issue view "$id" --repo "$TRACKER_TARGET" \
-		--json number,title,body,labels,parent,state,url 2>&1) || status=$?
+		--json number,title,body,labels,parent,state,url,updatedAt 2>&1) || status=$?
 	((status == 0)) ||
 		github_die "$out"
 	# Validate the source shape before normalizing. The jq below indexes
@@ -123,6 +127,10 @@ profile_label_history() {
 	github_require_target
 	(($# >= 2)) || die "$EXIT_USAGE" usage 'label-history needs an issue id and a label'
 	local id=$1 label=$2 out status=0
+	# The label is spliced into a jq program below, so restrict it to the
+	# character set GitHub labels actually use rather than escaping ad hoc.
+	[[ $label =~ ^[A-Za-z0-9._:/-][A-Za-z0-9._:/\ -]*$ ]] ||
+		die "$EXIT_USAGE" usage "label cannot be queried safely: $label"
 	# --slurp aggregates pages before filtering. Without it gh applies --jq to
 	# each page separately and a paginated timeline yields one line per page.
 	out=$(gh api "repos/$TRACKER_TARGET/issues/$id/timeline" --paginate --slurp \
@@ -139,7 +147,7 @@ profile_label_history() {
 # calling skill.
 profile_search() {
 	github_require_target
-	local state=open text='' label='' parent='' query out status=0
+	local state=open text='' label='' parent='' updated_before='' query out status=0
 	while (($#)); do
 		case $1 in
 		--state)
@@ -162,6 +170,11 @@ profile_search() {
 			parent=$2
 			shift 2
 			;;
+		--updated-before)
+			(($# >= 2)) || die "$EXIT_USAGE" usage '--updated-before needs a value'
+			updated_before=$2
+			shift 2
+			;;
 		*) die "$EXIT_USAGE" usage "unknown search predicate: $1" ;;
 		esac
 	done
@@ -169,6 +182,7 @@ profile_search() {
 	[[ $state == any ]] || query="$query state:$state"
 	[[ -z $label ]] || query="$query label:$label"
 	[[ -z $parent ]] || query="$query parent-issue:$parent"
+	[[ -z $updated_before ]] || query="$query updated:<$updated_before"
 	[[ -z $text ]] || query="$query $text"
 	out=$(gh search issues "$query" --json number \
 		--jq '[.[].number | tostring]' 2>&1) || status=$?
@@ -205,6 +219,11 @@ profile_create() {
 		--parent)
 			(($# >= 2)) || die "$EXIT_USAGE" usage '--parent needs a value'
 			parent=$2
+			shift 2
+			;;
+		--updated-before)
+			(($# >= 2)) || die "$EXIT_USAGE" usage '--updated-before needs a value'
+			updated_before=$2
 			shift 2
 			;;
 		*) die "$EXIT_USAGE" usage "unknown create argument: $1" ;;
@@ -323,12 +342,21 @@ profile_state_set() {
 	printf '{}\n'
 }
 
+# The sub-issues endpoint takes the child's *database* id as an integer, not its
+# issue number, and -f would send it as a string. Everywhere else in this
+# contract `id` is the issue number, so the id has to be resolved here.
 profile_link_parent() {
 	github_require_target
 	(($# >= 2)) || die "$EXIT_USAGE" usage 'link-parent needs a child and a parent id'
-	local child=$1 parent=$2 status=0 out
+	local child=$1 parent=$2 status=0 out child_db_id
+	child_db_id=$(gh api "repos/$TRACKER_TARGET/issues/$child" --jq .id 2>&1) ||
+		status=$?
+	((status == 0)) || github_die "$child_db_id"
+	[[ $child_db_id =~ ^[0-9]+$ ]] ||
+		die "$EXIT_TRANSPORT" transport \
+			"could not resolve a database id for issue $child"
 	out=$(gh api "repos/$TRACKER_TARGET/issues/$parent/sub_issues" \
-		-f "sub_issue_id=$child" 2>&1) || status=$?
+		-F "sub_issue_id=$child_db_id" 2>&1) || status=$?
 	((status == 0)) || github_die "$out"
 	printf '{}\n'
 }
@@ -340,13 +368,23 @@ profile_link_blocks() {
 	github_require_target
 	(($# >= 2)) || die "$EXIT_USAGE" usage 'link-blocks needs a blocker and a blocked id'
 	local blocker=$1 blocked=$2 body status=0 out='' tmp
+	[[ $blocker =~ ^[0-9]+$ ]] ||
+		die "$EXIT_USAGE" usage "blocker must be an issue number: $blocker"
 	body=$(gh issue view "$blocked" --repo "$TRACKER_TARGET" --json body \
 		--jq .body 2>&1) || status=$?
 	((status == 0)) || github_die "$body"
-	if ! printf '%s\n' "$body" | rg -q "^Blocked by #$blocker\$"; then
-		body="$body
-Blocked by #$blocker"
+	# \r? because GitHub stores web-authored bodies with CRLF and rg's $ does not
+	# match before \r -- without it the guard never fires and every call appends
+	# another line. create-verified-issue.sh already does this for its sections.
+	# Already linked: return without writing. Skipping the write makes the
+	# operation idempotent in the common case and keeps it out of the
+	# read-modify-write race entirely.
+	if printf '%s\n' "$body" | rg -q "^Blocked by #$blocker\r?\$"; then
+		printf '{}\n'
+		return 0
 	fi
+	body="$body
+Blocked by #$blocker"
 	tmp=$(mktemp)
 	printf '%s\n' "$body" >"$tmp"
 	out=$(gh issue edit "$blocked" --repo "$TRACKER_TARGET" --body-file "$tmp" 2>&1) ||
