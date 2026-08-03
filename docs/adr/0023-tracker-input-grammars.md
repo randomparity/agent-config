@@ -64,21 +64,19 @@ produces.
 The public-safety scan carries two Atlassian credential shapes alongside the
 GitHub, OpenAI, AWS and Slack shapes it already had: the plaintext `ATATT` token,
 and the `base64(email:token)` form held in an `ATLASSIAN_`-prefixed variable,
-which contains no literal `ATATT` at any alignment and does not carry the `Basic`
-header word the existing pattern keys on. The second is the form this repo's
-documented Atlassian access actually holds, so a scan carrying only the first
-would miss the credential most likely to reach a tracked file here. Both tests
-assemble their fixture from fragments at run time, as the neighbouring
-tenant-hostname case does, so the test file is not itself a match for the scan it
-exercises, and each has a negative case so prose naming the token format or the
-variable stays committable.
+which contains no literal `ATATT` at any alignment and no `Basic` header word, so
+neither existing pattern sees it. Both tests assemble their fixture at run time,
+as the neighbouring tenant-hostname case does, so the test file is not itself a
+match for the scan it exercises, and each has a negative case so prose naming the
+token format or the variable stays committable.
 
 Two residuals are named rather than closed, and are recorded in
 `docs/debt/0011-tracker-values-still-unvalidated.md`: `--target`, which is
 interpolated into every REST path this profile builds, and `search`'s `--parent`
 predicate, whose accepted forms are GitHub's `parent-issue:` qualifier rather
-than this contract's. `search` is on the guard-coverage exemption list for that
-reason.
+than this contract's. `search` is therefore on the guard-coverage exemption list
+for a different reason than its two neighbours, and the list says so at that
+location rather than leaving the record to carry it alone.
 
 Values that only ever reach `gh` as separate elements of its argument vector — a
 title, a colour, a description, a label passed to `label-edit` — stay
@@ -103,8 +101,10 @@ generalizes, not exceptions to it.
   which is where tracker knowledge belongs under ADR 0021; the shared engine
   keeps no id grammar.
 - The contract suite grows one rejection case per guarded selector, a traversal
-  case, and the derived guard-coverage check, so a regression that removes the
-  profile-name check or a guard call fails `just verify` rather than production.
+  case, the derived guard-coverage check, and a case relating the two profile-name
+  routes, so a regression that removes the profile-name check, removes a guard
+  call, or widens one of the three places the profile-name class is written fails
+  `just verify` rather than production.
   The derived check's exemption list is the one hand-kept part: adding an
   operation to it is a deliberate edit a reviewer sees, which is the property a
   list of guarded operations would not have had.
