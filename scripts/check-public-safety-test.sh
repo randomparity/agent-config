@@ -58,4 +58,25 @@ if ! "$CHECKER" "$SCRATCH/repo" >"$SCRATCH/output" 2>&1; then
 fi
 rm -f "$SCRATCH/repo/endpoint.md"
 
+# An Atlassian API token is a credential shape, like the GitHub, OpenAI, AWS and
+# Slack shapes beside it. Assembled at runtime so this test file is not itself a
+# match for the scan it exercises.
+printf 'token = %s%s\n' 'ATATT' '3xFfGF0T00000000000000000000000000000000' \
+	>"$SCRATCH/repo/token.md"
+if "$CHECKER" "$SCRATCH/repo" >"$SCRATCH/output" 2>&1; then
+	printf 'public-safety-test: Atlassian API token leak should fail\n' >&2
+	exit 1
+fi
+rm -f "$SCRATCH/repo/token.md"
+
+# The prefix alone is not a credential. Prose naming the token format must not
+# fail the gate, or the design docs describing it cannot be committed.
+printf 'Atlassian API tokens begin %s.\n' 'ATATT' >"$SCRATCH/repo/prose.md"
+if ! "$CHECKER" "$SCRATCH/repo" >"$SCRATCH/output" 2>&1; then
+	printf 'public-safety-test: token prefix in prose should not be denied\n' >&2
+	cat "$SCRATCH/output" >&2
+	exit 1
+fi
+rm -f "$SCRATCH/repo/prose.md"
+
 printf 'public-safety-test: ok\n'
