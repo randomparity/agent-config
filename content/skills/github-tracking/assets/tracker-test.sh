@@ -513,10 +513,14 @@ assert_error "$fixture/err" usage 'non-numeric blocker'
 # Derived from the profile rather than a hand-kept list, like the declaration
 # gate above: an operation added later that takes an issue selector and forgets
 # github_require_id fails here, where a list of today's operations would not.
-# The exemptions are the operations whose contract names no issue, so adding one
-# is a visible decision rather than a silent omission. Presence, not arity: an
-# operation taking two selectors that guards one and forgets the other passes
-# here, which is why the per-selector cases below name both of link-parent's.
+# target_url and label_ensure are exempt because their contracts name no issue.
+# search is exempt for a different reason and is not covered: its --parent is an
+# issue selector, deliberately left unguarded because GitHub's parent-issue:
+# qualifier accepts forms this contract does not define. That is open, and this
+# repository's deferral record 0011 owns it.
+# Presence, not arity: an operation taking two selectors that guards one and
+# forgets the other passes here, which is why the per-selector cases below name
+# both of link-parent's.
 guard_exempt='^(target_url|label_ensure|search)$'
 while IFS= read -r op; do
 	[[ -n $op ]] || continue
@@ -651,6 +655,26 @@ assert_error "$fixture/err" usage 'traversing profile name'
 # so without this the only discriminating assertion is the marker below.
 assert_contains 'profile name must match' "$fixture/err"
 [[ ! -e $fixture/pwned ]] || fail '--profile sourced a file outside profiles/'
+
+# The two routes must admit the same set — that agreement is the whole argument
+# for a grammar over a containment test — and the character class is written
+# three times in tracker.sh, twice as an rg pattern and once as a bash test.
+# Relate the routes rather than testing each: widening one copy alone leaves
+# every other case here green. `resolve` is the flag route's cheapest exercise,
+# since the grammar is checked at parse time, before resolve short-circuits.
+mkdir -p "$fixture/grammar"
+git -C "$fixture/grammar" init -q
+for candidate in github my-tracker jira2 Bad has_underscore ../x dot.name '' 'two words'; do
+	printf 'issue-tracker: %s\n' "$candidate" >"$fixture/grammar/AGENTS.md"
+	declared=accepted
+	(cd "$fixture/grammar" && "$tracker" resolve) \
+		>"$fixture/out" 2>"$fixture/err" || declared=rejected
+	flagged=accepted
+	"$tracker" resolve --profile "$candidate" \
+		>"$fixture/out" 2>"$fixture/err" || flagged=rejected
+	[[ $declared == "$flagged" ]] ||
+		fail "profile name '$candidate': declaration route $declared, --profile route $flagged"
+done
 
 # An empty value is a usage error too, not a silent fall-through to the
 # declaration: --profile '' asked for a profile and named none.
