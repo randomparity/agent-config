@@ -73,12 +73,23 @@ rm -f "$SCRATCH/repo/token.md"
 # base64(email:token) in an ATLASSIAN_-prefixed variable, which contains no
 # literal ATATT at any alignment and does not carry the `Basic ` header word
 # either, so neither shape above sees it.
-printf '%s_MCP_BASIC_AUTH=%s\n' 'ATLASSIAN' \
-	'ZXhhbXBsZUBleGFtcGxlLmNvbTpub3RhcmVhbHRva2Vu' >"$SCRATCH/repo/env.md"
-if "$CHECKER" "$SCRATCH/repo" >"$SCRATCH/output" 2>&1; then
-	printf 'public-safety-test: base64 Atlassian credential leak should fail\n' >&2
-	exit 1
-fi
+# A credential reaches a file in whatever syntax its container uses, so the
+# bare assignment is the least likely of the four rather than the only one.
+b64=ZXhhbXBsZUBleGFtcGxlLmNvbTpub3RhcmVhbHRva2Vu
+while IFS= read -r form; do
+	printf '%s\n' "$form" >"$SCRATCH/repo/env.md"
+	if "$CHECKER" "$SCRATCH/repo" >"$SCRATCH/output" 2>&1; then
+		printf 'public-safety-test: Atlassian credential leak should fail: %s\n' \
+			"$form" >&2
+		exit 1
+	fi
+done <<FORMS
+$(printf '%s_MCP_BASIC_AUTH=%s' 'ATLASSIAN' "$b64")
+$(printf 'export %s_MCP_BASIC_AUTH="%s"' 'ATLASSIAN' "$b64")
+$(printf "%s_MCP_BASIC_AUTH='%s'" 'ATLASSIAN' "$b64")
+$(printf '  "%s_MCP_BASIC_AUTH": "%s",' 'ATLASSIAN' "$b64")
+$(printf '  %s_MCP_BASIC_AUTH: %s' 'ATLASSIAN' "$b64")
+FORMS
 rm -f "$SCRATCH/repo/env.md"
 
 # Naming the variable is not disclosing its value; the setup docs have to.

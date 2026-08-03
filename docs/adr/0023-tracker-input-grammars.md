@@ -116,10 +116,11 @@ generalizes, not exceptions to it.
   profile justifies, so the limit is named here and the per-selector rejection
   cases cover today's operations.
 - The scan's Atlassian shapes are prefix-and-length heuristics, like the four
-  credential shapes beside them. They cover the plaintext token and the base64
-  variable form; a differently-named variable holding the same base64, and any
-  sibling credential prefix Atlassian issues for scoped or Bitbucket tokens,
-  still pass.
+  credential shapes beside them. They cover the plaintext token, and the base64
+  variable form in the syntaxes it reaches a file in — a bare or quoted shell
+  assignment, a JSON member, a YAML mapping. A differently-named variable
+  holding the same base64, the value on a line of its own, and any sibling
+  credential prefix Atlassian issues for scoped or Bitbucket tokens, still pass.
 
 ## Considered & rejected
 
