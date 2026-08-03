@@ -2,7 +2,11 @@
 set -euo pipefail
 
 script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
-helper="$script_dir/create-verified-issue.sh"
+# The suite lives in `testdata/` so it is excluded from the installed payload
+# (ADR 0025). Everything it exercises does ship, so resolve those from the skill
+# root once rather than counting `..` at each use.
+skill_root=$(cd -- "$script_dir/../.." && pwd -P)
+helper="$skill_root/scripts/create-verified-issue.sh"
 fixture=$(mktemp -d "${TMPDIR:-/tmp}/create-verified-issue-test.XXXXXX")
 trap 'rm -rf -- "$fixture"' EXIT
 
@@ -265,7 +269,7 @@ if "$helper" --repo example/repo --title 'Confirmed title' --body-file "$fixture
 fi
 assert_contains 'body file must be a populated regular file' "$fixture/stderr"
 
-skill_file="$script_dir/../SKILL.md"
+skill_file="$skill_root/SKILL.md"
 assert_contains 'scripts/create-verified-issue.sh' "$skill_file"
 assert_contains 'Retain the populated temporary body file' "$skill_file"
 assert_contains 'verified URL is the only success result' "$skill_file"

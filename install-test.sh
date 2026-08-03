@@ -82,9 +82,11 @@ assert_executable() {
 	[[ -x "$1" ]] || fail "expected executable: $1"
 }
 
-# The canonical tree carries test-only assets under `testdata/` directories that
-# the installer filters out, so the installed tree is the canonical one minus
-# those. Compare with the same exclusion rather than loosening the comparison.
+# The canonical tree carries test-only assets under `testdata` entries that the
+# installer filters out, so the installed tree is the canonical one minus those.
+# Compare with the same exclusion rather than loosening the comparison. `diff -x`
+# and the `find` below both match by name and not by type, which is the rule
+# `stage_skills` applies (ADR 0025).
 assert_canonical_skills() {
 	local destination="$1"
 	local expected_executables
@@ -95,7 +97,7 @@ assert_canonical_skills() {
 		fail "installed skills differ from canonical tree: $destination/skills"
 	expected_executables="$(
 		cd "$REPO/content/skills" || exit
-		find . -type d -name testdata -prune -o -type f \
+		find . -name testdata -prune -o -type f \
 			\( -perm -100 -o -perm -010 -o -perm -001 \) -print |
 			LC_ALL=C sort
 	)"
@@ -137,9 +139,9 @@ assert_no_stub_profile() {
 	)"
 	[[ "$installed_profiles" == './github.sh' ]] ||
 		fail "unexpected installed profiles: $installed_profiles"
-	leftover="$(find "$destination/skills" -type d -name testdata -print)"
+	leftover="$(find "$destination/skills" -name testdata -print)"
 	[[ -z "$leftover" ]] ||
-		fail "installed tree carries a test-only asset directory: $leftover"
+		fail "installed tree carries a test-only asset entry: $leftover"
 
 	"$assets/tracker.sh" view --profile fixture 1 \
 		>"$tmpdir/tracker-out" 2>"$tmpdir/tracker-err" || status="$?"
@@ -149,6 +151,33 @@ assert_no_stub_profile() {
 	available="$(jq -r '.message | sub("^.*available: "; "")' "$tmpdir/tracker-err")"
 	[[ "$available" != *fixture* ]] ||
 		fail "installed tracker still advertises the stub profile: $available"
+}
+
+# ADR 0025: no test suite reaches an installed tree, with one recorded exception.
+# `decision-records/assets/check-records-test.sh` is delivered content — the skill
+# instructs an agent to copy six files out of the installed `assets/` directory
+# into an adopting repo, and that suite is one of them — so its *presence* is
+# asserted too. Dropping it would break the skill's documented adoption at the
+# point of use, where no gate here can see it; failing this assertion is what
+# sends an author who deletes it back to the record.
+assert_no_test_suites() {
+	local destination="$1"
+	local skills="$destination/skills"
+	local shipped
+
+	assert_not_file "$skills/brainstorming/scripts/start-server-test.sh"
+	assert_not_file "$skills/issue/scripts/create-verified-issue-test.sh"
+	assert_file "$skills/decision-records/assets/check-records-test.sh"
+
+	# The whole set rather than the three names above: a suite added anywhere
+	# under the installed tree fails here, which is what makes this a check of
+	# the rule instead of a check of today's filenames.
+	shipped="$(
+		cd "$skills" || exit
+		find . -type f -name '*-test.sh' -print | LC_ALL=C sort
+	)"
+	[[ "$shipped" == './decision-records/assets/check-records-test.sh' ]] ||
+		fail "installed tree carries test suites: $shipped"
 }
 
 assert_tree_contains() {
@@ -229,6 +258,7 @@ assert_file "$CLAUDE_CONFIG_DIR/CLAUDE.md"
 assert_file "$CLAUDE_CONFIG_DIR/settings.json"
 assert_canonical_skills "$CLAUDE_CONFIG_DIR"
 assert_no_stub_profile "$CLAUDE_CONFIG_DIR"
+assert_no_test_suites "$CLAUDE_CONFIG_DIR"
 assert_not_file "$CLAUDE_CONFIG_DIR/skills/accessibility-reviewer/SKILL.md"
 assert_not_file "$CLAUDE_CONFIG_DIR/skills/project-context/SKILL.md"
 assert_worktree_baseline_transcripts \
@@ -244,6 +274,7 @@ assert_file "$CODEX_CONFIG_DIR/AGENTS.md"
 assert_file "$CODEX_CONFIG_DIR/config.toml"
 assert_canonical_skills "$CODEX_CONFIG_DIR"
 assert_no_stub_profile "$CODEX_CONFIG_DIR"
+assert_no_test_suites "$CODEX_CONFIG_DIR"
 assert_not_file "$CODEX_CONFIG_DIR/skills/accessibility-reviewer/SKILL.md"
 assert_not_file "$CODEX_CONFIG_DIR/skills/project-context/SKILL.md"
 assert_worktree_baseline_transcripts \
@@ -262,6 +293,7 @@ assert_file "$BOB_CONFIG_DIR/mcp_settings.json"
 assert_file "$BOB_CONFIG_DIR/rules/global-development-standards.md"
 assert_canonical_skills "$BOB_CONFIG_DIR"
 assert_no_stub_profile "$BOB_CONFIG_DIR"
+assert_no_test_suites "$BOB_CONFIG_DIR"
 assert_not_file "$BOB_CONFIG_DIR/skills/accessibility-reviewer/SKILL.md"
 assert_not_file "$BOB_CONFIG_DIR/skills/project-context/SKILL.md"
 assert_worktree_baseline_transcripts \

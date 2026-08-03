@@ -54,10 +54,16 @@ new_temp_file() {
 	printf '%s\n' "$path"
 }
 
-# The canonical skills tree carries test-only assets in `testdata/` directories:
-# fixtures the contract suites stage into a tree they assemble at run time. They
-# reach no installed agent, because a fixture that answers a tracker read with a
-# fabricated issue is indistinguishable from a real read at the call site.
+# The canonical skills tree carries test-only assets in `testdata/` entries: the
+# contract suites and the fixtures they stage into a tree they assemble at run
+# time. They reach no installed agent, because a fixture that answers a tracker
+# read with a fabricated issue is indistinguishable from a real read at the call
+# site, and a suite is of no use to an agent that will never run it.
+#
+# Matched by name and not by type: `install-test.sh` compares with `diff -x
+# testdata`, which excludes a match of either kind, so a `-type d` filter here
+# would let a plain file named `testdata` ship with the canonical comparison
+# masking it (ADR 0025).
 #
 # Filter by staging a copy and installing that, rather than by deleting from the
 # destination afterwards. The destination then stays byte-comparable to its
@@ -66,7 +72,7 @@ new_temp_file() {
 stage_skills() {
 	SKILLS_STAGING="$(mktemp -d "${TMPDIR:-/tmp}/agent-config-skills.XXXXXX")"
 	cp -pR "$REPO/content/skills" "$SKILLS_STAGING/skills"
-	find "$SKILLS_STAGING/skills" -type d -name testdata -prune -exec rm -R {} +
+	find "$SKILLS_STAGING/skills" -name testdata -prune -exec rm -R {} +
 }
 
 detect_host() {

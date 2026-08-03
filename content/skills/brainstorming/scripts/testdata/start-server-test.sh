@@ -4,7 +4,9 @@
 set -euo pipefail
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-SCRIPT="$SCRIPT_DIR/start-server.sh"
+# The suite lives in `testdata/` so it is excluded from the installed payload
+# (ADR 0025); the script it exercises ships, and sits one level up.
+SCRIPT="$(dirname "$SCRIPT_DIR")/start-server.sh"
 
 passed=0
 failed=0

@@ -193,8 +193,13 @@ project_review_count="$(validate_inventory "$project_review_root" \
 	'examples/project-review-skills' 'project review tree is missing' \
 	'project review tree is empty')"
 
+# A deployment rule — an installed skill must resolve its own assets rather than
+# name a config root — so it scans the deployed set, which excludes `testdata`
+# entries exactly as `stage_skills` does (ADR 0025). The portability checks above
+# still cover them: those are repository hygiene, not delivery.
 root_pattern='(~|[$]HOME|[$][{]HOME[}])/[.](codex|claude|bob)(/|$)'
-root_reference="$(rg -l "$root_pattern" "$skills_root" || true)"
+root_reference="$(rg -l --glob '!testdata' --glob '!testdata/**' \
+	"$root_pattern" "$skills_root" || true)"
 [[ -z "$root_reference" ]] ||
 	skill_error "${root_reference%%$'\n'*}" 'installed config-root reference is forbidden'
 

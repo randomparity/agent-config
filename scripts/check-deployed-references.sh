@@ -24,6 +24,14 @@ scan_paths=(
 	"$ROOT/agents/bob/shared"
 )
 
+# Every rule here is about what a *deployed* file may say, so the scan has to
+# model the deployed set — which is the canonical tree minus its `testdata`
+# entries, the same exclusion `stage_skills` applies (ADR 0025). Without this a
+# fixture that cites `docs/adr/0024-*.md` or writes `ADR 0021` in a comment fails
+# `just verify` with a deployment finding about a file no agent ever receives,
+# which would make the gates untestable by their own fixtures.
+scan_excludes=(--glob '!testdata' --glob '!testdata/**')
+
 for path in "${scan_paths[@]}"; do
 	if [[ ! -d "$path" ]]; then
 		printf 'deployed-references: deployment root is missing: %s\n' "$path" >&2
@@ -36,7 +44,8 @@ result_status=0
 report_matches() { # class pattern
 	local class="$1" pattern="$2" output rg_status
 	set +e
-	output=$(rg -n -I --hidden --with-filename -i "$pattern" "${scan_paths[@]}" 2>&1)
+	output=$(rg -n -I --hidden --with-filename -i \
+		"${scan_excludes[@]}" "$pattern" "${scan_paths[@]}" 2>&1)
 	rg_status=$?
 	set -e
 	case "$rg_status" in
@@ -60,7 +69,7 @@ report_matches bare-issue '\bissue[[:space:]]+#[0-9]+\b'
 path_pattern='(?<![[:alnum:]/])(?:\.\.?/)*\Kdocs/(adr|debt|superpowers/(specs|plans))/[A-Za-z0-9_.*<>/-]+\.md'
 set +e
 path_matches=$(rg -n -I --hidden --with-filename --pcre2 -o \
-	"$path_pattern" "${scan_paths[@]}" 2>&1)
+	"${scan_excludes[@]}" "$path_pattern" "${scan_paths[@]}" 2>&1)
 path_status=$?
 set -e
 
