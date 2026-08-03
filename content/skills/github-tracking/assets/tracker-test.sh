@@ -662,15 +662,24 @@ assert_contains 'profile name must match' "$fixture/err"
 # Relate the routes rather than testing each: widening one copy alone leaves
 # every other case here green. `resolve` is the flag route's cheapest exercise,
 # since the grammar is checked at parse time, before resolve short-circuits.
+#
+# Run under a non-C UTF-8 locale where the host has one. A bash bracket
+# expression takes its ranges from the locale's collation, so a range like
+# [a-z] admits githéb under en_US.UTF-8 and rejects it under C or C.UTF-8 --
+# an ASCII-only default would hide exactly the divergence githéb is here to
+# catch. With no such locale the accented candidates are rejected by both
+# routes, so the loop still passes; it just stops proving this property.
 mkdir -p "$fixture/grammar"
 git -C "$fixture/grammar" init -q
-for candidate in github my-tracker jira2 Bad has_underscore ../x dot.name '' 'two words'; do
+agreement_locale=$(locale -a 2>/dev/null | rg -v '^C[.@]' | rg -m 1 -i '\.utf-?8$' || true)
+for candidate in github my-tracker jira2 Bad has_underscore ../x dot.name '' 'two words' \
+	githéb ПРОФИЛЬ profilé; do
 	printf 'issue-tracker: %s\n' "$candidate" >"$fixture/grammar/AGENTS.md"
 	declared=accepted
-	(cd "$fixture/grammar" && "$tracker" resolve) \
+	(cd "$fixture/grammar" && LC_ALL="${agreement_locale:-C}" "$tracker" resolve) \
 		>"$fixture/out" 2>"$fixture/err" || declared=rejected
 	flagged=accepted
-	"$tracker" resolve --profile "$candidate" \
+	LC_ALL="${agreement_locale:-C}" "$tracker" resolve --profile "$candidate" \
 		>"$fixture/out" 2>"$fixture/err" || flagged=rejected
 	[[ $declared == "$flagged" ]] ||
 		fail "profile name '$candidate': declaration route $declared, --profile route $flagged"

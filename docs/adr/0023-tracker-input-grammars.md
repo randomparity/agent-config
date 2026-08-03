@@ -44,6 +44,18 @@ neither can name a path outside the profiles directory. The check lives in the
 parsing arm rather than after the loop so that `--profile ''` is rejected as the
 usage error it is, instead of silently falling through to the declaration.
 
+That set is ASCII, and the flag's check spells it out character by character
+rather than writing the range `[a-z0-9-]`. A bash bracket expression takes its
+ranges from the locale's collation, so under `en_US.UTF-8` — the ordinary
+interactive locale — `[a-z]` admits accented letters, while `rg`'s class on the
+declaration route is ASCII-only whatever the locale. Written as a range the two
+routes accept different sets under one locale and the same set under another,
+which is precisely the divergence this decision exists to remove, and it
+reappears silently if someone later shortens the enumeration back to a range.
+Pinning the collation instead — `LC_ALL=C` around the comparison — would work
+but puts a locale assignment in the engine's hot path for one test, where the
+enumeration is inert.
+
 Issue selectors are numbers: `^[0-9]+$`, enforced by one shared
 `github_require_id` guard. Every operation calls it on every value naming an
 issue — the positionals, and `create`'s `--parent`, which is the same value class
@@ -104,7 +116,10 @@ generalizes, not exceptions to it.
   case, the derived guard-coverage check, and a case relating the two profile-name
   routes, so a regression that removes the profile-name check, removes a guard
   call, or widens one of the three places the profile-name class is written fails
-  `just verify` rather than production.
+  `just verify` rather than production. The route-agreement case runs under a
+  non-`C` UTF-8 locale where the host has one, since an ASCII-only default hides
+  the collation divergence above; on a host with no such locale it still passes
+  but stops proving that property.
   The derived check's exemption list is the one hand-kept part: adding an
   operation to it is a deliberate edit a reviewer sees, which is the property a
   list of guarded operations would not have had.

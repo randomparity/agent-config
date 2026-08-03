@@ -96,7 +96,12 @@ while (($#)); do
 		# runs an arbitrary file in this process; checking it here rather than
 		# after the loop also makes --profile '' the usage error it is instead
 		# of a silent fall-through to the declaration.
-		[[ $2 =~ ^[a-z0-9-]+$ ]] ||
+		# Enumerated, not the range [a-z0-9-]: a bash bracket expression takes
+		# its ranges from the locale's collation, so under en_US.UTF-8 [a-z]
+		# admits accented letters while rg's ASCII-only class above does not.
+		# The two routes would then accept different sets -- the divergence this
+		# check exists to close. Do not "simplify" this back to a range.
+		[[ $2 =~ ^[abcdefghijklmnopqrstuvwxyz0123456789-]+$ ]] ||
 			die "$EXIT_USAGE" usage "profile name must match [a-z0-9-]+: $2"
 		profile_name=$2
 		shift 2
