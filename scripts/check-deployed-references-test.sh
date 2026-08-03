@@ -61,6 +61,17 @@ assert_fails() {
 	fi
 }
 
+# The deployment boundary, from both sides. `stage_skills` filters `testdata`
+# entries out of `content/skills` and out of nothing else, so a fixture there is
+# never deployed and cannot violate a deployment rule — while the same content
+# under `agents/*/shared` installs verbatim and must still be caught. Without the
+# second case the exclusion could be widened to every scan root with this suite
+# green, which is how the gate would go blind over a path that really does ship.
+assert_passes 'testdata fixture under content/skills is not deployed' \
+	'content/skills/example/testdata/fixture.md' 'Governed by ADR 0019.'
+assert_fails 'testdata under agents/ still deploys' bare-adr \
+	'agents/bob/shared/rules/testdata/fixture.md' 'Governed by ADR 0019.'
+
 assert_fails 'bare ADR' bare-adr \
 	'content/skills/example/SKILL.md' 'Governed by ADR 0019.'
 assert_fails 'bare ADR with hash' bare-adr \

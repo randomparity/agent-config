@@ -30,7 +30,25 @@ scan_paths=(
 # fixture that cites `docs/adr/0024-*.md` or writes `ADR 0021` in a comment fails
 # `just verify` with a deployment finding about a file no agent ever receives,
 # which would make the gates untestable by their own fixtures.
-scan_excludes=(--glob '!testdata' --glob '!testdata/**')
+#
+# Scoped to `content/skills` because that is the only root the installer filters:
+# `stage_skills` stages a copy of that tree alone, while the `agents/*/shared`
+# payloads install verbatim — `agents/bob/shared/rules` is copied whole. Excluding
+# the name across every root would blind the gate over paths that really do deploy,
+# which is the same disagreement-with-the-installer this exclusion exists to end,
+# pointing the other way.
+is_undeployed() { # absolute-path
+	local path="$1" relative
+
+	case "$path" in
+	"$ROOT/content/skills/"*) relative="${path#"$ROOT/content/skills/"}" ;;
+	*) return 1 ;;
+	esac
+	case "/$relative" in
+	*/testdata | */testdata/*) return 0 ;;
+	esac
+	return 1
+}
 
 for path in "${scan_paths[@]}"; do
 	if [[ ! -d "$path" ]]; then
@@ -42,18 +60,24 @@ done
 result_status=0
 
 report_matches() { # class pattern
-	local class="$1" pattern="$2" output rg_status
+	local class="$1" pattern="$2" output rg_status match file reported=0
 	set +e
-	output=$(rg -n -I --hidden --with-filename -i \
-		"${scan_excludes[@]}" "$pattern" "${scan_paths[@]}" 2>&1)
+	output=$(rg -n -I --hidden --with-filename -i "$pattern" "${scan_paths[@]}" 2>&1)
 	rg_status=$?
 	set -e
 	case "$rg_status" in
 	0)
 		while IFS= read -r match; do
+			file=${match%%:*}
+			if is_undeployed "$file"; then
+				continue
+			fi
 			printf 'deployed-references: %s: %s\n' "$class" "$match" >&2
+			reported=1
 		done <<<"$output"
-		result_status=1
+		if [[ "$reported" -eq 1 ]]; then
+			result_status=1
+		fi
 		;;
 	1) ;;
 	*)
@@ -69,7 +93,7 @@ report_matches bare-issue '\bissue[[:space:]]+#[0-9]+\b'
 path_pattern='(?<![[:alnum:]/])(?:\.\.?/)*\Kdocs/(adr|debt|superpowers/(specs|plans))/[A-Za-z0-9_.*<>/-]+\.md'
 set +e
 path_matches=$(rg -n -I --hidden --with-filename --pcre2 -o \
-	"${scan_excludes[@]}" "$path_pattern" "${scan_paths[@]}" 2>&1)
+	"$path_pattern" "${scan_paths[@]}" 2>&1)
 path_status=$?
 set -e
 
@@ -81,6 +105,10 @@ case "$path_status" in
 		line_number=${remainder%%:*}
 		candidate=${remainder#*:}
 		basename=${candidate##*/}
+
+		if is_undeployed "$file"; then
+			continue
+		fi
 
 		case "$candidate" in
 		docs/adr/* | docs/debt/*)

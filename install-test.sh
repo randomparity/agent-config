@@ -169,9 +169,12 @@ assert_no_test_suites() {
 	assert_not_file "$skills/issue/scripts/create-verified-issue-test.sh"
 	assert_file "$skills/decision-records/assets/check-records-test.sh"
 
-	# The whole set rather than the three names above: a suite added anywhere
-	# under the installed tree fails here, which is what makes this a check of
-	# the rule instead of a check of today's filenames.
+	# The whole set rather than the three names above, so a second suite under
+	# any other name fails here too. It enforces the repository's `*-test.sh`
+	# convention, not "is this file a test": a suite named `foo_test.sh` or
+	# written in another language is not caught here. Name a new suite
+	# `*-test.sh` and put it in `testdata/` — that convention is what this
+	# assertion can see.
 	shipped="$(
 		cd "$skills" || exit
 		find . -type f -name '*-test.sh' -print | LC_ALL=C sort

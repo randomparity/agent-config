@@ -71,7 +71,7 @@ places below rather than reused.
 | `install-test.sh` `assert_canonical_skills` | `diff -rq -x testdata`, and the executable-mode comparison |
 | `install-test.sh` `assert_no_test_suites` | asserts absence in each installed tree |
 | `Justfile` lint / format-check / format / test globs | keeps the excluded suites linted, formatted and run |
-| `scripts/check-deployed-references.sh` and `scripts/check-skill-layout.sh` | skip the entries, because a never-deployed file cannot violate a deployment rule |
+| `scripts/check-deployed-references.sh` and `scripts/check-skill-layout.sh` | skip the entries **under `content/skills` only**, because a never-deployed file cannot violate a deployment rule |
 
 No gate infers the name from another; widening it means editing all five. That is
 the property 0024 wanted and stated over an incomplete list.
@@ -100,6 +100,14 @@ change — not `test`, not `lint`, not `format-check`. `just test` now runs it a
 the failure mode this record's own acceptance criterion names, and it was already
 present.
 
+That sweep covered `content/skills`, which is this record's subject, and it is not
+a claim about the repository. `scripts/check-skill-layout-test.sh` is a second
+unrun suite, and it fails when run — pre-existing, from a locale-dependent
+character class rather than from anything here. It is tracked in
+`docs/debt/0012-skill-layout-suite-is-unwired-and-locale-dependent.md`, not fixed
+here: the remedy is a behavior change to an unrelated portability rule, and wiring
+the suite in before that fix would turn `just verify` red.
+
 ## Consequences
 
 - The installed payload carries no test suite for any of the three agent targets
@@ -108,14 +116,39 @@ present.
   and bob: the two moved suites absent, `check-records-test.sh` present. Asserting
   the exception's *presence* is what keeps it a decision rather than an oversight —
   deleting it from the payload fails the gate and sends the author back here.
+  That assertion enumerates the installed tree's `*-test.sh` files, so it enforces
+  the repository's suite-naming convention rather than detecting tests as such: a
+  suite named `foo_test.sh`, or written in another language, is not caught. Name a
+  new suite `*-test.sh` and put it under `testdata/`. Deciding "is this a test"
+  from content would be the suffix-based delivery rule rejected below, applied to a
+  harder question.
 - A plain file named `testdata` under `content/skills` no longer installs. Nothing
   has one; the change closes the gap between what the installer removed and what
   the canonical comparison already ignored, so a future one cannot ship unnoticed.
 - `check-deployed-references.sh` and `check-skill-layout.sh` no longer scan
-  `testdata` entries. A fixture may now cite `docs/adr/0024-*.md` or `~/.claude`
-  without failing a deployment gate, which is correct — it is not deployed — and
-  is what makes fixtures usable for testing the deployment gates themselves.
-  The narrowing costs nothing: every path they still scan is a path that ships.
+  `testdata` entries **under `content/skills`**. A fixture may now cite
+  `docs/adr/0024-*.md` or `~/.claude` without failing a deployment gate, which is
+  correct — it is not deployed — and is what makes fixtures usable for testing the
+  deployment gates themselves.
+- The scope of that narrowing is load-bearing and is asserted, not assumed.
+  `content/skills` is the only root `stage_skills` filters; the `agents/*/shared`
+  payloads install verbatim, and `agents/bob/shared/rules` is copied whole, so a
+  `testdata` entry there does ship. Excluding the name across every scan root
+  would blind the gate over a deployed path — the same
+  disagreement-with-the-installer this record set out to end, pointing the other
+  way. `check-deployed-references-test.sh` carries the pair that pins it: the
+  fixture passes under `content/skills` and the identical fixture still fails
+  under `agents/bob/shared/rules`. Reverting either half of the scoping turns one
+  of the two red.
+- The staging-side half of the entry-shaped filter is not covered by a gate.
+  `install-test.sh`'s leftover check (`find -name testdata`) would catch a plain
+  file named `testdata` that reached a destination tree, but nothing exercises
+  `stage_skills` removing one, because the installer stages from the real
+  repository and no such entry exists to inject. Reinstating `-type d` therefore
+  leaves `just verify` green. Testing it would mean running the installer against
+  a fixture tree, which the suite is not built for; the exposure is one line in
+  one place, and this paragraph is the record of it rather than a claim that it
+  is covered.
 - The `Justfile` gains `-i 2` for `brainstorming/scripts/testdata/*.sh`. The
   brainstorming scripts are vendored at two-space indent and are not covered by
   `format-check` today; formatting the moved suite to the repository default would
