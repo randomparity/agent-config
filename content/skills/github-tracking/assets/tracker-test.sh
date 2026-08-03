@@ -575,6 +575,32 @@ GH_CALL_LOG="$fixture/calls" PATH="$fixture/bin:$PATH" \
 assert_exit 4 "$status" 'comment-list against a malformed payload'
 assert_error "$fixture/err" transport 'comment-list malformed is transport, not partial'
 
+# --- --profile cannot escape the profiles directory -------------------------
+# The flag bypasses the AGENTS.md route, whose grammar is enforced in
+# resolve_tracker, and the name is concatenated into a path and sourced. Without
+# the same grammar on the flag, a relative name runs an arbitrary file in the
+# engine's process. Twenty levels reach the filesystem root from any checkout
+# depth and /.. is /, so the traversal resolves to the fixture wherever this repo
+# lives.
+cat >"$fixture/evil.sh" <<EVIL
+printf 'sourced\n' >"$fixture/pwned"
+EVIL
+traversal=$(printf '../%.0s' {1..20})${fixture#/}/evil
+status=0
+PATH="$fixture/bin:$PATH" "$tracker" view --profile "$traversal" \
+	--target example/repo 101 >"$fixture/out" 2>"$fixture/err" || status=$?
+assert_exit 1 "$status" 'view with a traversing profile name'
+assert_error "$fixture/err" usage 'traversing profile name'
+[[ ! -e $fixture/pwned ]] || fail '--profile sourced a file outside profiles/'
+
+# An empty value is a usage error too, not a silent fall-through to the
+# declaration: --profile '' asked for a profile and named none.
+status=0
+PATH="$fixture/bin:$PATH" "$tracker" view --profile '' --target example/repo 101 \
+	>"$fixture/out" 2>"$fixture/err" || status=$?
+assert_exit 1 "$status" 'view with an empty profile name'
+assert_error "$fixture/err" usage 'empty profile name'
+
 # --- a CRLF declaration is valid, not malformed -----------------------------
 mkdir -p "$fixture/crlf"
 git -C "$fixture/crlf" init -q

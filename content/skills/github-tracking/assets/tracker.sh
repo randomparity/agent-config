@@ -91,6 +91,13 @@ while (($#)); do
 	case $1 in
 	--profile)
 		(($# >= 2)) || die "$EXIT_USAGE" usage '--profile needs a value'
+		# The same grammar resolve_tracker pins the declaration to. The name is
+		# concatenated into a path and sourced below, so an unconstrained flag
+		# runs an arbitrary file in this process; checking it here rather than
+		# after the loop also makes --profile '' the usage error it is instead
+		# of a silent fall-through to the declaration.
+		[[ $2 =~ ^[a-z0-9-]+$ ]] ||
+			die "$EXIT_USAGE" usage "profile name must match [a-z0-9-]+: $2"
 		profile_name=$2
 		shift 2
 		;;
