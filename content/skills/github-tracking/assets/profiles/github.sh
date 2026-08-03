@@ -264,6 +264,9 @@ profile_create() {
 			;;
 		--parent)
 			(($# >= 2)) || die "$EXIT_USAGE" usage '--parent needs a value'
+			# Not a positional, but the same value class: an issue selector
+			# reaching gh, and this repo's caller documents it as a number.
+			github_require_id "$2" 'parent id'
 			parent=$2
 			shift 2
 			;;
