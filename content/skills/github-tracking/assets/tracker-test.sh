@@ -633,18 +633,23 @@ assert_error "$fixture/err" transport 'comment-list malformed is transport, not 
 # The flag bypasses the AGENTS.md route, whose grammar is enforced in
 # resolve_tracker, and the name is concatenated into a path and sourced. Without
 # the same grammar on the flag, a relative name runs an arbitrary file in the
-# engine's process. Twenty levels reach the filesystem root from any checkout
-# depth and /.. is /, so the traversal resolves to the fixture wherever this repo
-# lives.
+# engine's process. The number of levels is computed from profiles/ rather than
+# assumed: a fixed count stops reaching the root once a checkout sits deeper than
+# it, and the case would then pass against an unguarded engine while still
+# reading as traversal coverage.
 cat >"$fixture/evil.sh" <<EVIL
 printf 'sourced\n' >"$fixture/pwned"
 EVIL
-traversal=$(printf '../%.0s' {1..20})${fixture#/}/evil
+slashes=$(printf '%s' "$script_dir/profiles" | tr -cd /)
+traversal=$(printf '../%.0s' $(seq "${#slashes}"))${fixture#/}/evil
 status=0
 PATH="$fixture/bin:$PATH" "$tracker" view --profile "$traversal" \
 	--target example/repo 101 >"$fixture/out" 2>"$fixture/err" || status=$?
 assert_exit 1 "$status" 'view with a traversing profile name'
 assert_error "$fixture/err" usage 'traversing profile name'
+# The grammar, named: an unknown-but-well-formed profile also exits 1 as usage,
+# so without this the only discriminating assertion is the marker below.
+assert_contains 'profile name must match' "$fixture/err"
 [[ ! -e $fixture/pwned ]] || fail '--profile sourced a file outside profiles/'
 
 # An empty value is a usage error too, not a silent fall-through to the
