@@ -23,7 +23,8 @@ cleanup() {
 	local path
 	for path in "${TMP_FILES[@]+"${TMP_FILES[@]}"}"; do
 		if [[ -n "$path" && (-e "$path" || -L "$path") ]]; then
-			unlink "$path"
+			unlink "$path" ||
+				printf 'install: could not remove temporary file: %s\n' "$path" >&2
 		fi
 	done
 	# Reported rather than propagated: a trap whose last command fails replaces a
@@ -201,12 +202,12 @@ payload_differs() {
 			;;
 		esac
 		source_executables="$(
-			cd "$src"
+			cd "$src" || exit
 			find . -type f \( -perm -100 -o -perm -010 -o -perm -001 \) -print |
 				LC_ALL=C sort
 		)"
 		destination_executables="$(
-			cd "$dest"
+			cd "$dest" || exit
 			find . -type f \( -perm -100 -o -perm -010 -o -perm -001 \) -print |
 				LC_ALL=C sort
 		)"

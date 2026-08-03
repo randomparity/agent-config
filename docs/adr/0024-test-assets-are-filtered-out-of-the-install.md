@@ -67,7 +67,12 @@ layout of the directory it happens to sit in.
 targets: the installed `profiles/` directory holds exactly `github.sh`, no
 `testdata` directory exists anywhere under the installed skills tree, and the
 installed `tracker.sh` invoked with `--profile fixture` exits 1 with the `usage`
-error class. Asserting the whole profile set rather than one absent filename is
+error class and an available-profile list that does not name the stub. The last
+of those is what ties the file's absence to the behavior the absence is for: the
+issue this record answers names the advertisement in the engine's own error
+message as part of the defect, so the gate asserts the message rather than
+inferring it from the directory listing. Asserting the whole profile set rather
+than one absent filename is
 what makes the gate about the rule instead of about this file: a second fixture
 under any other name fails it, and adding a real tracker profile is a deliberate
 edit to that assertion.

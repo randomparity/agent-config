@@ -94,13 +94,13 @@ assert_canonical_skills() {
 	diff -rq -x testdata "$REPO/content/skills" "$destination/skills" >/dev/null ||
 		fail "installed skills differ from canonical tree: $destination/skills"
 	expected_executables="$(
-		cd "$REPO/content/skills"
+		cd "$REPO/content/skills" || exit
 		find . -type d -name testdata -prune -o -type f \
 			\( -perm -100 -o -perm -010 -o -perm -001 \) -print |
 			LC_ALL=C sort
 	)"
 	actual_executables="$(
-		cd "$destination/skills"
+		cd "$destination/skills" || exit
 		find . -type f \( -perm -100 -o -perm -010 -o -perm -001 \) -print |
 			LC_ALL=C sort
 	)"
@@ -132,7 +132,7 @@ assert_no_stub_profile() {
 	# profile is a deliberate edit here, which is the property this has and a
 	# check for one absent filename does not.
 	installed_profiles="$(
-		cd "$assets/profiles"
+		cd "$assets/profiles" || exit
 		find . -type f -print | LC_ALL=C sort
 	)"
 	[[ "$installed_profiles" == './github.sh' ]] ||
