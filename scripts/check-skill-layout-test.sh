@@ -49,9 +49,17 @@ new_fixture() {
 
 	root="$(mktemp -d "$tmpdir/case.XXXXXX")"
 	mkdir -p "$root/scripts" "$root/agents/claude/shared" \
-		"$root/agents/codex/shared" "$root/agents/bob/shared"
+		"$root/agents/codex/shared" "$root/agents/bob/shared" \
+		"$root/content/languages" "$root/content/references"
 	cp "$implementation" "$root/scripts/check-skill-layout.sh"
 	cp "$reserved" "$root/scripts/reserved-skill-names.txt"
+	# The two roots `install_common_content` deploys verbatim. The guard fails
+	# closed when either is absent, so a fixture without them fails on the
+	# missing root rather than on the rule the case targets. Each holds a file:
+	# the config-root scan below reads them, and an empty directory would leave
+	# it scanning nothing.
+	printf '%s\n' '# Fixture language reference.' >"$root/content/languages/bash.md"
+	printf '%s\n' '# Fixture shared reference.' >"$root/content/references/style.md"
 	write_skill "$root" 'content/skills' 'skill-01'
 	write_skill "$root" 'examples/project-review-skills' 'accessibility-reviewer'
 	printf '%s\n' "$root"
