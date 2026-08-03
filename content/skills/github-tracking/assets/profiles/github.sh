@@ -42,6 +42,12 @@ github_run() { # gh-args...
 	return "$status"
 }
 
+# For the paths whose only failure handling is "classify and die". The write
+# paths that must report partial instead call github_run directly.
+github_run_checked() { # gh-args...
+	github_run "$@" || github_die "$GH_ERR"
+}
+
 github_require_target() {
 	[[ -n ${TRACKER_TARGET:-} ]] ||
 		die "$EXIT_USAGE" usage 'operation needs --target OWNER/NAME'
@@ -79,11 +85,9 @@ github_die() {
 
 profile_target_url() {
 	github_require_target
-	local out status=0 url
-	github_run repo view "$TRACKER_TARGET" --json url --jq .url || status=$?
+	local out url
+	github_run_checked repo view "$TRACKER_TARGET" --json url --jq .url
 	out=$GH_OUT
-	((status == 0)) ||
-		github_die "$GH_ERR"
 	url=${out%/}
 	printf '%s\n' "$url"
 }
@@ -91,12 +95,10 @@ profile_target_url() {
 profile_view() {
 	github_require_target
 	(($# >= 1)) || die "$EXIT_USAGE" usage 'view needs an issue id'
-	local id=$1 out status=0
-	github_run issue view "$id" --repo "$TRACKER_TARGET" \
-		--json number,title,body,labels,parent,state,url,updatedAt || status=$?
+	local id=$1 out
+	github_run_checked issue view "$id" --repo "$TRACKER_TARGET" \
+		--json number,title,body,labels,parent,state,url,updatedAt
 	out=$GH_OUT
-	((status == 0)) ||
-		github_die "$GH_ERR"
 	# Validate the source shape before normalizing. The jq below indexes
 	# .parent.number and .labels[].name; a payload carrying "parent":"bad" or
 	# "labels":["bad"] would crash it and surface as a transport error rather
@@ -131,12 +133,9 @@ profile_view() {
 profile_comment_list() {
 	github_require_target
 	(($# >= 1)) || die "$EXIT_USAGE" usage 'comment-list needs an issue id'
-	local id=$1 out status=0
-	github_run issue view "$id" --repo "$TRACKER_TARGET" --json comments ||
-		status=$?
+	local id=$1 out
+	github_run_checked issue view "$id" --repo "$TRACKER_TARGET" --json comments
 	out=$GH_OUT
-	((status == 0)) ||
-		github_die "$GH_ERR"
 	jq -e '(.comments | type == "array")
 		and all(.comments[]; type == "object" and (.body | type == "string"))' \
 		>/dev/null 2>&1 <<<"$out" ||
@@ -151,19 +150,16 @@ profile_comment_list() {
 profile_label_history() {
 	github_require_target
 	(($# >= 2)) || die "$EXIT_USAGE" usage 'label-history needs an issue id and a label'
-	local id=$1 label=$2 out status=0
+	local id=$1 label=$2 out
 	# The label is spliced into a jq program below, so restrict it to the
 	# character set GitHub labels actually use rather than escaping ad hoc.
 	[[ $label =~ ^[A-Za-z0-9._:/-][A-Za-z0-9._:/\ -]*$ ]] ||
 		die "$EXIT_USAGE" usage "label cannot be queried safely: $label"
 	# --slurp aggregates pages before filtering. Without it gh applies --jq to
 	# each page separately and a paginated timeline yields one line per page.
-	github_run api "repos/$TRACKER_TARGET/issues/$id/timeline" --paginate --slurp \
-		--jq "[.[][] | select(.event==\"labeled\" and .label.name==\"$label\")] | last | .created_at // \"unknown\"" ||
-		status=$?
+	github_run_checked api "repos/$TRACKER_TARGET/issues/$id/timeline" --paginate --slurp \
+		--jq "[.[][] | select(.event==\"labeled\" and .label.name==\"$label\")] | last | .created_at // \"unknown\""
 	out=$GH_OUT
-	((status == 0)) ||
-		github_die "$GH_ERR"
 	[[ -n $out && $out != null ]] || out=unknown
 	printf '%s\n' "$out"
 }
@@ -173,7 +169,7 @@ profile_label_history() {
 # calling skill.
 profile_search() {
 	github_require_target
-	local state=open text='' label='' parent='' updated_before='' query out status=0
+	local state=open text='' label='' parent='' updated_before='' query out
 	while (($#)); do
 		case $1 in
 		--state)
@@ -222,11 +218,9 @@ profile_search() {
 	[[ -z $parent ]] || query="$query parent-issue:\"$parent\""
 	[[ -z $updated_before ]] || query="$query updated:<\"$updated_before\""
 	[[ -z $text ]] || query="$query \"$text\""
-	github_run search issues "$query" --json number \
-		--jq '[.[].number | tostring]' || status=$?
+	github_run_checked search issues "$query" --json number \
+		--jq '[.[].number | tostring]'
 	out=$GH_OUT
-	((status == 0)) ||
-		github_die "$GH_ERR"
 	printf '%s\n' "$out"
 }
 
@@ -406,17 +400,15 @@ profile_state_set() {
 profile_link_parent() {
 	github_require_target
 	(($# >= 2)) || die "$EXIT_USAGE" usage 'link-parent needs a child and a parent id'
-	local child=$1 parent=$2 status=0 out child_db_id
-	github_run api "repos/$TRACKER_TARGET/issues/$child" --jq .id || status=$?
+	local child=$1 parent=$2 out child_db_id
+	github_run_checked api "repos/$TRACKER_TARGET/issues/$child" --jq .id
 	child_db_id=$GH_OUT
-	((status == 0)) || github_die "$GH_ERR"
 	[[ $child_db_id =~ ^[0-9]+$ ]] ||
 		die "$EXIT_TRANSPORT" transport \
 			"could not resolve a database id for issue $child"
-	github_run api "repos/$TRACKER_TARGET/issues/$parent/sub_issues" \
-		-F "sub_issue_id=$child_db_id" || status=$?
+	github_run_checked api "repos/$TRACKER_TARGET/issues/$parent/sub_issues" \
+		-F "sub_issue_id=$child_db_id"
 	out=$GH_OUT
-	((status == 0)) || github_die "$GH_ERR"
 	printf '{}\n'
 }
 
@@ -429,10 +421,9 @@ profile_link_blocks() {
 	local blocker=$1 blocked=$2 body status=0 out='' tmp
 	[[ $blocker =~ ^[0-9]+$ ]] ||
 		die "$EXIT_USAGE" usage "blocker must be an issue number: $blocker"
-	github_run issue view "$blocked" --repo "$TRACKER_TARGET" --json body \
-		--jq .body || status=$?
+	github_run_checked issue view "$blocked" --repo "$TRACKER_TARGET" --json body \
+		--jq .body
 	body=$GH_OUT
-	((status == 0)) || github_die "$GH_ERR"
 	# \r? because GitHub stores web-authored bodies with CRLF and rg's $ does not
 	# match before \r -- without it the guard never fires and every call appends
 	# another line. create-verified-issue.sh already does this for its sections.

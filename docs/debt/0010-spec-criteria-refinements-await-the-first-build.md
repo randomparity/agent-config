@@ -50,9 +50,12 @@ blocks starting sub-project 1.
 
 ## Why deferred
 
-The first four are questions about how to *test* a layer that did not exist
-when they were raised, and each has a cheap empirical answer now that it does. Findings 1 and 4 in particular
-ask for a stubbing design — how the fixture distinguishes an auth failure from a
+Findings 1 to 4 come from the spec review; 5 to 7 from the branch review that
+followed.
+
+The first four are questions about how to *test* a layer that did not exist when
+they were raised, and each has a cheap empirical answer now that it does.
+Findings 1 and 4 in particular ask for a stubbing design — how the fixture distinguishes an auth failure from a
 transport failure, and how the suite proves no egress — that is better settled by
 writing the stub than by specifying it in advance; the spec would otherwise fix a
 technique the implementation then has to work around.
@@ -74,15 +77,15 @@ empty-array expansions are individually guarded (`"${arr[@]+"${arr[@]}"}"`), so
 the risk is a missed site rather than a known break; a CI job on macOS, or a
 pinned bash 3.2 container, is what would settle it.
 
-None of the first four can produce a wrong write against a live tracker. They bound
+None of the seven can produce a wrong write against a live tracker. They bound
 how much confidence the gate carries, not whether the layer is correct.
 
-Findings 1 to 4 come from the spec review, stopped under the same
-self-collision pattern as the record review: findings rose from eight to eleven
-across two passes with roughly two-thirds citing text the loop's own fixes had
-written. The operator authorised proceeding to implementation. Seven of the
-eleven were fixed, including every finding that could cause a wrong write.
-Finding 5 comes from the branch review that followed.
+Both review loops were stopped under the same self-collision rule. The spec
+review rose from eight findings to eleven across two passes with roughly
+two-thirds citing text its own fixes had written; the branch review ran four
+passes at 13, 7, 8 and 7, with each round's highest-severity item introduced by
+the previous round's fix. The operator authorised proceeding in both cases.
+Every finding that could cause a wrong write was fixed.
 
 ## Non-regression boundary
 
@@ -121,6 +124,6 @@ reports. Done when the suite is green on 3.2 as well as 5.
 
 target: docs/superpowers/specs/2026-08-01-tracker-agnostic-issue-pipeline-design.md
 Adversarial review of the tracker design spec (2 passes) and of the branch
-(3 passes), 2026-08-01. Findings 1 to 4 deferred from the spec review, finding 5
+(4 passes), 2026-08-01. Findings 1 to 4 deferred from the spec review, 5 to 7
 from the branch review.
 tracker: #43
