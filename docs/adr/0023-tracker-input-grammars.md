@@ -31,9 +31,11 @@ grammar is narrower than what the underlying tool would take.
 
 ## Decision
 
-Every value crossing from an argument vector into a path, a `gh` argument, or a
-REST path segment is validated against a fixed grammar at the boundary it
-crosses, before it is used.
+Two value classes crossing from an argument vector into a path or a REST path
+segment are validated against a fixed grammar at the boundary they cross, before
+they are used: the profile name, and every issue selector. The classes are named
+rather than stated as a universal rule, because this record's own scope does not
+close every value the profile passes to `gh` — see the residuals below.
 
 `--profile` is checked against `^[a-z0-9-]+$` in the argument-parsing arm that
 reads it, which is the same set `resolve_tracker` admits. A name outside that
@@ -43,10 +45,13 @@ parsing arm rather than after the loop so that `--profile ''` is rejected as the
 usage error it is, instead of silently falling through to the declaration.
 
 Issue selectors are numbers: `^[0-9]+$`, enforced by one shared
-`github_require_id` guard that every operation calls on every positional naming
-an issue. One guard rather than a check per call site, so an operation added
-later fails the contract suite's per-operation case rather than shipping without
-one.
+`github_require_id` guard. Every operation calls it on every value naming an
+issue — the positionals, and `create`'s `--parent`, which is the same value class
+carried by a flag. One guard rather than a check per call site, so the contract
+suite can assert its use mechanically: the suite reads the profile's own
+declarations, and every declared operation outside a named exemption list must
+call the guard. An operation added later that takes a selector and forgets it
+fails the suite, which a list of today's operations would not catch.
 
 Narrowing below what `gh` accepts is deliberate. The contract already normalizes
 an issue's identity to its number — `profile_view` emits `id` as a number-string
@@ -56,10 +61,27 @@ would mean accepting an attacker-chosen host and path in a value that is
 interpolated into a REST path, to support a form no caller in this repository
 produces.
 
-The public-safety scan carries an `ATATT` credential shape alongside the GitHub,
-OpenAI, AWS and Slack shapes it already had. Its test assembles the token from
-fragments at run time, as the neighbouring tenant-hostname case does, so the
-test file is not itself a match for the scan it exercises.
+The public-safety scan carries two Atlassian credential shapes alongside the
+GitHub, OpenAI, AWS and Slack shapes it already had: the plaintext `ATATT` token,
+and the `base64(email:token)` form held in an `ATLASSIAN_`-prefixed variable,
+which contains no literal `ATATT` at any alignment and does not carry the `Basic`
+header word the existing pattern keys on. The second is the form this repo's
+documented Atlassian access actually holds, so a scan carrying only the first
+would miss the credential most likely to reach a tracked file here. Both tests
+assemble their fixture from fragments at run time, as the neighbouring
+tenant-hostname case does, so the test file is not itself a match for the scan it
+exercises, and each has a negative case so prose naming the token format or the
+variable stays committable.
+
+Two residuals are named rather than closed, and are recorded in
+`docs/debt/0011-tracker-values-still-unvalidated.md`: `--target`, which is
+interpolated into every REST path this profile builds, and `search`'s `--parent`
+predicate, whose accepted forms are GitHub's `parent-issue:` qualifier rather
+than this contract's. `search` is on the guard-coverage exemption list for that
+reason. Values that are neither selectors nor path components — a title, a label,
+a colour, a description — are not validated: they are passed as separate elements
+of `gh`'s argument vector, never spliced into a string, so there is no grammar
+they could escape.
 
 ## Consequences
 
@@ -73,12 +95,17 @@ test file is not itself a match for the scan it exercises.
   reuse `github_require_id`. It supplies its own grammar in its own profile,
   which is where tracker knowledge belongs under ADR 0021; the shared engine
   keeps no id grammar.
-- The contract suite grows one case per guarded positional plus a traversal
-  case, so a new operation that forgets the guard, or a regression that removes
-  the profile-name check, fails `just verify` rather than production.
-- The scan's Atlassian shape is a prefix-and-length heuristic, like the four
-  credential shapes beside it. It will not catch a token format Atlassian
-  introduces later.
+- The contract suite grows one rejection case per guarded selector, a traversal
+  case, and the derived guard-coverage check, so a regression that removes the
+  profile-name check or a guard call fails `just verify` rather than production.
+  The derived check's exemption list is the one hand-kept part: adding an
+  operation to it is a deliberate edit a reviewer sees, which is the property a
+  list of guarded operations would not have had.
+- The scan's Atlassian shapes are prefix-and-length heuristics, like the four
+  credential shapes beside them. They cover the plaintext token and the base64
+  variable form; a differently-named variable holding the same base64, and any
+  sibling credential prefix Atlassian issues for scoped or Bitbucket tokens,
+  still pass.
 
 ## Considered & rejected
 
