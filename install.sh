@@ -4,6 +4,7 @@ set -euo pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
 TMP_FILES=()
+SKILLS_STAGING=""
 
 usage() {
 	cat >&2 <<'EOF'
@@ -25,6 +26,9 @@ cleanup() {
 			unlink "$path"
 		fi
 	done
+	if [[ -n "$SKILLS_STAGING" && -d "$SKILLS_STAGING" ]]; then
+		rm -R "$SKILLS_STAGING"
+	fi
 }
 trap cleanup EXIT
 
@@ -43,6 +47,21 @@ new_temp_file() {
 	path="$(mktemp "${TMPDIR:-/tmp}/agent-config.XXXXXX")"
 	TMP_FILES+=("$path")
 	printf '%s\n' "$path"
+}
+
+# The canonical skills tree carries test-only assets in `testdata/` directories:
+# fixtures the contract suites stage into a tree they assemble at run time. They
+# reach no installed agent, because a fixture that answers a tracker read with a
+# fabricated issue is indistinguishable from a real read at the call site.
+#
+# Filter by staging a copy and installing that, rather than by deleting from the
+# destination afterwards. The destination then stays byte-comparable to its
+# source, so a reinstall reports unchanged instead of reading the missing
+# fixtures as drift and recopying the whole tree every run.
+stage_skills() {
+	SKILLS_STAGING="$(mktemp -d "${TMPDIR:-/tmp}/agent-config-skills.XXXXXX")"
+	cp -pR "$REPO/content/skills" "$SKILLS_STAGING/skills"
+	find "$SKILLS_STAGING/skills" -type d -name testdata -prune -exec rm -R {} +
 }
 
 detect_host() {
@@ -451,7 +470,7 @@ install_claude() {
 	install_managed_path "$dest_dir" "$settings_tmp" "settings.json"
 	install_managed_path "$dest_dir" "$REPO/agents/claude/shared/CLAUDE.md" "CLAUDE.md"
 	install_managed_path "$dest_dir" "$REPO/agents/claude/shared/statusline.sh" "statusline.sh"
-	install_managed_path "$dest_dir" "$REPO/content/skills" "skills"
+	install_managed_path "$dest_dir" "$SKILLS_STAGING/skills" "skills"
 	install_common_content "$dest_dir"
 	maybe_configure_claude_mcp
 	finish_agent claude "$dest_dir"
@@ -475,7 +494,7 @@ install_codex() {
 
 	install_managed_path "$dest_dir" "$config_tmp" "config.toml"
 	install_managed_path "$dest_dir" "$REPO/agents/codex/shared/AGENTS.md" "AGENTS.md"
-	install_managed_path "$dest_dir" "$REPO/content/skills" "skills"
+	install_managed_path "$dest_dir" "$SKILLS_STAGING/skills" "skills"
 	install_common_content "$dest_dir"
 	finish_agent codex "$dest_dir"
 }
@@ -512,7 +531,7 @@ install_bob() {
 	install_managed_path "$dest_dir" "$bob_modes" "settings/custom_modes.yaml"
 	install_managed_path "$dest_dir" "$bob_modes" "custom_modes.yaml"
 	install_managed_path "$dest_dir" "$REPO/agents/bob/shared/rules" "rules"
-	install_managed_path "$dest_dir" "$REPO/content/skills" "skills"
+	install_managed_path "$dest_dir" "$SKILLS_STAGING/skills" "skills"
 	install_common_content "$dest_dir"
 	finish_agent bob "$dest_dir"
 }
@@ -551,6 +570,7 @@ main() {
 
 	host="$(detect_host)"
 	printf 'install: host %s\n' "$host"
+	stage_skills
 
 	if [[ "$target" == "all" ]]; then
 		install_agent claude "$host"
