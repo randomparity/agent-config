@@ -63,18 +63,23 @@ masking the other. It stays a *name* rather than a path pattern: the concept is
 depth, and a path-shaped variant would have to be restated in each of the five
 places below rather than reused.
 
-**The rule is written down in exactly five places, and this is the complete list:**
+**The rule is written down in exactly six places, and this is the complete list:**
 
 | place | how it applies the rule |
 |---|---|
 | `install.sh` `stage_skills` | removes the entries from the staged copy |
 | `install-test.sh` `assert_canonical_skills` | `diff -rq -x testdata`, and the executable-mode comparison |
 | `install-test.sh` `assert_no_test_suites` | asserts absence in each installed tree |
+| `install-test.sh` `assert_no_stub_profile` | `find -name testdata` over each installed tree, asserting nothing named it survived |
 | `Justfile` lint / format-check / format / test globs | keeps the excluded suites linted, formatted and run |
 | `scripts/check-deployed-references.sh` and `scripts/check-skill-layout.sh` | skip the entries **under `content/skills` only**, because a never-deployed file cannot violate a deployment rule |
 
-No gate infers the name from another; widening it means editing all five. That is
-the property 0024 wanted and stated over an incomplete list.
+No gate infers the name from another; widening it means editing all six. That is
+the property 0024 wanted and stated over an incomplete list. The
+`assert_no_stub_profile` row is the one an enumeration most easily misses — it sits
+in a function named for stub profiles — and missing it is not a false red: renaming
+the excluded entry without editing it leaves `find -name testdata` matching nothing
+and the assertion vacuously true.
 
 **Two suites move; one stays.**
 
@@ -140,15 +145,29 @@ the suite in before that fix would turn `just verify` red.
   fixture passes under `content/skills` and the identical fixture still fails
   under `agents/bob/shared/rules`. Reverting either half of the scoping turns one
   of the two red.
-- The staging-side half of the entry-shaped filter is not covered by a gate.
-  `install-test.sh`'s leftover check (`find -name testdata`) would catch a plain
-  file named `testdata` that reached a destination tree, but nothing exercises
-  `stage_skills` removing one, because the installer stages from the real
-  repository and no such entry exists to inject. Reinstating `-type d` therefore
-  leaves `just verify` green. Testing it would mean running the installer against
-  a fixture tree, which the suite is not built for; the exposure is one line in
-  one place, and this paragraph is the record of it rather than a claim that it
-  is covered.
+- Two of the six sites are not covered by a gate, and both are named here rather
+  than left for a reader to discover.
+
+  **`stage_skills`.** `install-test.sh`'s leftover check (`find -name testdata`)
+  would catch a plain file named `testdata` that reached a destination tree, but
+  nothing exercises `stage_skills` removing one, because the installer stages from
+  the real repository and no such entry exists to inject. Reinstating `-type d`
+  therefore leaves `just verify` green. Testing it would mean running the installer
+  against a fixture tree, which the suite is not built for.
+
+  **`check-skill-layout.sh`'s exclusion.** It has no case, and on today's tree it
+  is inert: no file under `content/skills` matches the config-root pattern at all,
+  inside `testdata/` or out, so reverting or mistyping a glob changes no verdict.
+  The natural home for a case is `check-skill-layout-test.sh`, which already drives
+  the script against a fixture root and already exercises the config-root rule — but
+  that suite is wired to no recipe and fails on a UTF-8 host, so a case added there
+  would run nowhere. Deferred to
+  `docs/debt/0012-skill-layout-suite-is-unwired-and-locale-dependent.md` (tracker
+  #56) with the suite itself.
+
+  Only `check-deployed-references.sh`'s half of that table row is pinned, by the
+  fixture pair described above. This paragraph is the record of the gap rather than
+  a claim that it is covered.
 - The `Justfile` gains `-i 2` for `brainstorming/scripts/testdata/*.sh`. The
   brainstorming scripts are vendored at two-space indent and are not covered by
   `format-check` today; formatting the moved suite to the repository default would

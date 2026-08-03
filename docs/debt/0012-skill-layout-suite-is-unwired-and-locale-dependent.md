@@ -51,6 +51,21 @@ byte-class rewrite of the pattern — confirm `./scripts/check-skill-layout-test
 exits 0, then add it to the `Justfile` `test` recipe. Done when `just verify` runs
 the suite and is green, and when reverting the locale fix turns it red.
 
+Then close the recurrence rather than this instance of it: add a check that every
+`*-test.sh` in the repository is reached by a recipe — `just test`, or `just records`
+for `check-records-test.sh` — so the next unwired suite fails instead of hiding.
+Suite wiring is hand-maintained across the `lint`, `format-check`, `format` and
+`test` recipes, deliberately (ADR 0025 argues a glob would have concealed the
+sibling-path breakage the moved suites exposed), but nothing today reports a suite
+that no recipe names. Two instances have been found by accident: this one, and
+`start-server-test.sh`, unrun from the day it was added until ADR 0025 moved it.
+That check cannot land before the locale fix above, because it would go red on this
+very suite.
+
+While there: `check-skill-layout.sh`'s `testdata` exclusion (ADR 0025) has no case
+and is inert on today's tree. Once the suite runs, add one — it already drives the
+script against a fixture root and already exercises the config-root rule.
+
 ## Provenance
 
 target: scripts/check-skill-layout-test.sh
