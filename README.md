@@ -6,6 +6,73 @@ This repository combines common development standards, language references,
 one shared workflow-skill inventory, and agent-native settings without
 committing host-specific configuration.
 
+## SDLC workflows
+
+The shared skills provide composable workflows across the software development
+lifecycle. Claude Code, Codex, and IBM Bob install the same canonical packages
+and expose them through their native skill interfaces.
+
+```mermaid
+flowchart LR
+    discover["Discover<br/>issue · scope"] --> plan["Plan<br/>design · writing-plans"]
+    plan --> build["Build<br/>build-tdd · systematic-debugging"]
+    build --> review["Review<br/>review-loop · threat-scan"]
+    review --> ship["Ship<br/>ship-pr · merge-cleanup"]
+    ship --> learn["Operate & learn<br/>retro · compound"]
+    review -. findings .-> plan
+    learn -. feedback .-> discover
+```
+
+<table>
+  <thead>
+    <tr>
+      <th>Phase</th>
+      <th>Outcome</th>
+      <th>Representative skills</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Discover</td>
+      <td>Find, record, triage, and size work</td>
+      <td><code>groom</code>, <code>issue</code>, <code>triage-issues</code>,
+        <code>scope</code></td>
+    </tr>
+    <tr>
+      <td>Plan</td>
+      <td>Turn ideas into reviewed designs and executable plans</td>
+      <td><code>brainstorming</code>, <code>epic</code>, <code>design</code>,
+        <code>writing-plans</code></td>
+    </tr>
+    <tr>
+      <td>Build</td>
+      <td>Implement issues with tests and root-cause debugging</td>
+      <td><code>work-issue</code>, <code>build-tdd</code>,
+        <code>test-driven-development</code>, <code>systematic-debugging</code></td>
+    </tr>
+    <tr>
+      <td>Review</td>
+      <td>Challenge correctness, security, and unnecessary complexity</td>
+      <td><code>challenge</code>, <code>review-loop</code>, <code>threat-scan</code>,
+        <code>simplify-changes</code></td>
+    </tr>
+    <tr>
+      <td>Ship</td>
+      <td>Prepare mergeable pull requests and clean merged branches</td>
+      <td><code>ship-pr</code>, <code>merge-cleanup</code></td>
+    </tr>
+    <tr>
+      <td>Operate &amp; learn</td>
+      <td>Reconcile workflow state and feed evidence into future work</td>
+      <td><code>recover-orphans</code>, <code>retro</code>, <code>compound</code>,
+        <code>campaign</code></td>
+    </tr>
+  </tbody>
+</table>
+
+These are representative paths rather than a required linear process. See the
+[canonical skill inventory](content/skills/) for every installed workflow.
+
 ## Layout
 
 - `content/` holds agent-neutral instructions, language references,
@@ -342,6 +409,12 @@ numbered index because the directory is the index. An adopting repository whose 
 required CI enforces ADR-to-index agreement sets `ADR_INDEX_POLICY: required` beside
 `RECORD_PROFILES` in its records workflow; that declaration suppresses only the
 conflicting index warning.
+
+## License
+
+This repository is available under the [MIT License](LICENSE). Third-party and derived
+components retain their applicable notices, including the
+[Superpowers-derived skill attribution](docs/licenses/superpowers.md).
 
 ## Source Material
 
