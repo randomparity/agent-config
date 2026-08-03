@@ -208,6 +208,18 @@ project_review_count="$(validate_inventory "$project_review_root" \
 # filters; `content/languages` and `content/references` deploy verbatim, so a
 # `testdata` entry under either really does ship and must stay visible here.
 root_pattern='(~|[$]HOME|[$][{]HOME[}])/[.](codex|claude|bob)(/|$)'
+
+# `|| true` below cannot distinguish "no matches" (rg exit 1) from "that root is
+# gone" (exit 2, diagnostic on stderr), so a rename that outruns this script would
+# leave the gate reporting ok having scanned nothing. Fail closed first, the way
+# check-deployed-references.sh does for the same roots.
+for common_root in \
+	"$repo_root/content/languages" \
+	"$repo_root/content/references"; do
+	[[ -d "$common_root" ]] ||
+		skill_error "${common_root#"$repo_root/"}" 'deployed content root is missing'
+done
+
 root_reference="$(
 	rg -l --glob '!testdata' --glob '!testdata/**' \
 		"$root_pattern" "$skills_root" || true
