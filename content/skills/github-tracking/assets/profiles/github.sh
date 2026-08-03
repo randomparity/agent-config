@@ -56,8 +56,9 @@ github_require_target() {
 # Every issue selector becomes a gh argument, and label-history and link-parent
 # splice it into a REST path segment. Callers compose these from issue
 # references read out of issue bodies and comments, which any account can write.
-# One guard rather than a check per call site, so an operation added later fails
-# the contract suite's per-operation case instead of shipping unguarded.
+# One guard rather than a check per call site, so the contract suite can assert
+# its use by reading the profile's own declarations: an operation added later
+# that takes a selector and forgets it fails the suite.
 github_require_id() { # id name
 	[[ $1 =~ ^[0-9]+$ ]] ||
 		die "$EXIT_USAGE" usage "$2 must be an issue number: $1"
