@@ -514,7 +514,9 @@ assert_error "$fixture/err" usage 'non-numeric blocker'
 # gate above: an operation added later that takes an issue selector and forgets
 # github_require_id fails here, where a list of today's operations would not.
 # The exemptions are the operations whose contract names no issue, so adding one
-# is a visible decision rather than a silent omission.
+# is a visible decision rather than a silent omission. Presence, not arity: an
+# operation taking two selectors that guards one and forgets the other passes
+# here, which is why the per-selector cases below name both of link-parent's.
 guard_exempt='^(target_url|label_ensure|search)$'
 while IFS= read -r op; do
 	[[ -n $op ]] || continue

@@ -78,10 +78,17 @@ Two residuals are named rather than closed, and are recorded in
 interpolated into every REST path this profile builds, and `search`'s `--parent`
 predicate, whose accepted forms are GitHub's `parent-issue:` qualifier rather
 than this contract's. `search` is on the guard-coverage exemption list for that
-reason. Values that are neither selectors nor path components — a title, a label,
-a colour, a description — are not validated: they are passed as separate elements
-of `gh`'s argument vector, never spliced into a string, so there is no grammar
-they could escape.
+reason.
+
+Values that only ever reach `gh` as separate elements of its argument vector — a
+title, a colour, a description, a label passed to `label-edit` — stay
+unvalidated. They are arbitrary text by contract and escape nothing. Where such a
+value *is* spliced into a string it already carries a grammar written for that
+splice, and this record does not disturb either: `label-history`'s label is
+restricted to the character set GitHub labels use because it is interpolated into
+a jq program, and `search`'s predicate values reject a double quote because they
+are interpolated into the query. Those two guards are the precedent this record
+generalizes, not exceptions to it.
 
 ## Consequences
 
@@ -101,6 +108,13 @@ they could escape.
   The derived check's exemption list is the one hand-kept part: adding an
   operation to it is a deliberate edit a reviewer sees, which is the property a
   list of guarded operations would not have had.
+- That check asserts presence, not arity: it requires each declared operation to
+  call the guard, and cannot tell one guarded selector from two. An operation
+  taking two selectors — `link-parent` and `link-blocks` do today — that guards
+  one and forgets the other passes it. Deciding arity means parsing positional
+  use out of a function body, which is more machinery than an eleven-operation
+  profile justifies, so the limit is named here and the per-selector rejection
+  cases cover today's operations.
 - The scan's Atlassian shapes are prefix-and-length heuristics, like the four
   credential shapes beside them. They cover the plaintext token and the base64
   variable form; a differently-named variable holding the same base64, and any
