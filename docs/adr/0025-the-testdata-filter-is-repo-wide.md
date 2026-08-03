@@ -166,8 +166,19 @@ the suite in before that fix would turn `just verify` red.
   #56) with the suite itself.
 
   Only `check-deployed-references.sh`'s half of that table row is pinned, by the
-  fixture pair described above. This paragraph is the record of the gap rather than
-  a claim that it is covered.
+  fixture pairs described above — one per scan site, because the exclusion is
+  applied twice there and a bare-ADR payload exercises only the first. This
+  paragraph is the record of the gap rather than a claim that it is covered.
+- The payload claim above is about `skills/`. An upgrade from an install that
+  predates this change keeps a copy of the previously installed tree — both
+  removed suites and the `testdata` fixtures — under
+  `<dest>/.agent-config-backups/<timestamp>/drift/skills/`, because
+  `install_managed_path` backs up what it replaces and backups are a verbatim
+  record, never filtered. Nothing prunes them. They are not a skills root and
+  nothing loads from them, so the reachability the exclusion exists to remove is
+  gone from the live tree; the copies are the user's to delete. `install-test.sh`
+  pins the live half by seeding a stale suite into an installed tree and
+  reinstalling, so the guarantee covers an upgrade and not only a fresh install.
 - The `Justfile` gains `-i 2` for `brainstorming/scripts/testdata/*.sh`. The
   brainstorming scripts are vendored at two-space indent and are not covered by
   `format-check` today; formatting the moved suite to the repository default would

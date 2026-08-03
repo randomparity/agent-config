@@ -342,4 +342,16 @@ assert_same_file \
 assert_tree_contains "$CLAUDE_CONFIG_DIR/.agent-config-backups" \
 	"local license drift before reinstall"
 
+# Upgrading an install that predates ADR 0025: its destination still holds the
+# suites this change stopped shipping. Nothing prunes them by name — the manifest
+# entry is `skills`, so what removes them is `install_managed_path` seeing the
+# payload differ and replacing the whole tree. Seed one and re-assert, or the
+# guarantee would hold only for a fresh install.
+stale_suite="$CLAUDE_CONFIG_DIR/skills/issue/scripts/create-verified-issue-test.sh"
+write_text "$stale_suite" '#!/usr/bin/env bash'
+AGENT_CONFIG_HOST=test-host ./install.sh --agent claude
+assert_not_file "$stale_suite"
+assert_no_test_suites "$CLAUDE_CONFIG_DIR"
+assert_canonical_skills "$CLAUDE_CONFIG_DIR"
+
 printf 'install-test: ok\n'

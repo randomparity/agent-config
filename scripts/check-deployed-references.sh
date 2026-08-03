@@ -17,8 +17,14 @@ if (($# == 1)); then
 	ROOT="$(cd "$1" && pwd)"
 fi
 
+# Every root the installer copies into an agent's config directory.
+# `content/languages` and `content/references` arrive through
+# `install_common_content`, unfiltered, for all three agents — a stale record
+# reference there deploys exactly as one under `content/skills` does.
 scan_paths=(
 	"$ROOT/content/skills"
+	"$ROOT/content/languages"
+	"$ROOT/content/references"
 	"$ROOT/agents/claude/shared"
 	"$ROOT/agents/codex/shared"
 	"$ROOT/agents/bob/shared"
