@@ -53,6 +53,16 @@ github_require_target() {
 		die "$EXIT_USAGE" usage 'operation needs --target OWNER/NAME'
 }
 
+# Every issue selector becomes a gh argument, and label-history and link-parent
+# splice it into a REST path segment. Callers compose these from issue
+# references read out of issue bodies and comments, which any account can write.
+# One guard rather than a check per call site, so an operation added later fails
+# the contract suite's per-operation case instead of shipping unguarded.
+github_require_id() { # id name
+	[[ $1 =~ ^[0-9]+$ ]] ||
+		die "$EXIT_USAGE" usage "$2 must be an issue number: $1"
+}
+
 # gh does not expose a machine-readable failure class, so classification is by
 # message. An unmatched failure is transport, the class whose contract is "the
 # caller decides whether to retry" — never the engine.
@@ -96,6 +106,7 @@ profile_view() {
 	github_require_target
 	(($# >= 1)) || die "$EXIT_USAGE" usage 'view needs an issue id'
 	local id=$1 out
+	github_require_id "$id" 'issue id'
 	github_run_checked issue view "$id" --repo "$TRACKER_TARGET" \
 		--json number,title,body,labels,parent,state,url,updatedAt
 	out=$GH_OUT
@@ -134,6 +145,7 @@ profile_comment_list() {
 	github_require_target
 	(($# >= 1)) || die "$EXIT_USAGE" usage 'comment-list needs an issue id'
 	local id=$1 out
+	github_require_id "$id" 'issue id'
 	github_run_checked issue view "$id" --repo "$TRACKER_TARGET" --json comments
 	out=$GH_OUT
 	jq -e '(.comments | type == "array")
@@ -151,6 +163,7 @@ profile_label_history() {
 	github_require_target
 	(($# >= 2)) || die "$EXIT_USAGE" usage 'label-history needs an issue id and a label'
 	local id=$1 label=$2 out
+	github_require_id "$id" 'issue id'
 	# The label is spliced into a jq program below, so restrict it to the
 	# character set GitHub labels actually use rather than escaping ad hoc.
 	[[ $label =~ ^[A-Za-z0-9._:/-][A-Za-z0-9._:/\ -]*$ ]] ||
@@ -306,6 +319,7 @@ profile_label_edit() {
 	github_require_target
 	(($# >= 1)) || die "$EXIT_USAGE" usage 'label-edit needs an issue id'
 	local id=$1 status=0 out
+	github_require_id "$id" 'issue id'
 	shift
 	local -a args=(issue edit "$id" --repo "$TRACKER_TARGET")
 	local -a requested_adds=() requested_removes=()
@@ -370,6 +384,7 @@ profile_comment_add() {
 	github_require_target
 	(($# >= 2)) || die "$EXIT_USAGE" usage 'comment-add needs an issue id and a body file'
 	local id=$1 body_file=$2 status=0 out
+	github_require_id "$id" 'issue id'
 	[[ -f $body_file && -s $body_file ]] ||
 		die "$EXIT_USAGE" usage "body file must be a populated regular file: $body_file"
 	github_run issue comment "$id" --repo "$TRACKER_TARGET" \
@@ -383,6 +398,7 @@ profile_state_set() {
 	github_require_target
 	(($# >= 2)) || die "$EXIT_USAGE" usage 'state-set needs an issue id and a state'
 	local id=$1 state=$2 status=0 out verb
+	github_require_id "$id" 'issue id'
 	case $state in
 	open) verb=reopen ;;
 	closed) verb=close ;;
@@ -401,6 +417,8 @@ profile_link_parent() {
 	github_require_target
 	(($# >= 2)) || die "$EXIT_USAGE" usage 'link-parent needs a child and a parent id'
 	local child=$1 parent=$2 out child_db_id
+	github_require_id "$child" 'child id'
+	github_require_id "$parent" 'parent id'
 	github_run_checked api "repos/$TRACKER_TARGET/issues/$child" --jq .id
 	child_db_id=$GH_OUT
 	[[ $child_db_id =~ ^[0-9]+$ ]] ||
@@ -419,8 +437,9 @@ profile_link_blocks() {
 	github_require_target
 	(($# >= 2)) || die "$EXIT_USAGE" usage 'link-blocks needs a blocker and a blocked id'
 	local blocker=$1 blocked=$2 body status=0 out='' tmp
-	[[ $blocker =~ ^[0-9]+$ ]] ||
-		die "$EXIT_USAGE" usage "blocker must be an issue number: $blocker"
+	# The blocker is also spliced into the regular expression below.
+	github_require_id "$blocker" 'blocker id'
+	github_require_id "$blocked" 'blocked id'
 	github_run_checked issue view "$blocked" --repo "$TRACKER_TARGET" --json body \
 		--jq .body
 	body=$GH_OUT

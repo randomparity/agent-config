@@ -509,6 +509,38 @@ PATH="$fixture/bin:$PATH" "$tracker" link-blocks --profile github \
 assert_exit 1 "$status" 'link-blocks with a non-numeric blocker'
 assert_error "$fixture/err" usage 'non-numeric blocker'
 
+# --- every positional naming an issue is a number ---------------------------
+# Callers compose these from issue references read out of GitHub bodies, which
+# any account can write, and label-history and link-parent interpolate them into
+# a REST path segment. One case per guarded positional, so an operation added
+# without the guard fails here rather than in production.
+assert_rejects_id() { # label -- tracker-args...
+	local label=$1 status=0
+	shift 2
+	: >"$fixture/calls"
+	GH_CALL_LOG="$fixture/calls" PATH="$fixture/bin:$PATH" \
+		"$tracker" "$@" >"$fixture/out" 2>"$fixture/err" || status=$?
+	assert_exit 1 "$status" "$label with a non-numeric id"
+	assert_error "$fixture/err" usage "$label with a non-numeric id"
+	[[ ! -s $fixture/calls ]] || fail "$label reached gh with a non-numeric id"
+}
+
+assert_rejects_id view -- view --profile github --target example/repo x
+assert_rejects_id comment-list -- comment-list --profile github --target example/repo x
+assert_rejects_id label-history -- label-history --profile github --target example/repo \
+	'1/../../victim/secret/issues/1' status:ready
+assert_rejects_id label-edit -- label-edit --profile github --target example/repo x \
+	--add status:ready
+assert_rejects_id comment-add -- comment-add --profile github --target example/repo x \
+	"$fixture/body.md"
+assert_rejects_id state-set -- state-set --profile github --target example/repo x closed
+assert_rejects_id link-parent-child -- link-parent --profile github --target example/repo \
+	'1/../../victim/secret/issues/1' 4
+assert_rejects_id link-parent-parent -- link-parent --profile github --target example/repo \
+	43 '4/../../victim/secret/issues/4'
+assert_rejects_id link-blocks-blocked -- link-blocks --profile github --target example/repo \
+	7 x
+
 # --- a failure that cannot have written is not partial ----------------------
 cat >"$fixture/bin/gh" <<'FAKE_GH'
 #!/usr/bin/env bash
