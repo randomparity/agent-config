@@ -15,8 +15,10 @@ run_case() {
   local name=$1 expected=$2 want=$3
   shift 3
   local dir got=0
-  dir="${TMPDIR:-/tmp}/brainstorm-start-test.$$.$passed.$failed"
-  mkdir -p "$dir"
+  # Allocated, not constructed: `just test` and CI now run this suite, and a
+  # name derived from the pid plus two counters is predictable enough for a
+  # local actor to pre-create as a symlink, redirecting the writes below.
+  dir="$(mktemp -d "${TMPDIR:-/tmp}/brainstorm-start-test.XXXXXX")"
 
   if "$SCRIPT" "$@" >"$dir/out" 2>"$dir/err"; then
     got=0

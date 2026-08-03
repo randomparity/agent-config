@@ -203,10 +203,17 @@ project_review_count="$(validate_inventory "$project_review_root" \
 #
 # `agents/*/shared` is deliberately not scanned: an agent's own instructions may
 # name that agent's own config root, and `CLAUDE.md` and `AGENTS.md` legitimately do.
+# Two scans, because ripgrep's globs filter the whole traversal rather than the
+# path argument they follow. `content/skills` is the only root `stage_skills`
+# filters; `content/languages` and `content/references` deploy verbatim, so a
+# `testdata` entry under either really does ship and must stay visible here.
 root_pattern='(~|[$]HOME|[$][{]HOME[}])/[.](codex|claude|bob)(/|$)'
-root_reference="$(rg -l --glob '!testdata' --glob '!testdata/**' \
-	"$root_pattern" "$skills_root" "$repo_root/content/languages" \
-	"$repo_root/content/references" || true)"
+root_reference="$(
+	rg -l --glob '!testdata' --glob '!testdata/**' \
+		"$root_pattern" "$skills_root" || true
+	rg -l "$root_pattern" "$repo_root/content/languages" \
+		"$repo_root/content/references" || true
+)"
 [[ -z "$root_reference" ]] ||
 	skill_error "${root_reference%%$'\n'*}" 'installed config-root reference is forbidden'
 
