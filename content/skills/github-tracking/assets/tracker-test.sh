@@ -509,6 +509,64 @@ PATH="$fixture/bin:$PATH" "$tracker" link-blocks --profile github \
 assert_exit 1 "$status" 'link-blocks with a non-numeric blocker'
 assert_error "$fixture/err" usage 'non-numeric blocker'
 
+# --- every operation taking an issue selector calls the guard ---------------
+# Derived from the profile rather than a hand-kept list, like the declaration
+# gate above: an operation added later that takes an issue selector and forgets
+# github_require_id fails here, where a list of today's operations would not.
+# target_url and label_ensure are exempt because their contracts name no issue.
+# search is exempt for a different reason and is not covered: its --parent is an
+# issue selector, deliberately left unguarded because GitHub's parent-issue:
+# qualifier accepts forms this contract does not define. That is open, and this
+# repository's deferral record 0011 owns it.
+# Presence, not arity: an operation taking two selectors that guards one and
+# forgets the other passes here, which is why the per-selector cases below name
+# both of link-parent's.
+guard_exempt='^(target_url|label_ensure|search)$'
+while IFS= read -r op; do
+	[[ -n $op ]] || continue
+	[[ $op =~ $guard_exempt ]] && continue
+	(
+		# shellcheck source=/dev/null
+		. "$script_dir/profiles/github.sh"
+		declare -f "profile_$op"
+	) | rg -q 'github_require_id' ||
+		fail "github's profile_$op takes an issue selector but never calls github_require_id"
+done < <(list_profile_declarations "$script_dir/profiles/github.sh")
+
+# --- every positional naming an issue is a number ---------------------------
+# Callers compose these from issue references read out of GitHub bodies, which
+# any account can write, and label-history and link-parent interpolate them into
+# a REST path segment. One case per selector the operations take today; the
+# derived check above is what covers an operation added later.
+assert_rejects_id() { # label -- tracker-args...
+	local label=$1 status=0
+	shift 2
+	: >"$fixture/calls"
+	GH_CALL_LOG="$fixture/calls" PATH="$fixture/bin:$PATH" \
+		"$tracker" "$@" >"$fixture/out" 2>"$fixture/err" || status=$?
+	assert_exit 1 "$status" "$label with a non-numeric id"
+	assert_error "$fixture/err" usage "$label with a non-numeric id"
+	[[ ! -s $fixture/calls ]] || fail "$label reached gh with a non-numeric id"
+}
+
+assert_rejects_id view -- view --profile github --target example/repo x
+assert_rejects_id comment-list -- comment-list --profile github --target example/repo x
+assert_rejects_id label-history -- label-history --profile github --target example/repo \
+	'1/../../victim/secret/issues/1' status:ready
+assert_rejects_id label-edit -- label-edit --profile github --target example/repo x \
+	--add status:ready
+assert_rejects_id comment-add -- comment-add --profile github --target example/repo x \
+	"$fixture/body.md"
+assert_rejects_id state-set -- state-set --profile github --target example/repo x closed
+assert_rejects_id link-parent-child -- link-parent --profile github --target example/repo \
+	'1/../../victim/secret/issues/1' 4
+assert_rejects_id link-parent-parent -- link-parent --profile github --target example/repo \
+	43 '4/../../victim/secret/issues/4'
+assert_rejects_id link-blocks-blocked -- link-blocks --profile github --target example/repo \
+	7 x
+assert_rejects_id create-parent -- create --profile github --target example/repo \
+	--title T --body-file "$fixture/body.md" --parent x
+
 # --- a failure that cannot have written is not partial ----------------------
 cat >"$fixture/bin/gh" <<'FAKE_GH'
 #!/usr/bin/env bash
@@ -574,6 +632,66 @@ GH_CALL_LOG="$fixture/calls" PATH="$fixture/bin:$PATH" \
 	>"$fixture/out" 2>"$fixture/err" || status=$?
 assert_exit 4 "$status" 'comment-list against a malformed payload'
 assert_error "$fixture/err" transport 'comment-list malformed is transport, not partial'
+
+# --- --profile cannot escape the profiles directory -------------------------
+# The flag bypasses the AGENTS.md route, whose grammar is enforced in
+# resolve_tracker, and the name is concatenated into a path and sourced. Without
+# the same grammar on the flag, a relative name runs an arbitrary file in the
+# engine's process. The number of levels is computed from profiles/ rather than
+# assumed: a fixed count stops reaching the root once a checkout sits deeper than
+# it, and the case would then pass against an unguarded engine while still
+# reading as traversal coverage.
+cat >"$fixture/evil.sh" <<EVIL
+printf 'sourced\n' >"$fixture/pwned"
+EVIL
+slashes=$(printf '%s' "$script_dir/profiles" | tr -cd /)
+traversal=$(printf '../%.0s' $(seq "${#slashes}"))${fixture#/}/evil
+status=0
+PATH="$fixture/bin:$PATH" "$tracker" view --profile "$traversal" \
+	--target example/repo 101 >"$fixture/out" 2>"$fixture/err" || status=$?
+assert_exit 1 "$status" 'view with a traversing profile name'
+assert_error "$fixture/err" usage 'traversing profile name'
+# The grammar, named: an unknown-but-well-formed profile also exits 1 as usage,
+# so without this the only discriminating assertion is the marker below.
+assert_contains 'profile name must match' "$fixture/err"
+[[ ! -e $fixture/pwned ]] || fail '--profile sourced a file outside profiles/'
+
+# The two routes must admit the same set — that agreement is the whole argument
+# for a grammar over a containment test — and the character class is written
+# three times in tracker.sh, twice as an rg pattern and once as a bash test.
+# Relate the routes rather than testing each: widening one copy alone leaves
+# every other case here green. `resolve` is the flag route's cheapest exercise,
+# since the grammar is checked at parse time, before resolve short-circuits.
+#
+# Run under a non-C UTF-8 locale where the host has one. A bash bracket
+# expression takes its ranges from the locale's collation, so a range like
+# [a-z] admits githéb under en_US.UTF-8 and rejects it under C or C.UTF-8 --
+# an ASCII-only default would hide exactly the divergence githéb is here to
+# catch. With no such locale the accented candidates are rejected by both
+# routes, so the loop still passes; it just stops proving this property.
+mkdir -p "$fixture/grammar"
+git -C "$fixture/grammar" init -q
+agreement_locale=$(locale -a 2>/dev/null | rg -v '^C[.@]' | rg -m 1 -i '\.utf-?8$' || true)
+for candidate in github my-tracker jira2 Bad has_underscore ../x dot.name '' 'two words' \
+	githéb ПРОФИЛЬ profilé; do
+	printf 'issue-tracker: %s\n' "$candidate" >"$fixture/grammar/AGENTS.md"
+	declared=accepted
+	(cd "$fixture/grammar" && LC_ALL="${agreement_locale:-C}" "$tracker" resolve) \
+		>"$fixture/out" 2>"$fixture/err" || declared=rejected
+	flagged=accepted
+	LC_ALL="${agreement_locale:-C}" "$tracker" resolve --profile "$candidate" \
+		>"$fixture/out" 2>"$fixture/err" || flagged=rejected
+	[[ $declared == "$flagged" ]] ||
+		fail "profile name '$candidate': declaration route $declared, --profile route $flagged"
+done
+
+# An empty value is a usage error too, not a silent fall-through to the
+# declaration: --profile '' asked for a profile and named none.
+status=0
+PATH="$fixture/bin:$PATH" "$tracker" view --profile '' --target example/repo 101 \
+	>"$fixture/out" 2>"$fixture/err" || status=$?
+assert_exit 1 "$status" 'view with an empty profile name'
+assert_error "$fixture/err" usage 'empty profile name'
 
 # --- a CRLF declaration is valid, not malformed -----------------------------
 mkdir -p "$fixture/crlf"

@@ -58,4 +58,58 @@ if ! "$CHECKER" "$SCRATCH/repo" >"$SCRATCH/output" 2>&1; then
 fi
 rm -f "$SCRATCH/repo/endpoint.md"
 
+# An Atlassian API token is a credential shape, like the GitHub, OpenAI, AWS and
+# Slack shapes beside it. Assembled at runtime so this test file is not itself a
+# match for the scan it exercises.
+printf 'token = %s%s\n' 'ATATT' '3xFfGF0T00000000000000000000000000000000' \
+	>"$SCRATCH/repo/token.md"
+if "$CHECKER" "$SCRATCH/repo" >"$SCRATCH/output" 2>&1; then
+	printf 'public-safety-test: Atlassian API token leak should fail\n' >&2
+	exit 1
+fi
+rm -f "$SCRATCH/repo/token.md"
+
+# The token is not always held in plaintext: the documented form here is
+# base64(email:token) in an ATLASSIAN_-prefixed variable, which contains no
+# literal ATATT at any alignment and does not carry the `Basic ` header word
+# either, so neither shape above sees it.
+# A credential reaches a file in whatever syntax its container uses, so the
+# bare assignment is the least likely of the four rather than the only one.
+b64=ZXhhbXBsZUBleGFtcGxlLmNvbTpub3RhcmVhbHRva2Vu
+while IFS= read -r form; do
+	printf '%s\n' "$form" >"$SCRATCH/repo/env.md"
+	if "$CHECKER" "$SCRATCH/repo" >"$SCRATCH/output" 2>&1; then
+		printf 'public-safety-test: Atlassian credential leak should fail: %s\n' \
+			"$form" >&2
+		exit 1
+	fi
+done <<FORMS
+$(printf '%s_MCP_BASIC_AUTH=%s' 'ATLASSIAN' "$b64")
+$(printf 'export %s_MCP_BASIC_AUTH="%s"' 'ATLASSIAN' "$b64")
+$(printf "%s_MCP_BASIC_AUTH='%s'" 'ATLASSIAN' "$b64")
+$(printf '  "%s_MCP_BASIC_AUTH": "%s",' 'ATLASSIAN' "$b64")
+$(printf '  %s_MCP_BASIC_AUTH: %s' 'ATLASSIAN' "$b64")
+FORMS
+rm -f "$SCRATCH/repo/env.md"
+
+# Naming the variable is not disclosing its value; the setup docs have to.
+printf 'set %s_MCP_BASIC_AUTH in your shell profile\n' 'ATLASSIAN' \
+	>"$SCRATCH/repo/setup.md"
+if ! "$CHECKER" "$SCRATCH/repo" >"$SCRATCH/output" 2>&1; then
+	printf 'public-safety-test: naming the variable should not be denied\n' >&2
+	cat "$SCRATCH/output" >&2
+	exit 1
+fi
+rm -f "$SCRATCH/repo/setup.md"
+
+# The prefix alone is not a credential. Prose naming the token format must not
+# fail the gate, or the design docs describing it cannot be committed.
+printf 'Atlassian API tokens begin %s.\n' 'ATATT' >"$SCRATCH/repo/prose.md"
+if ! "$CHECKER" "$SCRATCH/repo" >"$SCRATCH/output" 2>&1; then
+	printf 'public-safety-test: token prefix in prose should not be denied\n' >&2
+	cat "$SCRATCH/output" >&2
+	exit 1
+fi
+rm -f "$SCRATCH/repo/prose.md"
+
 printf 'public-safety-test: ok\n'
