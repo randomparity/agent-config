@@ -509,6 +509,24 @@ PATH="$fixture/bin:$PATH" "$tracker" link-blocks --profile github \
 assert_exit 1 "$status" 'link-blocks with a non-numeric blocker'
 assert_error "$fixture/err" usage 'non-numeric blocker'
 
+# --- every operation taking an issue selector calls the guard ---------------
+# Derived from the profile rather than a hand-kept list, like the declaration
+# gate above: an operation added later that takes an issue selector and forgets
+# github_require_id fails here, where a list of today's operations would not.
+# The exemptions are the operations whose contract names no issue, so adding one
+# is a visible decision rather than a silent omission.
+guard_exempt='^(target_url|label_ensure|search)$'
+while IFS= read -r op; do
+	[[ -n $op ]] || continue
+	[[ $op =~ $guard_exempt ]] && continue
+	(
+		# shellcheck source=/dev/null
+		. "$script_dir/profiles/github.sh"
+		declare -f "profile_$op"
+	) | rg -q 'github_require_id' ||
+		fail "github's profile_$op takes an issue selector but never calls github_require_id"
+done < <(list_profile_declarations "$script_dir/profiles/github.sh")
+
 # --- every positional naming an issue is a number ---------------------------
 # Callers compose these from issue references read out of GitHub bodies, which
 # any account can write, and label-history and link-parent interpolate them into
