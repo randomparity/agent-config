@@ -26,6 +26,7 @@ denied_patterns=(
 	'[[:alnum:]-]+\.atlassian\.net'
 	'Basic[[:space:]]+[A-Za-z0-9+/=]{12,}'
 	'ATATT[A-Za-z0-9_=.-]{20,}'
+	'ATLASSIAN[A-Z0-9_]*=[[:space:]]*[A-Za-z0-9+/]{20,}={0,2}'
 	'gh[pousr]_[A-Za-z0-9_]{20,}'
 	'sk-[A-Za-z0-9]{20,}'
 	'AKIA[0-9A-Z]{16}'

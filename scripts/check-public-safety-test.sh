@@ -69,6 +69,28 @@ if "$CHECKER" "$SCRATCH/repo" >"$SCRATCH/output" 2>&1; then
 fi
 rm -f "$SCRATCH/repo/token.md"
 
+# The token is not always held in plaintext: the documented form here is
+# base64(email:token) in an ATLASSIAN_-prefixed variable, which contains no
+# literal ATATT at any alignment and does not carry the `Basic ` header word
+# either, so neither shape above sees it.
+printf '%s_MCP_BASIC_AUTH=%s\n' 'ATLASSIAN' \
+	'ZXhhbXBsZUBleGFtcGxlLmNvbTpub3RhcmVhbHRva2Vu' >"$SCRATCH/repo/env.md"
+if "$CHECKER" "$SCRATCH/repo" >"$SCRATCH/output" 2>&1; then
+	printf 'public-safety-test: base64 Atlassian credential leak should fail\n' >&2
+	exit 1
+fi
+rm -f "$SCRATCH/repo/env.md"
+
+# Naming the variable is not disclosing its value; the setup docs have to.
+printf 'set %s_MCP_BASIC_AUTH in your shell profile\n' 'ATLASSIAN' \
+	>"$SCRATCH/repo/setup.md"
+if ! "$CHECKER" "$SCRATCH/repo" >"$SCRATCH/output" 2>&1; then
+	printf 'public-safety-test: naming the variable should not be denied\n' >&2
+	cat "$SCRATCH/output" >&2
+	exit 1
+fi
+rm -f "$SCRATCH/repo/setup.md"
+
 # The prefix alone is not a credential. Prose naming the token format must not
 # fail the gate, or the design docs describing it cannot be committed.
 printf 'Atlassian API tokens begin %s.\n' 'ATATT' >"$SCRATCH/repo/prose.md"
