@@ -17,10 +17,18 @@ if (($# == 1)); then
 	ROOT="$(cd "$1" && pwd)"
 fi
 
-# Every root the installer copies into an agent's config directory.
+# Every *directory* root the installer copies into an agent's config directory.
 # `content/languages` and `content/references` arrive through
 # `install_common_content`, unfiltered, for all three agents — a stale record
 # reference there deploys exactly as one under `content/skills` does.
+#
+# `install_common_content` also deploys one loose file,
+# `docs/licenses/superpowers.LICENSE`. It is deliberately unscanned: admitting a
+# single file would mean relaxing the is-a-directory guard below or scanning
+# `docs/licenses/` and then excluding the undeployed `.md` beside it, which
+# reintroduces a deployed/undeployed split in a second place. It is a verbatim
+# vendored license, and rewriting it to satisfy a reference rule is not something
+# this gate should invite.
 scan_paths=(
 	"$ROOT/content/skills"
 	"$ROOT/content/languages"

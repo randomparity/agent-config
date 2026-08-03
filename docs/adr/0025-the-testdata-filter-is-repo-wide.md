@@ -29,8 +29,8 @@ applies the exclusion the installer applies. Green today only because no fixture
 under `testdata/` happens to contain such a string; the first one that does fails
 `just verify` with a deployment finding about a file that is never deployed. ADR
 0024's consequences named `stage_skills`, `install-test.sh`, and the `Justfile`
-globs as the places the rule is written down. These two are a fourth and a fifth,
-and an incomplete list is what let them drift.
+globs as the places the rule is written down. Neither appears on that list, and an
+incomplete list is what let them drift.
 
 **The filter matched directories only.** `stage_skills` filtered `-type d -name
 testdata`, so a plain *file* named `testdata` shipped — and `install-test.sh`'s
@@ -60,7 +60,7 @@ removed from the staged tree. `stage_skills` drops `-type d`. This is the rule
 `install-test.sh` already compared against, so the two now agree instead of one
 masking the other. It stays a *name* rather than a path pattern: the concept is
 "an entry called `testdata`", one predicate, decidable from a basename at any
-depth, and a path-shaped variant would have to be restated in each of the five
+depth, and a path-shaped variant would have to be restated in each of the six
 places below rather than reused.
 
 **The rule is written down in exactly six places, and this is the complete list:**
@@ -169,6 +169,15 @@ the suite in before that fix would turn `just verify` red.
   fixture pairs described above — one per scan site, because the exclusion is
   applied twice there and a bare-ADR payload exercises only the first. This
   paragraph is the record of the gap rather than a claim that it is covered.
+- `check-deployed-references.sh` now scans every *directory* root the installer
+  copies, which added `content/languages` and `content/references` — both deploy
+  to all three agents through `install_common_content` and neither was scanned.
+  The one deployed file it still does not scan is
+  `docs/licenses/superpowers.LICENSE`, left out deliberately: admitting a single
+  file means relaxing the is-a-directory guard or scanning `docs/licenses/` and
+  excluding the undeployed `.md` beside it, which puts a deployed/undeployed split
+  back in a second place. It is a verbatim vendored license, and a gate that
+  invites editing one is worse than the reference it would catch.
 - The payload claim above is about `skills/`. An upgrade from an install that
   predates this change keeps a copy of the previously installed tree — both
   removed suites and the `testdata` fixtures — under
@@ -204,14 +213,15 @@ the suite in before that fix would turn `just verify` red.
 - **Amend ADR 0024's consequences in place.** Rejected: the README states that
   merged records are append-only except for lifecycle markers, and that a new ADR
   is written instead of rewriting an accepted decision. The rule here genuinely
-  changed — directory-shaped to entry-shaped, three places to five, plus an
+  changed — directory-shaped to entry-shaped, three places to six, plus an
   exception 0024 did not contemplate — so a supersession is the honest record and
   an appended bullet would have hidden a changed decision inside an unchanged one.
 - **Make the rule path-shaped** (match `*/testdata/*` rather than the basename).
   Rejected as more surface for no coverage: the basename predicate already matches
   at every depth, and a path pattern would have to be spelled correctly and
-  identically in five tools with four different matching syntaxes (`find`, `diff
-  -x`, `rg --glob`, shell globs).
+  identically across the six places above, which match with five different
+  syntaxes (`find -name`, `diff -x`, a shell `case`, `rg --glob`, and shell
+  globs).
 - **Exclude test suites by a `*-test.sh` suffix instead of a directory.** Rejected
   because it decides delivery from a filename, which is exactly the coupling that
   made `check-records-test.sh` ambiguous: two files with the same suffix, one
@@ -223,4 +233,7 @@ the suite in before that fix would turn `just verify` red.
 - **Add `brainstorming/scripts/*.sh` to `lint` and `format-check` wholesale.**
   Rejected as unrelated scope: the vendored scripts are clean under `shellcheck`
   but carry hundreds of `shfmt` differences, and reformatting vendored code in a
-  change about install filtering would bury it. Tracked separately.
+  change about install filtering would bury it. This change widens that asymmetry
+  rather than creating it — the suite is now gated while the two shipped
+  executables it exercises are not — so the gap is tracked in #57 rather than left
+  in a sentence.
