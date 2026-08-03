@@ -1,4 +1,4 @@
-# 0024 — Test-Only Assets Are Filtered Out of the Installed Payload
+# 0024 — Test Assets Live in `testdata/` and Are Filtered Out of the Install
 
 ## Status
 
@@ -50,7 +50,11 @@ back the tree up, and recopy it.
 The stub moves to
 `content/skills/github-tracking/assets/testdata/fixture-profile.sh` — outside
 `profiles/`, and named so it cannot be reached by the engine's
-`profiles/<name>.sh` lookup even if the directory were installed.
+`profiles/<name>.sh` lookup even if the directory were installed. The suite that
+consumes it, `tracker-test.sh`, moves alongside it. A suite whose fixtures are
+excluded from the payload cannot run from the payload, so shipping it would ship
+a script that fails when followed; and a contract suite is a test-only asset by
+the same definition its fixtures are.
 
 `tracker-test.sh` assembles the asset tree it runs against: a temporary
 directory holding a copy of `tracker.sh`, `profiles/github.sh`, and the stub
@@ -60,12 +64,13 @@ suite and only for the suite. The suite consequently stops depending on the
 layout of the directory it happens to sit in.
 
 `install-test.sh` asserts the outcome directly for each of the three agent
-targets: no `profiles/fixture.sh`, no `testdata` directory anywhere under the
-installed skills tree, and the installed `tracker.sh` invoked with
-`--profile fixture` exits 1 with the `usage` error class and an available-profile
-list that does not name the stub. That last assertion is what ties the file's
-absence to the behavior the absence is for — a tree could be clean while the
-resolution path still had some other route to a fabricated read.
+targets: the installed `profiles/` directory holds exactly `github.sh`, no
+`testdata` directory exists anywhere under the installed skills tree, and the
+installed `tracker.sh` invoked with `--profile fixture` exits 1 with the `usage`
+error class. Asserting the whole profile set rather than one absent filename is
+what makes the gate about the rule instead of about this file: a second fixture
+under any other name fails it, and adding a real tracker profile is a deliberate
+edit to that assertion.
 
 ## Consequences
 
@@ -74,9 +79,25 @@ resolution path still had some other route to a fabricated read.
   future check — has to apply the same exclusion, and it now does so by naming
   `testdata` rather than by loosening the comparison.
 - `testdata` becomes a reserved directory name inside `content/skills`: a skill
-  cannot ship a directory by that name to agents. Nothing needs one, and the
-  rule is stated in one place — the `find` in `stage_skills` — that
-  `install-test.sh` asserts against.
+  cannot ship a directory by that name to agents. Nothing needs one. The rule is
+  applied in one place, the `find` in `stage_skills`, and named again by the
+  assertions that check it in `install-test.sh` and by the `Justfile` globs that
+  keep the excluded scripts linted — no gate infers it, so widening it means
+  editing every one of those.
+- This record covers `testdata` directories, not every test asset in the tree.
+  `decision-records/assets/check-records-test.sh`,
+  `brainstorming/scripts/start-server-test.sh`, and
+  `issue/scripts/create-verified-issue-test.sh` still ship. They run correctly
+  when installed, so nothing about them is broken today, and moving them has
+  couplings of its own — `just records` compares the decision-records suite byte
+  for byte against its root copy. Sweeping them is separate work.
+- An upgrade over an existing install backs the old skills tree up to
+  `<dest>/.agent-config-backups/<timestamp>/drift/`, once, and that backup
+  contains the stub as it was installed. Backups are a verbatim record of what
+  was replaced and are not filtered; nothing prunes them. An agent never
+  discovers them — they sit outside `skills/` — but an engine copy invoked by
+  its explicit path from inside a backup still loads the stub. The guarantee
+  this record makes is about the live tree.
 - Test fixtures can now live beside the code they exercise without that being a
   delivery decision. That is the property the previous layout lacked, and it is
   why the rule is a directory convention rather than a one-off exclusion of this
@@ -87,9 +108,10 @@ resolution path still had some other route to a fabricated read.
 - The installer now creates one temporary directory per run and removes it in
   its existing `EXIT` trap. Staging costs a full copy of `content/skills` per
   invocation, once for `--agent all` rather than once per agent.
-- `just lint` and `just format-check` cover `assets/testdata/*.sh`, so the stub
-  stays linted and formatted despite no longer sitting in a directory those
-  recipes already globbed.
+- `just lint`, `just format-check` and `just format` cover `assets/testdata/*.sh`,
+  and `just test` runs the suite from its new path, so both files stay linted,
+  formatted and executed despite no longer sitting in a directory those recipes
+  already globbed.
 
 ## Considered & rejected
 

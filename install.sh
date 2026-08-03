@@ -26,8 +26,12 @@ cleanup() {
 			unlink "$path"
 		fi
 	done
+	# Reported rather than propagated: a trap whose last command fails replaces a
+	# successful exit status, so an undeletable staging tree would turn a
+	# completed install into a reported failure.
 	if [[ -n "$SKILLS_STAGING" && -d "$SKILLS_STAGING" ]]; then
-		rm -R "$SKILLS_STAGING"
+		rm -R "$SKILLS_STAGING" ||
+			printf 'install: could not remove staging directory: %s\n' "$SKILLS_STAGING" >&2
 	fi
 }
 trap cleanup EXIT

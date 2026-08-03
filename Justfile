@@ -55,7 +55,7 @@ test:
   ./install-test.sh
   ./install-tools-test.sh
   ./content/skills/issue/scripts/create-verified-issue-test.sh
-  ./content/skills/github-tracking/assets/tracker-test.sh
+  ./content/skills/github-tracking/assets/testdata/tracker-test.sh
   ./scripts/check-public-safety-test.sh
   ./scripts/check-deployed-references-test.sh
   ./scripts/check-workflow-scope-contract-test.sh

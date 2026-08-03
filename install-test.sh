@@ -122,12 +122,21 @@ assert_no_stub_profile() {
 	local destination="$1"
 	local assets="$destination/skills/github-tracking/assets"
 	local leftover
+	local installed_profiles
 	local status=0
 	local available
 
 	assert_file "$assets/tracker.sh"
-	assert_file "$assets/profiles/github.sh"
-	assert_not_file "$assets/profiles/fixture.sh"
+	# The whole set, not just the stub's name: a second fixture under any other
+	# name would otherwise ship with no gate failing. Adding a real tracker
+	# profile is a deliberate edit here, which is the property this has and a
+	# check for one absent filename does not.
+	installed_profiles="$(
+		cd "$assets/profiles"
+		find . -type f -print | LC_ALL=C sort
+	)"
+	[[ "$installed_profiles" == './github.sh' ]] ||
+		fail "unexpected installed profiles: $installed_profiles"
 	leftover="$(find "$destination/skills" -type d -name testdata -print)"
 	[[ -z "$leftover" ]] ||
 		fail "installed tree carries a test-only asset directory: $leftover"

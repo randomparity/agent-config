@@ -2,7 +2,13 @@
 set -euo pipefail
 
 script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
-sandbox=$(mktemp -d "${TMPDIR:-/tmp}/tracker-test.XXXXXX")
+source_dir=$(cd -- "$script_dir/.." && pwd -P)
+# Resolved physically, because the traversal case near the end of this file
+# counts the path components between the profiles directory and the root, and
+# the engine resolves its own asset directory with `pwd -P`. A TMPDIR reached
+# through a symlink would otherwise be counted one way and walked another,
+# leaving that case passing for the wrong reason.
+sandbox=$(cd -- "$(mktemp -d "${TMPDIR:-/tmp}/tracker-test.XXXXXX")" && pwd -P)
 trap 'rm -rf -- "$sandbox"' EXIT
 
 # The suite runs the engine out of an asset tree it assembles here, not the one
@@ -12,9 +18,9 @@ trap 'rm -rf -- "$sandbox"' EXIT
 # be laid out once installed.
 assets="$sandbox/assets"
 mkdir -p "$assets/profiles"
-cp "$script_dir/tracker.sh" "$assets/tracker.sh"
-cp "$script_dir/profiles/github.sh" "$assets/profiles/github.sh"
-cp "$script_dir/testdata/fixture-profile.sh" "$assets/profiles/fixture.sh"
+cp "$source_dir/tracker.sh" "$assets/tracker.sh"
+cp "$source_dir/profiles/github.sh" "$assets/profiles/github.sh"
+cp "$script_dir/fixture-profile.sh" "$assets/profiles/fixture.sh"
 chmod +x "$assets/tracker.sh"
 tracker="$assets/tracker.sh"
 
@@ -658,6 +664,11 @@ printf 'sourced\n' >"$sandbox/pwned"
 EVIL
 slashes=$(printf '%s' "$assets/profiles" | tr -cd /)
 traversal=$(printf '../%.0s' $(seq "${#slashes}"))${sandbox#/}/evil
+# The computed name must actually reach the planted file, or every assertion
+# below passes against an unguarded engine too -- a wrong depth is rejected as a
+# missing profile and reads exactly like a rejected traversal.
+[[ -f "$assets/profiles/$traversal.sh" ]] ||
+	fail 'the traversal name does not resolve to the planted file'
 status=0
 PATH="$sandbox/bin:$PATH" "$tracker" view --profile "$traversal" \
 	--target example/repo 101 >"$sandbox/out" 2>"$sandbox/err" || status=$?
