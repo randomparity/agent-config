@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
+tracker="$script_dir/../../github-tracking/assets/tracker.sh"
+
 usage() {
 	printf 'usage: %s --repo OWNER/NAME --title TITLE --body-file PATH' "${0##*/}" >&2
 	printf ' [--label LABEL]... [--parent NUMBER]\n' >&2
@@ -59,15 +62,24 @@ done
 }
 [[ -z $parent || $parent =~ ^[0-9]+$ ]] || usage
 
-create_args=(issue create --repo "$repo" --title "$title" --body-file "$body_file")
-for label in "${labels[@]}"; do
+create_args=(--title "$title" --body-file "$body_file")
+for label in "${labels[@]+"${labels[@]}"}"; do
 	create_args+=(--label "$label")
 done
 if [[ -n $parent ]]; then
 	create_args+=(--parent "$parent")
 fi
 
-canonical_url=$(gh repo view "$repo" --json url --jq .url)
+# The engine reports its taxonomy class; this script's exit surface is 2 for
+# usage and 1 for any operational failure, so an unreachable repository must not
+# surface as 2 and read as "called with bad arguments".
+target_status=0
+canonical_url=$("$tracker" target-url --target "$repo" 2>&1) || target_status=$?
+if ((target_status != 0)); then
+	printf 'canonical repository URL could not be resolved for %s\n' \
+		"$(diagnostic_value "$repo")" >&2
+	exit 1
+fi
 canonical_url=${canonical_url%/}
 canonical_path=${canonical_url#https://}
 canonical_path=${canonical_path#*/}
@@ -79,9 +91,23 @@ if ! rg -q '^https://[^/[:space:]]+/[^/[:space:]]+/[^/[:space:]]+$' <<<"$canonic
 fi
 
 create_status=0
-created_output=$(gh "${create_args[@]}" 2>&1) || create_status=$?
+created_output=$("$tracker" create --target "$repo" "${create_args[@]}" 2>&1) ||
+	create_status=$?
+# The engine reports a taxonomy class; this script's contract reports 1. The
+# distinction between "failed" and "failed but may have landed" is carried by
+# the URL check below, exactly as it was before.
+create_class=$create_status
+((create_status == 0)) || create_status=1
 issue_url_pattern='https://[^/[:space:]]+/[^/[:space:]]+/[^/[:space:]]+/issues/[0-9]+'
 issue_url=$(printf '%s\n' "$created_output" | rg -o "$issue_url_pattern" | tail -n 1 || true)
+# A partial carrying no identity means the write landed and only its URL could
+# not be parsed. Reporting that as a failed command invites a re-run and a
+# duplicate live issue, which is the outcome this script exists to prevent.
+if ((create_class == 5)) && [[ -z $issue_url ]]; then
+	printf 'issue was created but its durable issue URL could not be resolved;' >&2
+	printf ' creation was not retried\n' >&2
+	exit 1
+fi
 if ((create_status != 0)); then
 	if [[ -n $issue_url && $issue_url == "$canonical_url/issues/${issue_url##*/}" ]]; then
 		printf '%s: creation command failed with exit %d; creation was not retried\n' \
@@ -106,21 +132,29 @@ if [[ $issue_url != "$canonical_url/issues/$issue_number" ]]; then
 	exit 1
 fi
 
-if ! issue_json=$(gh issue view "$issue_number" --repo "$repo" \
-	--json number,title,body,labels,parent,state,url); then
-	printf '%s: read-back failed; creation was not retried\n' "$issue_url" >&2
+view_err=$(mktemp)
+trap 'rm -f -- "$view_err"' EXIT
+view_status=0
+issue_json=$("$tracker" view --target "$repo" "$issue_number" 2>"$view_err") ||
+	view_status=$?
+if ((view_status != 0)); then
+	if rg -q 'malformed or incomplete JSON' "$view_err"; then
+		printf '%s: read-back returned malformed or incomplete JSON\n' \
+			"$issue_url" >&2
+	else
+		printf '%s: read-back failed; creation was not retried\n' "$issue_url" >&2
+	fi
 	exit 1
 fi
 if ! jq -e '
 	type == "object"
-	and (.number | type == "number")
+	and (.id | type == "string")
 	and (.title | type == "string")
 	and (.body | type == "string")
 	and (.labels | type == "array")
-	and all(.labels[]; type == "object" and (.name | type == "string"))
+	and all(.labels[]; type == "string")
 	and (.url | type == "string")
-	and ((.parent == null) or
-		((.parent | type == "object") and (.parent.number | type == "number")))
+	and ((.parent == null) or (.parent | type == "string"))
 ' \
 	>/dev/null 2>&1 <<<"$issue_json"; then
 	printf '%s: read-back returned malformed or incomplete JSON\n' "$issue_url" >&2
@@ -129,13 +163,13 @@ fi
 
 observed_title=$(jq -r '.title' <<<"$issue_json")
 observed_body=$(jq -r '.body' <<<"$issue_json")
-observed_number=$(jq -r '.number' <<<"$issue_json")
+observed_number=$(jq -r '.id' <<<"$issue_json")
 observed_url=$(jq -r '.url' <<<"$issue_json")
 observed_parent=none
 if [[ -n $parent ]]; then
-	observed_parent=$(jq -r '.parent.number // "none"' <<<"$issue_json")
+	observed_parent=$(jq -r '.parent // "none"' <<<"$issue_json")
 fi
-observed_labels=$(jq -r '.labels[].name' <<<"$issue_json")
+observed_labels=$(jq -r '.labels[]' <<<"$issue_json")
 mismatches=()
 
 if [[ $observed_number != "$issue_number" ]]; then
@@ -159,7 +193,7 @@ for section in 'Problem' 'Evidence' 'Expected' 'Proposed approach'; do
 		mismatches+=("body: missing section '$section'")
 	fi
 done
-for label in "${labels[@]}"; do
+for label in "${labels[@]+"${labels[@]}"}"; do
 	found=false
 	while IFS= read -r observed_label; do
 		if [[ $observed_label == "$label" ]]; then
