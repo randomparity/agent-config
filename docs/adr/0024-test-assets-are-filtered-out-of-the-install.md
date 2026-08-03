@@ -2,6 +2,8 @@
 
 ## Status
 
+> **Superseded by [0025](0025-the-testdata-filter-is-repo-wide.md)** (2026-08-03)
+
 Accepted (2026-08-03)
 
 ## Context

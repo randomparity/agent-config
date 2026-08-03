@@ -17,12 +17,52 @@ if (($# == 1)); then
 	ROOT="$(cd "$1" && pwd)"
 fi
 
+# Every *directory* root the installer copies into an agent's config directory.
+# `content/languages` and `content/references` arrive through
+# `install_common_content`, unfiltered, for all three agents — a stale record
+# reference there deploys exactly as one under `content/skills` does.
+#
+# `install_common_content` also deploys one loose file,
+# `docs/licenses/superpowers.LICENSE`. It is deliberately unscanned: admitting a
+# single file would mean relaxing the is-a-directory guard below or scanning
+# `docs/licenses/` and then excluding the undeployed `.md` beside it, which
+# reintroduces a deployed/undeployed split in a second place. It is a verbatim
+# vendored license, and rewriting it to satisfy a reference rule is not something
+# this gate should invite.
 scan_paths=(
 	"$ROOT/content/skills"
+	"$ROOT/content/languages"
+	"$ROOT/content/references"
 	"$ROOT/agents/claude/shared"
 	"$ROOT/agents/codex/shared"
 	"$ROOT/agents/bob/shared"
 )
+
+# Every rule here is about what a *deployed* file may say, so the scan has to
+# model the deployed set — which is the canonical tree minus its `testdata`
+# entries, the same exclusion `stage_skills` applies (ADR 0025). Without this a
+# fixture that cites `docs/adr/0024-*.md` or writes `ADR 0021` in a comment fails
+# `just verify` with a deployment finding about a file no agent ever receives,
+# which would make the gates untestable by their own fixtures.
+#
+# Scoped to `content/skills` because that is the only root the installer filters:
+# `stage_skills` stages a copy of that tree alone, while the `agents/*/shared`
+# payloads install verbatim — `agents/bob/shared/rules` is copied whole. Excluding
+# the name across every root would blind the gate over paths that really do deploy,
+# which is the same disagreement-with-the-installer this exclusion exists to end,
+# pointing the other way.
+is_undeployed() { # absolute-path
+	local path="$1" relative
+
+	case "$path" in
+	"$ROOT/content/skills/"*) relative="${path#"$ROOT/content/skills/"}" ;;
+	*) return 1 ;;
+	esac
+	case "/$relative" in
+	*/testdata | */testdata/*) return 0 ;;
+	esac
+	return 1
+}
 
 for path in "${scan_paths[@]}"; do
 	if [[ ! -d "$path" ]]; then
@@ -34,7 +74,7 @@ done
 result_status=0
 
 report_matches() { # class pattern
-	local class="$1" pattern="$2" output rg_status
+	local class="$1" pattern="$2" output rg_status match file reported=0
 	set +e
 	output=$(rg -n -I --hidden --with-filename -i "$pattern" "${scan_paths[@]}" 2>&1)
 	rg_status=$?
@@ -42,9 +82,16 @@ report_matches() { # class pattern
 	case "$rg_status" in
 	0)
 		while IFS= read -r match; do
+			file=${match%%:*}
+			if is_undeployed "$file"; then
+				continue
+			fi
 			printf 'deployed-references: %s: %s\n' "$class" "$match" >&2
+			reported=1
 		done <<<"$output"
-		result_status=1
+		if [[ "$reported" -eq 1 ]]; then
+			result_status=1
+		fi
 		;;
 	1) ;;
 	*)
@@ -72,6 +119,10 @@ case "$path_status" in
 		line_number=${remainder%%:*}
 		candidate=${remainder#*:}
 		basename=${candidate##*/}
+
+		if is_undeployed "$file"; then
+			continue
+		fi
 
 		case "$candidate" in
 		docs/adr/* | docs/debt/*)

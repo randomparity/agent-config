@@ -1,5 +1,11 @@
 # Tracker Contract and GitHub Profile Implementation Plan
 
+> **Executed and merged.** Paths below are as they were when the plan ran. ADR 0025
+> later moved the suite this plan runs to
+> `content/skills/issue/scripts/testdata/create-verified-issue-test.sh`; the steps
+> are left as executed rather than rewritten, so a `Run:` line naming the old path
+> records what was run, not what to run now.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use subagent-driven-development (recommended) or executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Put a tracker contract behind the issue pipeline's `gh` calls, with a

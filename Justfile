@@ -28,18 +28,28 @@ records:
     fi
   done
 
+# A `testdata/` suite is excluded from the installed payload, never from the
+# gates: each glob below names it explicitly so it stays linted, formatted and
+# run from its new path (ADR 0025).
 lint:
   shellcheck install.sh install-tools.sh install-test.sh install-tools-test.sh scripts/*.sh \
     .github/scripts/*.sh .github/scripts/profiles/*.sh \
     content/skills/issue/scripts/*.sh \
+    content/skills/issue/scripts/testdata/*.sh \
+    content/skills/brainstorming/scripts/testdata/*.sh \
     content/skills/github-tracking/assets/*.sh \
     content/skills/github-tracking/assets/profiles/*.sh \
     content/skills/github-tracking/assets/testdata/*.sh
 
+# The brainstorming suite takes `-i 2`: the vendored scripts it exercises are
+# two-space indented, so the repository default would have turned a rename into a
+# rewrite and left the suite inconsistent with the script under test.
 format-check:
   shfmt -d install.sh install-tools.sh install-test.sh install-tools-test.sh scripts/*.sh
   shfmt -i 2 -d .github/scripts/*.sh .github/scripts/profiles/*.sh
-  shfmt -d content/skills/issue/scripts/*.sh
+  shfmt -d content/skills/issue/scripts/*.sh \
+    content/skills/issue/scripts/testdata/*.sh
+  shfmt -i 2 -d content/skills/brainstorming/scripts/testdata/*.sh
   shfmt -d content/skills/github-tracking/assets/*.sh \
     content/skills/github-tracking/assets/profiles/*.sh \
     content/skills/github-tracking/assets/testdata/*.sh
@@ -47,6 +57,9 @@ format-check:
 format:
   shfmt -w install.sh install-tools.sh install-test.sh install-tools-test.sh scripts/*.sh
   shfmt -i 2 -w .github/scripts/*.sh .github/scripts/profiles/*.sh
+  shfmt -w content/skills/issue/scripts/*.sh \
+    content/skills/issue/scripts/testdata/*.sh
+  shfmt -i 2 -w content/skills/brainstorming/scripts/testdata/*.sh
   shfmt -w content/skills/github-tracking/assets/*.sh \
     content/skills/github-tracking/assets/profiles/*.sh \
     content/skills/github-tracking/assets/testdata/*.sh
@@ -54,7 +67,8 @@ format:
 test:
   ./install-test.sh
   ./install-tools-test.sh
-  ./content/skills/issue/scripts/create-verified-issue-test.sh
+  ./content/skills/issue/scripts/testdata/create-verified-issue-test.sh
+  ./content/skills/brainstorming/scripts/testdata/start-server-test.sh
   ./content/skills/github-tracking/assets/testdata/tracker-test.sh
   ./scripts/check-public-safety-test.sh
   ./scripts/check-deployed-references-test.sh

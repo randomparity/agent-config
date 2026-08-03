@@ -193,8 +193,39 @@ project_review_count="$(validate_inventory "$project_review_root" \
 	'examples/project-review-skills' 'project review tree is missing' \
 	'project review tree is empty')"
 
+# A deployment rule (ADR 0004) — deployed content must resolve its own assets
+# rather than name an installed client's config root — so it scans every content
+# root the installer copies: `content/skills`, plus the `content/languages` and
+# `content/references` that `install_common_content` delivers to all three agents
+# as the same bytes. `testdata` entries are excluded exactly as `stage_skills`
+# excludes them (ADR 0025); the portability checks above still cover them, because
+# those are repository hygiene rather than delivery.
+#
+# `agents/*/shared` is deliberately not scanned: an agent's own instructions may
+# name that agent's own config root, and `CLAUDE.md` and `AGENTS.md` legitimately do.
+# Two scans, because ripgrep's globs filter the whole traversal rather than the
+# path argument they follow. `content/skills` is the only root `stage_skills`
+# filters; `content/languages` and `content/references` deploy verbatim, so a
+# `testdata` entry under either really does ship and must stay visible here.
 root_pattern='(~|[$]HOME|[$][{]HOME[}])/[.](codex|claude|bob)(/|$)'
-root_reference="$(rg -l "$root_pattern" "$skills_root" || true)"
+
+# `|| true` below cannot distinguish "no matches" (rg exit 1) from "that root is
+# gone" (exit 2, diagnostic on stderr), so a rename that outruns this script would
+# leave the gate reporting ok having scanned nothing. Fail closed first, the way
+# check-deployed-references.sh does for the same roots.
+for common_root in \
+	"$repo_root/content/languages" \
+	"$repo_root/content/references"; do
+	[[ -d "$common_root" ]] ||
+		skill_error "${common_root#"$repo_root/"}" 'deployed content root is missing'
+done
+
+root_reference="$(
+	rg -l --glob '!testdata' --glob '!testdata/**' \
+		"$root_pattern" "$skills_root" || true
+	rg -l "$root_pattern" "$repo_root/content/languages" \
+		"$repo_root/content/references" || true
+)"
 [[ -z "$root_reference" ]] ||
 	skill_error "${root_reference%%$'\n'*}" 'installed config-root reference is forbidden'
 

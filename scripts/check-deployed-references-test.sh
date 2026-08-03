@@ -24,10 +24,14 @@ reset_fixture() {
 	rm -R "$FIXTURE" 2>/dev/null || :
 	mkdir -p \
 		"$FIXTURE/content/skills/example" \
+		"$FIXTURE/content/languages" \
+		"$FIXTURE/content/references" \
 		"$FIXTURE/agents/claude/shared" \
 		"$FIXTURE/agents/codex/shared" \
 		"$FIXTURE/agents/bob/shared"
 	printf 'portable text\n' >"$FIXTURE/content/skills/example/SKILL.md"
+	printf 'portable text\n' >"$FIXTURE/content/languages/bash.md"
+	printf 'portable text\n' >"$FIXTURE/content/references/orchestration.md"
 	printf 'portable text\n' >"$FIXTURE/agents/claude/shared/CLAUDE.md"
 	printf 'portable text\n' >"$FIXTURE/agents/codex/shared/AGENTS.md"
 	printf 'portable text\n' >"$FIXTURE/agents/bob/shared/AGENTS.md"
@@ -60,6 +64,32 @@ assert_fails() {
 		exit 1
 	fi
 }
+
+# The deployment boundary, from both sides. `stage_skills` filters `testdata`
+# entries out of `content/skills` and out of nothing else, so a fixture there is
+# never deployed and cannot violate a deployment rule — while the same content
+# under `agents/*/shared` installs verbatim and must still be caught. Without the
+# second case the exclusion could be widened to every scan root with this suite
+# green, which is how the gate would go blind over a path that really does ship.
+assert_passes 'testdata fixture under content/skills is not deployed' \
+	'content/skills/example/testdata/fixture.md' 'Governed by ADR 0019.'
+assert_fails 'testdata under agents/ still deploys' bare-adr \
+	'agents/bob/shared/rules/testdata/fixture.md' 'Governed by ADR 0019.'
+
+# The exclusion is applied at two independent sites — the class scan and the
+# concrete-path loop — so it needs a pair per site. A bare-ADR payload exercises
+# only the first, and the worked example ADR 0025 gives for why the exclusion
+# exists is a record *path*, which is the second.
+assert_passes 'testdata fixture may cite a record path' \
+	'content/skills/example/testdata/fixture.md' 'Read docs/adr/0019-source-local.md.'
+assert_fails 'record path under agents/ still deploys' concrete-relative-path \
+	'agents/bob/shared/rules/testdata/fixture.md' 'Read docs/adr/0019-source-local.md.'
+
+# The two roots `install_common_content` installs, which deploy unfiltered.
+assert_fails 'bare ADR in a language reference' bare-adr \
+	'content/languages/bash.md' 'Governed by ADR 0019.'
+assert_fails 'record path in a shared reference' concrete-relative-path \
+	'content/references/orchestration.md' 'Read docs/adr/0019-source-local.md.'
 
 assert_fails 'bare ADR' bare-adr \
 	'content/skills/example/SKILL.md' 'Governed by ADR 0019.'
