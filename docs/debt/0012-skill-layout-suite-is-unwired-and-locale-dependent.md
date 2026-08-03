@@ -62,9 +62,21 @@ that no recipe names. Two instances have been found by accident: this one, and
 That check cannot land before the locale fix above, because it would go red on this
 very suite.
 
-While there: `check-skill-layout.sh`'s `testdata` exclusion (ADR 0025) has no case
-and is inert on today's tree. Once the suite runs, add one — it already drives the
-script against a fixture root and already exercises the config-root rule.
+That check is also the owner for making ADR 0025's six-place list checkable, which
+it currently is not over two of its entries. Both are named in that record and
+neither has a gate:
+
+- `check-skill-layout.sh`'s `testdata` exclusion has no case and is inert on
+  today's tree. Once this suite runs, add one — it already drives the script
+  against a fixture root and already exercises the config-root rule.
+- `stage_skills`'s entry-shaped filter is not exercised: reinstating `-type d`
+  leaves `just verify` green, because the installer stages from the real
+  repository and no plain file named `testdata` exists to inject. A case would
+  copy the repository to a scratch tree, create such a file under one skill, run
+  that copy's `install.sh` against a separate destination and assert absence —
+  which needs a fixture-repo pattern `install-test.sh` does not have today.
+
+One owner for both, rather than two records saying a site is unenforced.
 
 ## Provenance
 

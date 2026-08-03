@@ -193,13 +193,20 @@ project_review_count="$(validate_inventory "$project_review_root" \
 	'examples/project-review-skills' 'project review tree is missing' \
 	'project review tree is empty')"
 
-# A deployment rule — an installed skill must resolve its own assets rather than
-# name a config root — so it scans the deployed set, which excludes `testdata`
-# entries exactly as `stage_skills` does (ADR 0025). The portability checks above
-# still cover them: those are repository hygiene, not delivery.
+# A deployment rule (ADR 0004) — deployed content must resolve its own assets
+# rather than name an installed client's config root — so it scans every content
+# root the installer copies: `content/skills`, plus the `content/languages` and
+# `content/references` that `install_common_content` delivers to all three agents
+# as the same bytes. `testdata` entries are excluded exactly as `stage_skills`
+# excludes them (ADR 0025); the portability checks above still cover them, because
+# those are repository hygiene rather than delivery.
+#
+# `agents/*/shared` is deliberately not scanned: an agent's own instructions may
+# name that agent's own config root, and `CLAUDE.md` and `AGENTS.md` legitimately do.
 root_pattern='(~|[$]HOME|[$][{]HOME[}])/[.](codex|claude|bob)(/|$)'
 root_reference="$(rg -l --glob '!testdata' --glob '!testdata/**' \
-	"$root_pattern" "$skills_root" || true)"
+	"$root_pattern" "$skills_root" "$repo_root/content/languages" \
+	"$repo_root/content/references" || true)"
 [[ -z "$root_reference" ]] ||
 	skill_error "${root_reference%%$'\n'*}" 'installed config-root reference is forbidden'
 
