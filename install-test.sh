@@ -82,21 +82,25 @@ assert_executable() {
 	[[ -x "$1" ]] || fail "expected executable: $1"
 }
 
+# The canonical tree carries test-only assets under `testdata/` directories that
+# the installer filters out, so the installed tree is the canonical one minus
+# those. Compare with the same exclusion rather than loosening the comparison.
 assert_canonical_skills() {
 	local destination="$1"
 	local expected_executables
 	local actual_executables
 	local count
 
-	diff -rq "$REPO/content/skills" "$destination/skills" >/dev/null ||
+	diff -rq -x testdata "$REPO/content/skills" "$destination/skills" >/dev/null ||
 		fail "installed skills differ from canonical tree: $destination/skills"
 	expected_executables="$(
-		cd "$REPO/content/skills"
-		find . -type f \( -perm -100 -o -perm -010 -o -perm -001 \) -print |
+		cd "$REPO/content/skills" || exit
+		find . -type d -name testdata -prune -o -type f \
+			\( -perm -100 -o -perm -010 -o -perm -001 \) -print |
 			LC_ALL=C sort
 	)"
 	actual_executables="$(
-		cd "$destination/skills"
+		cd "$destination/skills" || exit
 		find . -type f \( -perm -100 -o -perm -010 -o -perm -001 \) -print |
 			LC_ALL=C sort
 	)"
@@ -108,6 +112,43 @@ assert_canonical_skills() {
 		fail "expected 35 canonical skills in $destination/skills, got $count"
 	assert_file "$destination/skills/simplify-changes/SKILL.md"
 	assert_not_file "$destination/skills/simplify/SKILL.md"
+}
+
+# The tracker contract suite's stub profile answers a read with a fabricated
+# issue. Installed, it is selectable as though it were a tracker and nothing at
+# the call site distinguishes its payload from a real one, so assert both that
+# it is absent and that naming it fails the way any unimplemented tracker does.
+assert_no_stub_profile() {
+	local destination="$1"
+	local assets="$destination/skills/github-tracking/assets"
+	local leftover
+	local installed_profiles
+	local status=0
+	local available
+
+	assert_file "$assets/tracker.sh"
+	# The whole set, not just the stub's name: a second fixture under any other
+	# name would otherwise ship with no gate failing. Adding a real tracker
+	# profile is a deliberate edit here, which is the property this has and a
+	# check for one absent filename does not.
+	installed_profiles="$(
+		cd "$assets/profiles" || exit
+		find . -type f -print | LC_ALL=C sort
+	)"
+	[[ "$installed_profiles" == './github.sh' ]] ||
+		fail "unexpected installed profiles: $installed_profiles"
+	leftover="$(find "$destination/skills" -type d -name testdata -print)"
+	[[ -z "$leftover" ]] ||
+		fail "installed tree carries a test-only asset directory: $leftover"
+
+	"$assets/tracker.sh" view --profile fixture 1 \
+		>"$tmpdir/tracker-out" 2>"$tmpdir/tracker-err" || status="$?"
+	[[ "$status" -eq 1 ]] ||
+		fail "installed tracker did not reject --profile fixture (exit $status)"
+	assert_json_value "$tmpdir/tracker-err" ".error" "usage"
+	available="$(jq -r '.message | sub("^.*available: "; "")' "$tmpdir/tracker-err")"
+	[[ "$available" != *fixture* ]] ||
+		fail "installed tracker still advertises the stub profile: $available"
 }
 
 assert_tree_contains() {
@@ -187,6 +228,7 @@ AGENT_CONFIG_HOST=test-host ./install.sh --agent all
 assert_file "$CLAUDE_CONFIG_DIR/CLAUDE.md"
 assert_file "$CLAUDE_CONFIG_DIR/settings.json"
 assert_canonical_skills "$CLAUDE_CONFIG_DIR"
+assert_no_stub_profile "$CLAUDE_CONFIG_DIR"
 assert_not_file "$CLAUDE_CONFIG_DIR/skills/accessibility-reviewer/SKILL.md"
 assert_not_file "$CLAUDE_CONFIG_DIR/skills/project-context/SKILL.md"
 assert_worktree_baseline_transcripts \
@@ -201,6 +243,7 @@ assert_json_value "$CLAUDE_CONFIG_DIR/settings.json" ".env.AGENT_CONFIG_TEST" "c
 assert_file "$CODEX_CONFIG_DIR/AGENTS.md"
 assert_file "$CODEX_CONFIG_DIR/config.toml"
 assert_canonical_skills "$CODEX_CONFIG_DIR"
+assert_no_stub_profile "$CODEX_CONFIG_DIR"
 assert_not_file "$CODEX_CONFIG_DIR/skills/accessibility-reviewer/SKILL.md"
 assert_not_file "$CODEX_CONFIG_DIR/skills/project-context/SKILL.md"
 assert_worktree_baseline_transcripts \
@@ -218,6 +261,7 @@ assert_file "$BOB_CONFIG_DIR/mcp.json"
 assert_file "$BOB_CONFIG_DIR/mcp_settings.json"
 assert_file "$BOB_CONFIG_DIR/rules/global-development-standards.md"
 assert_canonical_skills "$BOB_CONFIG_DIR"
+assert_no_stub_profile "$BOB_CONFIG_DIR"
 assert_not_file "$BOB_CONFIG_DIR/skills/accessibility-reviewer/SKILL.md"
 assert_not_file "$BOB_CONFIG_DIR/skills/project-context/SKILL.md"
 assert_worktree_baseline_transcripts \

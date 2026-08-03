@@ -33,26 +33,29 @@ lint:
     .github/scripts/*.sh .github/scripts/profiles/*.sh \
     content/skills/issue/scripts/*.sh \
     content/skills/github-tracking/assets/*.sh \
-    content/skills/github-tracking/assets/profiles/*.sh
+    content/skills/github-tracking/assets/profiles/*.sh \
+    content/skills/github-tracking/assets/testdata/*.sh
 
 format-check:
   shfmt -d install.sh install-tools.sh install-test.sh install-tools-test.sh scripts/*.sh
   shfmt -i 2 -d .github/scripts/*.sh .github/scripts/profiles/*.sh
   shfmt -d content/skills/issue/scripts/*.sh
   shfmt -d content/skills/github-tracking/assets/*.sh \
-    content/skills/github-tracking/assets/profiles/*.sh
+    content/skills/github-tracking/assets/profiles/*.sh \
+    content/skills/github-tracking/assets/testdata/*.sh
 
 format:
   shfmt -w install.sh install-tools.sh install-test.sh install-tools-test.sh scripts/*.sh
   shfmt -i 2 -w .github/scripts/*.sh .github/scripts/profiles/*.sh
   shfmt -w content/skills/github-tracking/assets/*.sh \
-    content/skills/github-tracking/assets/profiles/*.sh
+    content/skills/github-tracking/assets/profiles/*.sh \
+    content/skills/github-tracking/assets/testdata/*.sh
 
 test:
   ./install-test.sh
   ./install-tools-test.sh
   ./content/skills/issue/scripts/create-verified-issue-test.sh
-  ./content/skills/github-tracking/assets/tracker-test.sh
+  ./content/skills/github-tracking/assets/testdata/tracker-test.sh
   ./scripts/check-public-safety-test.sh
   ./scripts/check-deployed-references-test.sh
   ./scripts/check-workflow-scope-contract-test.sh
