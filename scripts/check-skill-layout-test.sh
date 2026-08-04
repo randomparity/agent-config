@@ -281,6 +281,55 @@ root="$(new_fixture)"
 printf '%s\n' 'Use ~/.codex/skills here.' >>"$root/content/skills/skill-01/SKILL.md"
 assert_fails 'installed config-root reference is forbidden' "$root"
 
+# The config-root scan excludes `testdata` exactly as `stage_skills` does (ADR
+# 0025), and no path on the repository tree exercises that exclusion -- a fixture
+# is the only place the excluded content exists, so it is the only place the
+# exclusion can be shown to work.
+root="$(new_fixture)"
+mkdir -p "$root/content/skills/skill-01/testdata"
+printf '%s\n' 'Use ~/.claude/skills here.' \
+	>"$root/content/skills/skill-01/testdata/fixture.md"
+output="$(cd "$root" && bash scripts/check-skill-layout.sh)"
+[[ "$output" == 'skills-check: ok (1 canonical skills, 1 project review examples)' ]] || fail "$output"
+
+# The exclusion is scoped to `content/skills`, the one root the installer
+# filters. `content/languages` deploys verbatim, so a `testdata` entry there
+# really does ship and has to stay visible to the scan.
+root="$(new_fixture)"
+mkdir -p "$root/content/languages/testdata"
+printf '%s\n' 'Use ~/.claude/skills here.' >"$root/content/languages/testdata/fixture.md"
+assert_fails 'installed config-root reference is forbidden' "$root"
+
+# rg exits 2 for any scan it could not complete, and the gate used to read that
+# as "no matches" and report ok. Root reads an unreadable file, so there the case
+# would assert nothing.
+if [[ "$EUID" -ne 0 ]]; then
+	root="$(new_fixture)"
+	printf '%s\n' 'Use ~/.claude/skills here.' >"$root/content/languages/unreadable.md"
+	chmod 000 "$root/content/languages/unreadable.md"
+	assert_fails 'config-root scan failed' "$root"
+	chmod 644 "$root/content/languages/unreadable.md"
+fi
+
+# An absent rg has to be an error too: `if rg -Fxq` reads exit 127 as "not a
+# reserved name" and the config-root scan read it as "no matches". The shim
+# directory holds every other command the gate runs, so the failure below is the
+# rg guard rather than whichever tool PATH happened to drop first.
+shim_bin="$tmpdir/shim-bin"
+mkdir -p "$shim_bin"
+for shim_tool in dirname mktemp find iconv sed jq wc tr sort cut uniq rm; do
+	ln -s "$(command -v "$shim_tool")" "$shim_bin/$shim_tool"
+done
+root="$(new_fixture)"
+set +e
+output="$(cd "$root" && PATH="$shim_bin" "$BASH" scripts/check-skill-layout.sh 2>&1)"
+status="$?"
+set -e
+[[ "$status" -ne 0 ]] || fail 'expected failure when rg is absent'
+printf '%s\n' "$output" | rg -Fq 'skills-check: rg is required' ||
+	fail "expected the rg guard to fire; got: $output"
+case_count=$((case_count + 1))
+
 root="$(new_fixture)"
 mv "$root/examples/project-review-skills" "$root/project-review-skills"
 assert_fails 'examples/project-review-skills: project review tree is missing' "$root"

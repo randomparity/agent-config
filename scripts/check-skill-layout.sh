@@ -1,6 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Every rule that reads file contents runs through rg, and two of them read a
+# non-zero exit as a clean result: `if rg -Fxq` below takes 127 for "not
+# reserved", and the config-root scan took it for "no matches". An absent rg
+# would therefore pass this gate rather than fail it, so refuse up front the way
+# check-deployed-references.sh does.
+if ! command -v rg >/dev/null 2>&1; then
+	printf 'skills-check: rg is required\n' >&2
+	exit 2
+fi
+
 # Enumerated, not the ranges [a-z0-9] and [A-Za-z0-9]: a bash bracket expression
 # takes its ranges from the locale's collation, so under en_US.UTF-8 -- the
 # ordinary interactive locale -- [A-Za-z] admits accented letters. Written as a
@@ -186,6 +196,21 @@ validate_inventory() {
 	printf '%s\n' "$count"
 }
 
+# rg exits 2 for every scan it could not complete -- an unreadable file, a bad
+# pattern, a root that vanished mid-run -- and the `|| true` this replaces
+# reported all of those as "no matches found", so the gate printed ok having
+# scanned nothing. Keep rg's diagnostics on their own stream instead of folding
+# them in with `2>&1`: mixed into the match list a warning line parses as a
+# result, and the gate reports it as a violation on a successful scan.
+scan_config_roots() { # rg-argument...
+	local status=0
+
+	rg -l "$@" >>"$workspace/root-references" 2>"$workspace/rg-error" || status=$?
+	# 0 = matches, 1 = no matches, anything else = the scan did not happen.
+	[[ "$status" -le 1 ]] ||
+		skill_error 'content' "config-root scan failed: $(<"$workspace/rg-error")"
+}
+
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "$script_dir/.." && pwd)"
 reserved="$script_dir/reserved-skill-names.txt"
@@ -223,10 +248,8 @@ project_review_count="$(validate_inventory "$project_review_root" \
 # `testdata` entry under either really does ship and must stay visible here.
 root_pattern='(~|[$]HOME|[$][{]HOME[}])/[.](codex|claude|bob)(/|$)'
 
-# `|| true` below cannot distinguish "no matches" (rg exit 1) from "that root is
-# gone" (exit 2, diagnostic on stderr), so a rename that outruns this script would
-# leave the gate reporting ok having scanned nothing. Fail closed first, the way
-# check-deployed-references.sh does for the same roots.
+# A missing root is caught here rather than left to `scan_config_roots`, so the
+# gate names the root that went away instead of quoting rg's diagnostic for it.
 for common_root in \
 	"$repo_root/content/languages" \
 	"$repo_root/content/references"; do
@@ -234,14 +257,13 @@ for common_root in \
 		skill_error "${common_root#"$repo_root/"}" 'deployed content root is missing'
 done
 
-root_reference="$(
-	rg -l --glob '!testdata' --glob '!testdata/**' \
-		"$root_pattern" "$skills_root" || true
-	rg -l "$root_pattern" "$repo_root/content/languages" \
-		"$repo_root/content/references" || true
-)"
+: >"$workspace/root-references"
+scan_config_roots --glob '!testdata' --glob '!testdata/**' "$root_pattern" "$skills_root"
+scan_config_roots "$root_pattern" "$repo_root/content/languages" \
+	"$repo_root/content/references"
+root_reference="$(sed -n '1p' "$workspace/root-references")"
 [[ -z "$root_reference" ]] ||
-	skill_error "${root_reference%%$'\n'*}" 'installed config-root reference is forbidden'
+	skill_error "$root_reference" 'installed config-root reference is forbidden'
 
 printf 'skills-check: ok (%s canonical skills, %s project review examples)\n' \
 	"$count" "$project_review_count"
