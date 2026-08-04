@@ -142,8 +142,7 @@ expect_red "$fixture" 'suite dropped from records' \
 # `format` are not merged: a suite the checker names and the writer does not is
 # the disagreement ADR 0025 recorded.
 new_fixture
-sed -i 's|^  shellcheck alpha-test.sh scripts/\*.sh .github/scripts/\*.sh|  shellcheck alpha-test.sh .github/scripts/*.sh|' \
-	"$fixture/Justfile"
+sed -i 's| scripts/\*.sh | |' "$fixture/Justfile"
 expect_red "$fixture" 'suite dropped from lint' 'scripts/beta-test.sh' 'linted'
 
 new_fixture
@@ -200,7 +199,25 @@ expect_red "$fixture" 'suite deleted but not staged' \
 # own, so the gate refuses to read it rather than reporting over a merged set.
 new_fixture
 sed -i 's|^test:$|test: lint|' "$fixture/Justfile"
-expect_red "$fixture" 'scanned recipe with a dependency' 'test' 'lint' 'stand alone'
+expect_red "$fixture" 'scanned recipe with a dependency' \
+	'recipe test has dependencies (lint)' 'stand alone'
+
+# A renamed recipe leaves its dimension unscanned, which the gate must say rather
+# than dying inside the dump lookup.
+new_fixture
+sed -i 's|^lint:$|linting:|' "$fixture/Justfile"
+expect_red "$fixture" 'renamed recipe' 'no recipe named lint'
+
+# A non-ASCII suite name is enumerated as its own bytes. Read through git's default
+# quoting it arrives escaped, matches the recipe output for no path, and is reported
+# both as unreached and as missing from the worktree.
+new_fixture
+accented=$fixture/scripts/café-test.sh
+printf '#!/usr/bin/env bash\n# accented\nexit 0\n' >"$accented"
+sed -i 's|^  ./scripts/beta-test.sh|  ./scripts/beta-test.sh\n  ./scripts/café-test.sh|' \
+	"$fixture/Justfile"
+git -C "$fixture" add -A
+expect_green "$fixture" 'non-ASCII suite name'
 
 # An enumeration that finds nothing is a broken gate, not a passing one. Untracking
 # the suites leaves them all on disk, so nothing but the tracked-only enumeration

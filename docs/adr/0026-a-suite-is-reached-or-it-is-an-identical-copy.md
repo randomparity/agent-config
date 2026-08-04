@@ -31,7 +31,8 @@ the shape, and three of them are not obvious.
 **It does not expand a shebang recipe.** The issue's premise that dry-run "expands
 each recipe to the commands it will execute" is true for a plain recipe and false
 for a shebang recipe: `just --dry-run test` prints its suite invocations one per
-line, and `just --dry-run records` prints the recipe *source*, `for` loop and all. A gate that reads dry-run output is reading two different things and has to be
+line, and `just --dry-run records` prints the recipe *source*, `for` loop and all.
+A gate that reads dry-run output is reading two different things and has to be
 correct for both.
 
 **It writes to stderr, not stdout.** All five recipes below print nothing on
@@ -40,9 +41,11 @@ reports every suite unreached — red, but for a reason with no connection to th
 mistake.
 
 **It passes recipe-body comments through verbatim**, for plain recipes as well as
-shebang ones. `just 1.55.1` prints `# ./scripts/foo-test.sh` for a commented-out
-invocation. Commenting out a line is the ordinary way a suite gets disabled, so a
-gate that treats dry-run output as "what will run" is green over exactly that.
+shebang ones: a commented-out invocation prints as `# ./scripts/foo-test.sh`.
+Commenting out a line is the ordinary way a suite gets disabled, so a gate that
+treats dry-run output as "what will run" is green over exactly that. The suite
+pins the behaviour rather than the version, so a `just` that stopped doing it
+would turn the gate red rather than quietly widening the hole.
 
 **It includes a recipe's dependencies' commands.** `just --dry-run dep` where
 `dep: plain` prints `plain`'s body too.
@@ -143,8 +146,8 @@ Adding an execution recipe means adding it to this table. That is one more
 hand-maintained list, and it is deliberate for the same reason ADR 0025 gave: the
 failure mode is a red gate naming a suite that *is* wired, which sends the author to
 the list. The inference-shaped alternative fails silently in the other direction. A
-renamed recipe is caught without a rule, because `just --dry-run <gone>` exits
-non-zero and the gate runs under `set -e`.
+renamed recipe is caught by the same dump lookup: a name the `Justfile` no longer
+defines is reported as such, rather than leaving its dimension quietly unscanned.
 
 **A suite that is byte-identical to a reached suite is reached, in that
 dimension.** This is the rule for the mirrored decision-records asset, and it is

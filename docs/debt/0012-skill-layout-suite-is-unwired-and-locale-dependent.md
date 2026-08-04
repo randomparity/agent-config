@@ -109,8 +109,8 @@ deployed content root had silently broken the suite's fixture, which did not cre
 
 ### Criteria as of #59
 
-Both remaining deferrals are merged, which is the condition stated above, so the
-record resolves here.
+#60 is merged and #59 is this change, which is the condition stated above, so the
+record resolves here rather than in a later pass.
 
 #60 landed the fixture-repo case for `stage_skills`'s entry-shaped filter: the
 second of the two sites ADR 0025 names without a gate now has one, and reinstating

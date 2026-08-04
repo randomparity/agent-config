@@ -56,12 +56,17 @@ is_covered() {
 # green over a suite nothing runs.
 assert_standalone() {
 	local recipe=$1 dependencies
+	if ! printf '%s' "$dump" | jq -e --arg r "$recipe" '.recipes | has($r)' >/dev/null; then
+		printf 'suite-coverage: the Justfile has no recipe named %s\n' "$recipe" >&2
+		printf '  a renamed recipe leaves its dimension unscanned; update DIMENSIONS\n' >&2
+		exit 1
+	fi
 	dependencies=$(printf '%s' "$dump" | jq -r --arg r "$recipe" \
 		'.recipes[$r].dependencies[].recipe')
 	if [[ -n $dependencies ]]; then
 		printf 'suite-coverage: recipe %s has dependencies (%s)\n' \
 			"$recipe" "${dependencies//$'\n'/, }" >&2
-		printf '  a scanned recipe must stand alone, or it inherits another dimension\n' >&2
+		printf '  a scanned recipe must stand alone, so the scan cannot inherit its paths\n' >&2
 		exit 1
 	fi
 }
