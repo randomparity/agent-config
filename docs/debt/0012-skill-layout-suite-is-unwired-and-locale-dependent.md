@@ -2,8 +2,7 @@
 
 ## Status
 
-Open
-review-by: 2026-11-03
+> **Resolved by #56, #60 and #59** (2026-08-03)
 
 ## Concern
 
@@ -107,6 +106,34 @@ which is the argument for #59 rather than evidence against this record: the
 `café.md` case had never fired, and PR #58's fail-closed guard for a missing
 deployed content root had silently broken the suite's fixture, which did not create
 `content/languages` or `content/references`.
+
+### Criteria as of #59
+
+Both remaining deferrals are merged, which is the condition stated above, so the
+record resolves here.
+
+#60 landed the fixture-repo case for `stage_skills`'s entry-shaped filter: the
+second of the two sites ADR 0025 names without a gate now has one, and reinstating
+`-type d` no longer leaves `just verify` green.
+
+#59 landed the recurrence gate. `scripts/check-suite-coverage.sh` enumerates every
+tracked `*-test.sh` and requires each to be named by a recipe as executed, linted,
+format-checked and formatted; `suites-check` runs it from `just verify`, so an
+unwired suite fails the commit that adds it rather than waiting to be found by
+accident. Deleting a suite's line from the `test` recipe turns it red naming that
+path and the recipe to add it to; restoring the line turns it green. ADR 0026
+records the decision, including why coverage is read by expanding
+`just --dry-run` output as pathnames and why a byte-identical copy of a reached
+suite counts as reached.
+
+One thing that gate does not do, named here rather than left implied: it certifies
+that a suite's assertions run, not that they ran against every subject. The
+byte-identity rule clears
+`content/skills/decision-records/assets/check-records-test.sh` against the root
+copy `just records` executes, and five of the six shared decision-records assets
+are pinned by that recipe's comparison. The sixth, `records.yml`, is not, and the
+suite resolves it out of its own directory. That gap predates this gate and is
+filed as #71.
 
 ## Provenance
 
