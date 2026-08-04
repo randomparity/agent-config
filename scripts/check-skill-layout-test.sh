@@ -13,14 +13,20 @@ assert_contains() {
 	rg -Fq "$expected" "$file" || fail "expected $file to contain: $expected"
 }
 
-assert_fails() {
+assert_fails() { # expected root [locale]
 	local expected="$1"
 	local root="$2"
+	local locale_name="${3:-}"
 	local output
 	local status
 
 	set +e
-	output="$(cd "$root" && bash scripts/check-skill-layout.sh 2>&1)"
+	if [[ -n "$locale_name" ]]; then
+		output="$(cd "$root" && LC_ALL="$locale_name" LANG="$locale_name" \
+			bash scripts/check-skill-layout.sh 2>&1)"
+	else
+		output="$(cd "$root" && bash scripts/check-skill-layout.sh 2>&1)"
+	fi
 	status="$?"
 	set -e
 	[[ "$status" -ne 0 ]] || fail "expected failure containing: $expected"
@@ -74,6 +80,18 @@ tmpdir="$(mktemp -d "$tmp_base/skill-layout-test.XXXXXX")"
 	fail "fixtures must be created under $tmp_base"
 trap 'rm -R "$tmpdir"' EXIT
 case_count=0
+
+# The ASCII-portability rules are bracket expressions, and bash takes a bracket
+# range from the locale's collation -- so the property worth asserting is that
+# they bite under the locale a developer actually runs, not under whichever one
+# this suite inherits. Pin a territory UTF-8 locale where the host has one.
+# `C.UTF-8` is deliberately not accepted as a substitute: it does not reproduce
+# the collation behaviour, so a suite that settled for it would pass while the
+# defect was live (ADR 0023). With no such locale installed the cases below still
+# run under the inherited locale -- they stop proving the property, rather than
+# turning a portability check into a host-configuration check.
+utf8_locale="$(locale -a 2>/dev/null |
+	rg -N -m1 '^[a-z]{2}_[A-Z]{2}\.(utf8|UTF-8)$' || true)"
 
 example_skill="$repo_root/examples/project-review-skills/accessibility-reviewer/SKILL.md"
 bob_instructions="$repo_root/examples/bob-project/AGENTS.md"
@@ -244,6 +262,20 @@ for inventory_name in 'content/skills:skill-01' \
 		assert_package_case "$package_case" "$inventory" "$name"
 	done
 done
+
+# Both rules below are ranges rewritten as explicit ASCII enumerations. Under a
+# territory UTF-8 locale the range forms admit accented letters, so these two
+# cases are what stops the enumerations from being "simplified" back.
+root="$(new_fixture)"
+printf '%s\n' 'resource' >"$root/content/skills/skill-01/café.md"
+assert_fails 'content/skills/skill-01/café.md: path component is not portable ASCII' \
+	"$root" "$utf8_locale"
+
+# The reserved inventory is the one non-ASCII site the path rule cannot reach:
+# its entries are read from a file rather than found on disk.
+root="$(new_fixture)"
+printf '%s\n' 'café' >>"$root/scripts/reserved-skill-names.txt"
+assert_fails 'scripts/reserved-skill-names.txt: invalid name: café' "$root" "$utf8_locale"
 
 root="$(new_fixture)"
 printf '%s\n' 'Use ~/.codex/skills here.' >>"$root/content/skills/skill-01/SKILL.md"

@@ -1,6 +1,19 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Enumerated, not the ranges [a-z0-9] and [A-Za-z0-9]: a bash bracket expression
+# takes its ranges from the locale's collation, so under en_US.UTF-8 -- the
+# ordinary interactive locale -- [A-Za-z] admits accented letters. Written as a
+# range the ASCII-portability rules below do not bite on the host that actually
+# runs them, which is how `café.md` passed a check whose message says "portable
+# ASCII" (ADR 0023 closed the same defect in tracker.sh). Pinning the collation
+# instead would mean an `LC_ALL=C` subshell around every match, since a variable
+# assignment cannot prefix the `[[` builtin. Do not "simplify" these back to
+# ranges; `check-skill-layout-test.sh` fails if you do.
+ascii_lower_digit='abcdefghijklmnopqrstuvwxyz0123456789'
+ascii_alnum="ABCDEFGHIJKLMNOPQRSTUVWXYZ$ascii_lower_digit"
+readonly ascii_lower_digit ascii_alnum
+
 skill_error() {
 	local path="$1"
 	shift
@@ -17,7 +30,8 @@ validate_reserved_names() {
 		case "$entry" in
 		'' | \#*) continue ;;
 		esac
-		if [[ ! "$entry" =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?$ || "$entry" == *--* ]]; then
+		if [[ ! "$entry" =~ ^[$ascii_lower_digit]([$ascii_lower_digit-]*[$ascii_lower_digit])?$ ||
+			"$entry" == *--* ]]; then
 			skill_error 'scripts/reserved-skill-names.txt' "invalid name: $entry"
 		fi
 	done <"$reserved"
@@ -77,7 +91,7 @@ validate_relative_path() {
 		)"
 		[[ "$byte_length" -ge 1 && "$byte_length" -le 100 ]] ||
 			skill_error "$inventory/$relative" 'path component length must be 1-100 bytes'
-		[[ "$component" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] ||
+		[[ "$component" =~ ^[$ascii_alnum][$ascii_alnum._-]*$ ]] ||
 			skill_error "$inventory/$relative" 'path component is not portable ASCII'
 		[[ "$component" != *. ]] ||
 			skill_error "$inventory/$relative" 'path component must not end in a dot'
@@ -143,7 +157,7 @@ validate_skill() {
 	local inventory="$2"
 	local name="${skill_dir##*/}"
 
-	if [[ ! "$name" =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?$ ||
+	if [[ ! "$name" =~ ^[$ascii_lower_digit]([$ascii_lower_digit-]*[$ascii_lower_digit])?$ ||
 		"$name" == *--* || ${#name} -gt 64 ]]; then
 		skill_error "$inventory/$name" 'invalid skill name'
 	fi
