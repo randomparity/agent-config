@@ -36,20 +36,24 @@ lint:
     .github/scripts/*.sh .github/scripts/profiles/*.sh \
     content/skills/issue/scripts/*.sh \
     content/skills/issue/scripts/testdata/*.sh \
+    content/skills/brainstorming/scripts/*.sh \
     content/skills/brainstorming/scripts/testdata/*.sh \
     content/skills/github-tracking/assets/*.sh \
     content/skills/github-tracking/assets/profiles/*.sh \
     content/skills/github-tracking/assets/testdata/*.sh
 
-# The brainstorming suite takes `-i 2`: the vendored scripts it exercises are
-# two-space indented, so the repository default would have turned a rename into a
-# rewrite and left the suite inconsistent with the script under test.
+# The brainstorming scripts and the suite that exercises them take `-i 2`. The
+# scripts are vendored upstream at two-space indent; keeping that indent keeps the
+# diff against upstream readable, which is what makes re-vendoring tractable.
+# ADR 0025 gave the suite `-i 2` for the same reason, so this is one answer to one
+# question rather than two (#57).
 format-check:
   shfmt -d install.sh install-tools.sh install-test.sh install-tools-test.sh scripts/*.sh
   shfmt -i 2 -d .github/scripts/*.sh .github/scripts/profiles/*.sh
   shfmt -d content/skills/issue/scripts/*.sh \
     content/skills/issue/scripts/testdata/*.sh
-  shfmt -i 2 -d content/skills/brainstorming/scripts/testdata/*.sh
+  shfmt -i 2 -d content/skills/brainstorming/scripts/*.sh \
+    content/skills/brainstorming/scripts/testdata/*.sh
   shfmt -d content/skills/github-tracking/assets/*.sh \
     content/skills/github-tracking/assets/profiles/*.sh \
     content/skills/github-tracking/assets/testdata/*.sh
@@ -59,7 +63,8 @@ format:
   shfmt -i 2 -w .github/scripts/*.sh .github/scripts/profiles/*.sh
   shfmt -w content/skills/issue/scripts/*.sh \
     content/skills/issue/scripts/testdata/*.sh
-  shfmt -i 2 -w content/skills/brainstorming/scripts/testdata/*.sh
+  shfmt -i 2 -w content/skills/brainstorming/scripts/*.sh \
+    content/skills/brainstorming/scripts/testdata/*.sh
   shfmt -w content/skills/github-tracking/assets/*.sh \
     content/skills/github-tracking/assets/profiles/*.sh \
     content/skills/github-tracking/assets/testdata/*.sh
