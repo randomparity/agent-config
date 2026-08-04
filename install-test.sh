@@ -360,11 +360,11 @@ assert_canonical_skills "$CLAUDE_CONFIG_DIR"
 # narrowing `stage_skills` back to `-type d` leaves them all green. Install from
 # a copy of the repository with such a file planted in it instead.
 #
-# The copy enumerates what `install.sh` reads rather than taking the whole tree,
-# so a new read fails loudly here — `install: missing source for <rel>: <path>`,
-# naming the fixture — instead of being satisfied by whatever a blanket copy
-# happened to carry. Both the copy and its destination sit under `$tmpdir`, so
-# the suite's existing trap removes them.
+# The copy takes the four repository paths `install.sh` reads under rather than
+# the whole tree, so a read that leaves them fails loudly here — `install:
+# missing source for <rel>: <path>`, naming the fixture — instead of being
+# satisfied by whatever a blanket copy happened to carry. Both the copy and its
+# destination sit under `$tmpdir`, so the suite's existing trap removes them.
 fixture_repo="$tmpdir/fixture-repo"
 fixture_dest="$tmpdir/fixture-dest"
 # Both names are written once and read everywhere below. Spelling either at each
@@ -382,9 +382,14 @@ fixture_entry=testdata
 mkdir -p "$fixture_repo/docs"
 cp -pR "$REPO/install.sh" "$REPO/content" "$REPO/agents" "$fixture_repo/"
 cp -pR "$REPO/docs/licenses" "$fixture_repo/docs/"
+fixture_plant="$fixture_repo/content/skills/$fixture_skill/$fixture_entry"
 write_text "$fixture_repo/content/skills/$fixture_skill/SKILL.md" '# fixture only'
-write_text "$fixture_repo/content/skills/$fixture_skill/$fixture_entry" \
-	'not a directory'
+write_text "$fixture_plant" 'not a directory'
+# The file half of the rule is the whole point of this case. A plant that became
+# a directory would re-test the coverage every case above already has, and the
+# `find` below matches either type by design, so nothing else would notice.
+[[ -f "$fixture_plant" ]] ||
+	fail "fixture plant must be a plain file: $fixture_plant"
 
 # A one-shot destination rather than the exported one, so the assertions above
 # keep the tree they were made against.
@@ -394,9 +399,9 @@ CLAUDE_CONFIG_DIR="$fixture_dest" AGENT_CONFIG_HOST=test-host \
 # The fixture-only skill first: it carries both that the install staged
 # something and that what it staged was the copy.
 assert_file "$fixture_dest/skills/$fixture_skill/SKILL.md"
-# The whole set rather than the planted path, matching `assert_no_stub_profile`:
-# a filter that stopped matching below some depth would still remove this plant
-# and survive a check for one name.
+# The whole set rather than the planted path, matching `assert_no_stub_profile`.
+# It matches either type, so it re-asserts the directory half of the rule
+# against the copy rather than only the file the plant added.
 fixture_leftover="$(find "$fixture_dest/skills" -name "$fixture_entry" -print)"
 [[ -z "$fixture_leftover" ]] ||
 	fail "fixture install carries a test-only asset entry: $fixture_leftover"
