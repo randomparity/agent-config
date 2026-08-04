@@ -40,6 +40,19 @@ assert_contains() {
 	rg -F -- "$needle" "$file" >/dev/null || fail "missing '$needle' in $file"
 }
 
+# Two grammars below are ASCII bracket expressions, and bash takes a bracket
+# range from the locale's collation -- so the property worth asserting is that
+# they bite under the locale a developer actually runs, not under whichever one
+# this suite inherits. Pin a territory UTF-8 locale where the host has one.
+# `C.UTF-8` is deliberately not accepted as a substitute: it does not reproduce
+# the collation behaviour, so a suite that settled for it would pass while the
+# defect was live (ADR 0023). With no such locale the accented candidates are
+# rejected whatever the grammar, so the cases still pass -- they stop proving the
+# property, rather than turning a portability check into a host-configuration
+# check.
+utf8_locale=$(locale -a 2>/dev/null |
+	rg -N -m1 '^[a-z]{2}_[A-Z]{2}\.(utf8|UTF-8)$' || true)
+
 # Three distinct paths default to github, and each is a place where a
 # regression would silently change which tracker a write reaches.
 # (a) no git root at all
@@ -461,6 +474,30 @@ GH_FAIL=notfound GH_CALL_LOG="$sandbox/calls" PATH="$sandbox/bin:$PATH" \
 	>"$sandbox/out" 2>"$sandbox/err" || status=$?
 assert_exit 2 "$status" 'label-history against a missing repo'
 assert_error "$sandbox/err" not-found "gh's real 404 wording"
+
+# The label guard exists because the value is spliced into a jq program, and its
+# character set is ASCII by construction. Written as a range it is not: under a
+# territory UTF-8 locale `[A-Za-z]` admits accented letters, so `statusé` reached
+# the splice through a guard whose comment says it restricts the label to the
+# characters GitHub labels use. Rejection here is what makes the enumeration in
+# the profile load-bearing; reverting it to a range turns this case red.
+status=0
+GH_CALL_LOG="$sandbox/calls" PATH="$sandbox/bin:$PATH" LC_ALL="${utf8_locale:-C}" \
+	"$tracker" label-history --profile github --target example/repo 101 'statusé' \
+	>"$sandbox/out" 2>"$sandbox/err" || status=$?
+assert_exit 1 "$status" 'label-history with an accented label'
+assert_error "$sandbox/err" usage 'accented label'
+assert_contains 'label cannot be queried safely' "$sandbox/err"
+
+# The same grammar still admits every character a GitHub label actually uses, so
+# the enumeration is not quietly narrower than the range it replaced.
+for label in status:ready 'has space' dot.name slash/x under_score dash-x; do
+	status=0
+	GH_CALL_LOG="$sandbox/calls" PATH="$sandbox/bin:$PATH" LC_ALL="${utf8_locale:-C}" \
+		"$tracker" label-history --profile github --target example/repo 101 "$label" \
+		>"$sandbox/out" 2>"$sandbox/err" || status=$?
+	assert_exit 0 "$status" "label-history with the label '$label'"
+done
 
 # --- stderr must never become the payload -----------------------------------
 # gh prints its release-update notice on stderr while exiting 0. Merging the
