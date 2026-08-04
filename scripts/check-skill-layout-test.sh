@@ -13,14 +13,20 @@ assert_contains() {
 	rg -Fq "$expected" "$file" || fail "expected $file to contain: $expected"
 }
 
-assert_fails() {
+assert_fails() { # expected root [locale]
 	local expected="$1"
 	local root="$2"
+	local locale_name="${3:-}"
 	local output
 	local status
 
 	set +e
-	output="$(cd "$root" && bash scripts/check-skill-layout.sh 2>&1)"
+	if [[ -n "$locale_name" ]]; then
+		output="$(cd "$root" && LC_ALL="$locale_name" LANG="$locale_name" \
+			bash scripts/check-skill-layout.sh 2>&1)"
+	else
+		output="$(cd "$root" && bash scripts/check-skill-layout.sh 2>&1)"
+	fi
 	status="$?"
 	set -e
 	[[ "$status" -ne 0 ]] || fail "expected failure containing: $expected"
@@ -49,9 +55,17 @@ new_fixture() {
 
 	root="$(mktemp -d "$tmpdir/case.XXXXXX")"
 	mkdir -p "$root/scripts" "$root/agents/claude/shared" \
-		"$root/agents/codex/shared" "$root/agents/bob/shared"
+		"$root/agents/codex/shared" "$root/agents/bob/shared" \
+		"$root/content/languages" "$root/content/references"
 	cp "$implementation" "$root/scripts/check-skill-layout.sh"
 	cp "$reserved" "$root/scripts/reserved-skill-names.txt"
+	# The two roots `install_common_content` deploys verbatim. The guard fails
+	# closed when either is absent, so a fixture without them fails on the
+	# missing root rather than on the rule the case targets. Each holds a file:
+	# the config-root scan below reads them, and an empty directory would leave
+	# it scanning nothing.
+	printf '%s\n' '# Fixture language reference.' >"$root/content/languages/bash.md"
+	printf '%s\n' '# Fixture shared reference.' >"$root/content/references/style.md"
 	write_skill "$root" 'content/skills' 'skill-01'
 	write_skill "$root" 'examples/project-review-skills' 'accessibility-reviewer'
 	printf '%s\n' "$root"
@@ -64,8 +78,23 @@ tmp_base="${TMPDIR:-/tmp}"
 tmpdir="$(mktemp -d "$tmp_base/skill-layout-test.XXXXXX")"
 [[ "$tmpdir" == "$tmp_base"/skill-layout-test.* ]] ||
 	fail "fixtures must be created under $tmp_base"
-trap 'rm -R "$tmpdir"' EXIT
+# Widen before removing: a case below leaves a fixture file mode 000 to make rg
+# fail its scan, and `rm -R` prompts on a write-protected file when stdin is a
+# terminal -- so a case that failed before restoring the mode would hang cleanup.
+trap 'chmod -R u+rwX "$tmpdir" 2>/dev/null || true; rm -R "$tmpdir"' EXIT
 case_count=0
+
+# The ASCII-portability rules are bracket expressions, and bash takes a bracket
+# range from the locale's collation -- so the property worth asserting is that
+# they bite under the locale a developer actually runs, not under whichever one
+# this suite inherits. Pin a territory UTF-8 locale where the host has one.
+# `C.UTF-8` is deliberately not accepted as a substitute: it does not reproduce
+# the collation behaviour, so a suite that settled for it would pass while the
+# defect was live (ADR 0023). With no such locale installed the cases below still
+# run under the inherited locale -- they stop proving the property, rather than
+# turning a portability check into a host-configuration check.
+utf8_locale="$(locale -a 2>/dev/null |
+	rg -N -m1 '^[a-z]{2}_[A-Z]{2}\.(utf8|UTF-8)$' || true)"
 
 example_skill="$repo_root/examples/project-review-skills/accessibility-reviewer/SKILL.md"
 bob_instructions="$repo_root/examples/bob-project/AGENTS.md"
@@ -237,9 +266,72 @@ for inventory_name in 'content/skills:skill-01' \
 	done
 done
 
+# Both rules below are ranges rewritten as explicit ASCII enumerations. Under a
+# territory UTF-8 locale the range forms admit accented letters, so these two
+# cases are what stops the enumerations from being "simplified" back.
+root="$(new_fixture)"
+printf '%s\n' 'resource' >"$root/content/skills/skill-01/café.md"
+assert_fails 'content/skills/skill-01/café.md: path component is not portable ASCII' \
+	"$root" "$utf8_locale"
+
+# The reserved inventory is the one non-ASCII site the path rule cannot reach:
+# its entries are read from a file rather than found on disk.
+root="$(new_fixture)"
+printf '%s\n' 'café' >>"$root/scripts/reserved-skill-names.txt"
+assert_fails 'scripts/reserved-skill-names.txt: invalid name: café' "$root" "$utf8_locale"
+
 root="$(new_fixture)"
 printf '%s\n' 'Use ~/.codex/skills here.' >>"$root/content/skills/skill-01/SKILL.md"
 assert_fails 'installed config-root reference is forbidden' "$root"
+
+# The config-root scan excludes `testdata` exactly as `stage_skills` does (ADR
+# 0025), and no path on the repository tree exercises that exclusion -- a fixture
+# is the only place the excluded content exists, so it is the only place the
+# exclusion can be shown to work.
+root="$(new_fixture)"
+mkdir -p "$root/content/skills/skill-01/testdata"
+printf '%s\n' 'Use ~/.claude/skills here.' \
+	>"$root/content/skills/skill-01/testdata/fixture.md"
+output="$(cd "$root" && bash scripts/check-skill-layout.sh)"
+[[ "$output" == 'skills-check: ok (1 canonical skills, 1 project review examples)' ]] || fail "$output"
+
+# The exclusion is scoped to `content/skills`, the one root the installer
+# filters. `content/languages` deploys verbatim, so a `testdata` entry there
+# really does ship and has to stay visible to the scan.
+root="$(new_fixture)"
+mkdir -p "$root/content/languages/testdata"
+printf '%s\n' 'Use ~/.claude/skills here.' >"$root/content/languages/testdata/fixture.md"
+assert_fails 'installed config-root reference is forbidden' "$root"
+
+# rg exits 2 for any scan it could not complete, and the gate used to read that
+# as "no matches" and report ok. Root reads an unreadable file, so there the case
+# would assert nothing.
+if [[ "$EUID" -ne 0 ]]; then
+	root="$(new_fixture)"
+	printf '%s\n' 'Use ~/.claude/skills here.' >"$root/content/languages/unreadable.md"
+	chmod 000 "$root/content/languages/unreadable.md"
+	assert_fails 'config-root scan failed' "$root"
+	chmod 644 "$root/content/languages/unreadable.md"
+fi
+
+# An absent rg has to be an error too: `if rg -Fxq` reads exit 127 as "not a
+# reserved name" and the config-root scan read it as "no matches". The shim
+# directory holds every other command the gate runs, so the failure below is the
+# rg guard rather than whichever tool PATH happened to drop first.
+shim_bin="$tmpdir/shim-bin"
+mkdir -p "$shim_bin"
+for shim_tool in dirname mktemp find iconv sed jq wc tr sort cut uniq rm; do
+	ln -s "$(command -v "$shim_tool")" "$shim_bin/$shim_tool"
+done
+root="$(new_fixture)"
+set +e
+output="$(cd "$root" && PATH="$shim_bin" "$BASH" scripts/check-skill-layout.sh 2>&1)"
+status="$?"
+set -e
+[[ "$status" -ne 0 ]] || fail 'expected failure when rg is absent'
+printf '%s\n' "$output" | rg -Fq 'skills-check: rg is required' ||
+	fail "expected the rg guard to fire; got: $output"
+case_count=$((case_count + 1))
 
 root="$(new_fixture)"
 mv "$root/examples/project-review-skills" "$root/project-review-skills"

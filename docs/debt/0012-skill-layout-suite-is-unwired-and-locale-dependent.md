@@ -78,6 +78,36 @@ neither has a gate:
 
 One owner for both, rather than two records saying a site is unenforced.
 
+### Criteria as of #56
+
+Issue #56 closed the first paragraph above and one of the two unenforced sites.
+The locale fix landed as explicit ASCII enumerations rather than an `LC_ALL=C`
+subshell — a variable assignment cannot prefix the `[[` builtin, so pinning the
+collation would have meant a subshell around every match. That is the same remedy
+ADR 0023 chose for `tracker.sh`, so it needs no record of its own. The suite is
+wired into the `Justfile` `test` recipe, `just verify` is green, and reverting the
+enumerations to ranges turns it red under a territory UTF-8 locale. The
+`check-skill-layout.sh` `testdata` exclusion now has a case, as this section
+asked, plus a second case pinning the exclusion to `content/skills` so it cannot
+be widened over roots that deploy verbatim.
+
+The two deferrals that remain now have issues, and this record is Open as their
+owner until both close:
+
+- #59 — the gate asserting every `*-test.sh` is reached by a recipe. This is the
+  recurrence, not the instance, and it could not land before the locale fix
+  because it would have gone red on this very suite. That constraint is now gone.
+- #60 — the fixture-repo case for `stage_skills`'s entry-shaped filter, the second
+  of the two sites ADR 0025 names without a gate.
+
+Resolve this record when both are merged. Neither is a prerequisite of the other.
+
+Two further defects were found only because #56 ran the suite for the first time,
+which is the argument for #59 rather than evidence against this record: the
+`café.md` case had never fired, and PR #58's fail-closed guard for a missing
+deployed content root had silently broken the suite's fixture, which did not create
+`content/languages` or `content/references`.
+
 ## Provenance
 
 target: scripts/check-skill-layout-test.sh

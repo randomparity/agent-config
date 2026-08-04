@@ -74,6 +74,7 @@ test:
   ./scripts/check-deployed-references-test.sh
   ./scripts/check-workflow-scope-contract-test.sh
   ./scripts/check-cleared-dependencies-test.sh
+  ./scripts/check-skill-layout-test.sh
 
 skills-check:
   ./scripts/check-skill-layout.sh
