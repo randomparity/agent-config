@@ -354,4 +354,31 @@ assert_not_file "$stale_suite"
 assert_no_test_suites "$CLAUDE_CONFIG_DIR"
 assert_canonical_skills "$CLAUDE_CONFIG_DIR"
 
+# ADR 0025's exclusion matches an entry *named* `testdata`, file or directory.
+# Nothing above reaches the file half of that rule: every case so far installs
+# from the real repository, which carries no plain file by that name, so
+# narrowing `stage_skills` back to `-type d` leaves them all green. Install from
+# a copy of the repository with such a file planted in it instead.
+#
+# The copy is the expensive part, so it takes the paths `install.sh` reads and
+# not the whole tree — `.git` is the bulk of what that would drag in. Both the
+# copy and its destination sit under `$tmpdir`, so the suite's existing trap
+# removes them.
+fixture_repo="$tmpdir/fixture-repo"
+fixture_dest="$tmpdir/fixture-dest"
+mkdir -p "$fixture_repo/docs"
+cp -pR "$REPO/install.sh" "$REPO/content" "$REPO/agents" "$fixture_repo/"
+cp -pR "$REPO/docs/licenses" "$fixture_repo/docs/licenses"
+write_text "$fixture_repo/content/skills/brainstorming/testdata" 'not a directory'
+
+# A one-shot destination rather than the exported one, so the assertions above
+# keep the tree they were made against.
+CLAUDE_CONFIG_DIR="$fixture_dest" AGENT_CONFIG_HOST=test-host \
+	"$fixture_repo/install.sh" --agent claude
+
+# The skill's own file first: without it the absence below would also hold for
+# an install that staged nothing at all.
+assert_file "$fixture_dest/skills/brainstorming/SKILL.md"
+assert_not_file "$fixture_dest/skills/brainstorming/testdata"
+
 printf 'install-test: ok\n'
