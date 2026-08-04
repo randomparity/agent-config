@@ -81,9 +81,13 @@ test:
   ./scripts/check-workflow-scope-contract-test.sh
   ./scripts/check-cleared-dependencies-test.sh
   ./scripts/check-skill-layout-test.sh
+  ./scripts/check-suite-coverage-test.sh
 
 skills-check:
   ./scripts/check-skill-layout.sh
+
+suites-check:
+  ./scripts/check-suite-coverage.sh
 
 public-safety:
   ./scripts/check-public-safety.sh
@@ -95,7 +99,7 @@ actions-check:
   actionlint
   zizmor --offline .github/workflows/
 
-verify: tools-check records lint format-check skills-check test public-safety references-check actions-check
+verify: tools-check records lint format-check skills-check suites-check test public-safety references-check actions-check
 
 ci: verify
   prek run --all-files
