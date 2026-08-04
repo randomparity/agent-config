@@ -354,4 +354,62 @@ assert_not_file "$stale_suite"
 assert_no_test_suites "$CLAUDE_CONFIG_DIR"
 assert_canonical_skills "$CLAUDE_CONFIG_DIR"
 
+# ADR 0025's exclusion matches an entry *named* `testdata`, file or directory.
+# Nothing above reaches the file half of that rule: every case so far installs
+# from the real repository, which carries no plain file by that name, so
+# narrowing `stage_skills` back to `-type d` leaves them all green. Install from
+# a copy of the repository with such a file planted in it instead.
+#
+# The copy takes the four repository paths `install.sh` reads under rather than
+# the whole tree, so a read that leaves them fails loudly here, naming the
+# fixture path, instead of being satisfied by whatever a blanket copy happened
+# to carry. Both the copy and its destination sit under `$tmpdir`, so the
+# suite's existing trap removes them.
+fixture_repo="$tmpdir/fixture-repo"
+fixture_dest="$tmpdir/fixture-dest"
+# Both names are written once and read everywhere below. Spelling either at each
+# use lets an edit reach the planted entry and not the assertion that looks for
+# it, which leaves this case green while testing nothing — the vacuous-assertion
+# failure ADR 0025 names.
+fixture_skill=fixture-only
+fixture_entry=testdata
+# The skill has to be one the canonical tree does not carry, for the reason the
+# install call below gives. That is a property of the name, so assert it rather
+# than trusting the reader of a comment to preserve it.
+[[ ! -e "$REPO/content/skills/$fixture_skill" ]] ||
+	fail "fixture skill must be absent from the canonical tree: $fixture_skill"
+mkdir -p "$fixture_repo/docs"
+cp -pR "$REPO/install.sh" "$REPO/content" "$REPO/agents" "$fixture_repo/"
+cp -pR "$REPO/docs/licenses" "$fixture_repo/docs/"
+fixture_plant="$fixture_repo/content/skills/$fixture_skill/$fixture_entry"
+write_text "$fixture_repo/content/skills/$fixture_skill/SKILL.md" '# fixture only'
+write_text "$fixture_plant" 'not a directory'
+# The file half of the rule is the whole point of this case. A plant that became
+# a directory would re-test the coverage every case above already has, and the
+# `find` below matches either type by design, so nothing else would notice.
+[[ -f "$fixture_plant" ]] ||
+	fail "fixture plant must be a plain file: $fixture_plant"
+
+# A one-shot destination rather than the exported one, so the assertions above
+# keep the tree they were made against.
+#
+# The copy's installer, not `./install.sh`. Every case above runs the latter and
+# the fixture's copy is byte-identical, so normalising this call to match them
+# looks like a no-op — `install.sh` takes its repository root from
+# `${BASH_SOURCE[0]}`, and the fixture would stop being staged at all. What
+# catches that is the skill above existing only in the copy: the assertions then
+# cannot be satisfied by an install that read the real repository.
+CLAUDE_CONFIG_DIR="$fixture_dest" AGENT_CONFIG_HOST=test-host \
+	"$fixture_repo/install.sh" --agent claude
+
+# The fixture-only skill first: it carries both that the install staged
+# something and that what it staged was the copy.
+assert_file "$fixture_dest/skills/$fixture_skill/SKILL.md"
+# The whole set rather than the planted path, matching `assert_no_stub_profile`.
+# It matches either type, so it re-asserts the directory half of the rule
+# against the copy rather than only the file the plant added.
+fixture_leftover="$(find "$fixture_dest/skills" -name "$fixture_entry" -print)"
+[[ -z "$fixture_leftover" ]] ||
+	fail "fixture install carries a test-only asset entry: $fixture_leftover"
+
 printf 'install-test: ok\n'
