@@ -360,16 +360,21 @@ assert_canonical_skills "$CLAUDE_CONFIG_DIR"
 # narrowing `stage_skills` back to `-type d` leaves them all green. Install from
 # a copy of the repository with such a file planted in it instead.
 #
-# The copy is the expensive part, so it takes the paths `install.sh` reads and
-# not the whole tree — `.git` is the bulk of what that would drag in. Both the
-# copy and its destination sit under `$tmpdir`, so the suite's existing trap
-# removes them.
+# The copy enumerates what `install.sh` reads rather than taking the whole tree,
+# so a new read fails loudly here — `install: missing source for <rel>` naming
+# the fixture — instead of being satisfied by whatever a blanket copy happened to
+# carry. Both the copy and its destination sit under `$tmpdir`, so the suite's
+# existing trap removes them.
 fixture_repo="$tmpdir/fixture-repo"
 fixture_dest="$tmpdir/fixture-dest"
+# One name for the planted entry's skill. Spelling it at each use would let a
+# rename reach the plant and not the assertions, which leaves the case green
+# while testing nothing — the vacuous-assertion failure ADR 0025 names.
+fixture_skill=brainstorming
 mkdir -p "$fixture_repo/docs"
 cp -pR "$REPO/install.sh" "$REPO/content" "$REPO/agents" "$fixture_repo/"
-cp -pR "$REPO/docs/licenses" "$fixture_repo/docs/licenses"
-write_text "$fixture_repo/content/skills/brainstorming/testdata" 'not a directory'
+cp -pR "$REPO/docs/licenses" "$fixture_repo/docs/"
+write_text "$fixture_repo/content/skills/$fixture_skill/testdata" 'not a directory'
 
 # A one-shot destination rather than the exported one, so the assertions above
 # keep the tree they were made against.
@@ -378,7 +383,12 @@ CLAUDE_CONFIG_DIR="$fixture_dest" AGENT_CONFIG_HOST=test-host \
 
 # The skill's own file first: without it the absence below would also hold for
 # an install that staged nothing at all.
-assert_file "$fixture_dest/skills/brainstorming/SKILL.md"
-assert_not_file "$fixture_dest/skills/brainstorming/testdata"
+assert_file "$fixture_dest/skills/$fixture_skill/SKILL.md"
+# The whole set rather than the planted path, matching `assert_no_stub_profile`:
+# a filter that stopped matching at some depth would still remove this plant and
+# survive a check for one name.
+fixture_leftover="$(find "$fixture_dest/skills" -name testdata -print)"
+[[ -z "$fixture_leftover" ]] ||
+	fail "fixture install carries a test-only asset entry: $fixture_leftover"
 
 printf 'install-test: ok\n'
