@@ -78,7 +78,10 @@ tmp_base="${TMPDIR:-/tmp}"
 tmpdir="$(mktemp -d "$tmp_base/skill-layout-test.XXXXXX")"
 [[ "$tmpdir" == "$tmp_base"/skill-layout-test.* ]] ||
 	fail "fixtures must be created under $tmp_base"
-trap 'rm -R "$tmpdir"' EXIT
+# Widen before removing: a case below leaves a fixture file mode 000 to make rg
+# fail its scan, and `rm -R` prompts on a write-protected file when stdin is a
+# terminal -- so a case that failed before restoring the mode would hang cleanup.
+trap 'chmod -R u+rwX "$tmpdir" 2>/dev/null || true; rm -R "$tmpdir"' EXIT
 case_count=0
 
 # The ASCII-portability rules are bracket expressions, and bash takes a bracket
