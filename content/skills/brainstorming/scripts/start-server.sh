@@ -159,11 +159,22 @@ SERVER_ID_FILE="${STATE_DIR}/server-instance-id"
 # Create fresh session directory with content and state peers
 mkdir -p "${SESSION_DIR}/content" "$STATE_DIR"
 
+# Enumerated, not the range [A-Za-z0-9_-]: a bash bracket expression takes its
+# ranges from the locale's collation, so under a territory UTF-8 locale -- the
+# ordinary interactive setting -- [A-Za-z] admits accented letters, and an id
+# this guard is meant to reject is written to disk and handed to the server
+# instead. Pinning the collation would mean an `LC_ALL=C` subshell around the
+# match, since a variable assignment cannot prefix the `[[` builtin.
+# Do not "simplify" this back to a range; testdata/start-server-test.sh fails if
+# you do. stop-server.sh reads this id back and spells the same set out.
+SERVER_ID_CHARS='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-'
+readonly SERVER_ID_CHARS
+
 SERVER_ID=""
 if [[ -r /dev/urandom ]]; then
   SERVER_ID="$(od -An -N24 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n' || true)"
 fi
-if ! [[ "$SERVER_ID" =~ ^[A-Za-z0-9_-]{32,64}$ ]]; then
+if ! [[ "$SERVER_ID" =~ ^[$SERVER_ID_CHARS]{32,64}$ ]]; then
   SERVER_ID="$(printf '%08x%08x%08x%08x' "$$" "$(date +%s)" "${RANDOM:-0}" "${RANDOM:-0}")"
 fi
 printf '%s\n' "$SERVER_ID" >"$SERVER_ID_FILE"

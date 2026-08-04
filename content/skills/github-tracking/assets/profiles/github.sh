@@ -157,6 +157,21 @@ profile_comment_list() {
 	jq '[.comments[].body]' <<<"$out"
 }
 
+# Enumerated, not the ranges [A-Za-z0-9._:/-] and [A-Za-z0-9._:/ -]: a bash
+# bracket expression takes its ranges from the locale's collation, so under a
+# territory UTF-8 locale -- the ordinary interactive setting -- [A-Za-z] admits
+# accented letters, and `statusé` reached the jq splice below through a guard
+# whose comment says it restricts the label to the characters GitHub labels use.
+# tracker.sh's profile-name check spells its set out for the same reason.
+# Pinning the collation instead would mean an `LC_ALL=C` subshell around the
+# match, since a variable assignment cannot prefix the `[[` builtin. Do not
+# "simplify" these back to ranges; testdata/tracker-test.sh fails if you do.
+# The two differ by exactly one character: the space, which a label may contain
+# but cannot begin with.
+github_label_first='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._:/-'
+github_label_rest='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._:/ -'
+readonly github_label_first github_label_rest
+
 # GitHub exposes a label timeline. A tracker without one declares label_history
 # degraded to "unknown" rather than guessing, which the tracking conventions
 # already define a behavior for.
@@ -167,7 +182,7 @@ profile_label_history() {
 	github_require_id "$id" 'issue id'
 	# The label is spliced into a jq program below, so restrict it to the
 	# character set GitHub labels actually use rather than escaping ad hoc.
-	[[ $label =~ ^[A-Za-z0-9._:/-][A-Za-z0-9._:/\ -]*$ ]] ||
+	[[ $label =~ ^[$github_label_first][$github_label_rest]*$ ]] ||
 		die "$EXIT_USAGE" usage "label cannot be queried safely: $label"
 	# --slurp aggregates pages before filtering. Without it gh applies --jq to
 	# each page separately and a paginated timeline yields one line per page.
