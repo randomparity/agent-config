@@ -43,10 +43,10 @@ lint:
     content/skills/github-tracking/assets/testdata/*.sh
 
 # The brainstorming scripts and the suite that exercises them take `-i 2`. The
-# scripts are vendored upstream at two-space indent; keeping that indent keeps the
-# diff against upstream readable, which is what makes re-vendoring tractable.
-# ADR 0025 gave the suite `-i 2` for the same reason, so this is one answer to one
-# question rather than two (#57).
+# scripts are vendored two-space-indented (ADR 0005, under which an upstream
+# update is a deliberate re-vendor that reviews the upstream diff against local
+# adaptations), so reformatting them to the repository default would cost that
+# diff for nothing. ADR 0025 gave the suite `-i 2` for the same reason (#57).
 format-check:
   shfmt -d install.sh install-tools.sh install-test.sh install-tools-test.sh scripts/*.sh
   shfmt -i 2 -d .github/scripts/*.sh .github/scripts/profiles/*.sh
