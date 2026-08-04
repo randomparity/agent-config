@@ -124,7 +124,7 @@ expect_green "$fixture" 'untracked suite'
 new_fixture
 sed -i '/beta-test\.sh/d' "$fixture/Justfile"
 expect_red "$fixture" 'suite dropped from test' \
-	'scripts/beta-test.sh' 'executed' 'test'
+	'scripts/beta-test.sh' 'executed' 'Justfile test recipe'
 
 # Commenting the line out must go red too. `just --dry-run` prints the comment
 # verbatim, so a gate that reads its output as "what will run" is green here.
@@ -171,6 +171,36 @@ sed -i '/gamma-test\.sh/d' "$fixture/Justfile"
 git -C "$fixture" add -A
 expect_red "$fixture" 'copies of an unreached suite' \
 	'mirror/gamma-test.sh' 'mirror/delta-test.sh'
+
+# A suite name carrying a glob metacharacter is compared literally. Read as a
+# pattern instead, this one matches .github/scripts/gamma-test.sh in the covered
+# set and is cleared with no clearance line to show for it.
+new_fixture
+metachar='.github/scripts/g*a-test.sh'
+printf '#!/usr/bin/env bash\n# metachar\nexit 0\n' >"$fixture/$metachar"
+git -C "$fixture" add -A
+expect_red "$fixture" 'glob metacharacter in a suite name' "$metachar" 'executed'
+
+# A suite whose name carries whitespace cannot be matched against output read by
+# word, so it is refused by name instead of reported as unwired.
+new_fixture
+printf '#!/usr/bin/env bash\nexit 0\n' >"$fixture/scripts/two words-test.sh"
+git -C "$fixture" add -A
+expect_red "$fixture" 'whitespace in a suite name' \
+	'two words-test.sh' 'contains whitespace'
+
+# A suite still in the index but gone from the worktree is named as such, rather
+# than being reported as wiring the contributor forgot.
+new_fixture
+rm "$fixture/scripts/beta-test.sh"
+expect_red "$fixture" 'suite deleted but not staged' \
+	'scripts/beta-test.sh' 'missing from the worktree'
+
+# A scanned recipe that pulls in another folds that recipe's dimension into its
+# own, so the gate refuses to read it rather than reporting over a merged set.
+new_fixture
+sed -i 's|^test:$|test: lint|' "$fixture/Justfile"
+expect_red "$fixture" 'scanned recipe with a dependency' 'test' 'lint' 'stand alone'
 
 # An enumeration that finds nothing is a broken gate, not a passing one. Untracking
 # the suites leaves them all on disk, so nothing but the tracked-only enumeration

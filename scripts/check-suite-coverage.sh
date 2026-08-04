@@ -18,7 +18,7 @@ DIMENSIONS=(
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-for tool in git just cmp; do
+for tool in git just jq cmp; do
 	if ! command -v "$tool" >/dev/null 2>&1; then
 		printf 'suite-coverage: %s is required\n' "$tool" >&2
 		exit 2
@@ -48,7 +48,22 @@ collect_paths() {
 }
 
 is_covered() {
-	[[ $'\n'$covered == *$'\n'$1$'\n'* ]]
+	[[ $'\n'$covered == *$'\n'"$1"$'\n'* ]]
+}
+
+# A dimension is only separate from the others while its recipes pull in no
+# others: `test: lint` would fold the linted set into the executed one and go
+# green over a suite nothing runs.
+assert_standalone() {
+	local recipe=$1 dependencies
+	dependencies=$(printf '%s' "$dump" | jq -r --arg r "$recipe" \
+		'.recipes[$r].dependencies[].recipe')
+	if [[ -n $dependencies ]]; then
+		printf 'suite-coverage: recipe %s has dependencies (%s)\n' \
+			"$recipe" "${dependencies//$'\n'/, }" >&2
+		printf '  a scanned recipe must stand alone, or it inherits another dimension\n' >&2
+		exit 1
+	fi
 }
 
 # Sets $twin to a reached suite with identical bytes, if one exists.
@@ -67,6 +82,10 @@ find_twin() {
 report_unreached() {
 	local dimension=$1 suite=$2
 	printf 'suite-coverage: %s is not %s by any recipe\n' "$suite" "$dimension" >&2
+	if [[ ! -f $suite ]]; then
+		printf '  it is tracked but missing from the worktree; stage the deletion\n' >&2
+		return
+	fi
 	case $dimension in
 	executed)
 		if [[ $suite == .github/scripts/* ]]; then
@@ -81,18 +100,32 @@ report_unreached() {
 	esac
 }
 
-mapfile -t suites < <(git ls-files -- '*-test.sh')
+# -z rather than newlines: git quotes a non-ASCII path otherwise, and an escaped
+# path can never match the recipe output it is compared against.
+mapfile -d '' -t suites < <(git ls-files -z -- '*-test.sh')
 if ((${#suites[@]} == 0)); then
 	printf 'suite-coverage: no tracked *-test.sh found; refusing to pass over nothing\n' >&2
 	exit 1
 fi
+for suite in "${suites[@]}"; do
+	if [[ $suite == *[[:space:]]* ]]; then
+		printf 'suite-coverage: %s contains whitespace\n' "$suite" >&2
+		printf '  recipe output is read by word, so no recipe can be seen to name it\n' >&2
+		exit 1
+	fi
+done
+
+dump=$(just --dump --dump-format json)
 
 status=0
 clearances=
 for entry in "${DIMENSIONS[@]}"; do
 	dimension=${entry%%:*}
 	covered=
-	for recipe in ${entry#*:}; do collect_paths "$recipe"; done
+	for recipe in ${entry#*:}; do
+		assert_standalone "$recipe"
+		collect_paths "$recipe"
+	done
 
 	reached_suites=
 	unreached=()

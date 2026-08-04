@@ -30,9 +30,8 @@ the shape, and three of them are not obvious.
 
 **It does not expand a shebang recipe.** The issue's premise that dry-run "expands
 each recipe to the commands it will execute" is true for a plain recipe and false
-for a shebang recipe: `just --dry-run test` prints eleven suite invocations, one
-per line, and `just --dry-run records` prints the recipe *source*, `for` loop and
-all. A gate that reads dry-run output is reading two different things and has to be
+for a shebang recipe: `just --dry-run test` prints its suite invocations one per
+line, and `just --dry-run records` prints the recipe *source*, `for` loop and all. A gate that reads dry-run output is reading two different things and has to be
 correct for both.
 
 **It writes to stderr, not stdout.** All five recipes below print nothing on
@@ -100,11 +99,19 @@ that the recipe did not really name — a false green, which is the thing this g
 exists to prevent. It requires a word that is not a path yet resolves to a tracked
 suite. One such word exists today: `shared_assets="check-records.sh` splits to leave
 a bare `check-records-test.sh`, which resolves to nothing only because no file of
-that name sits at the repository root. Working from the root rather than the
-caller's directory is what keeps that true, and it is asserted by the suite rather
-than assumed. A tracked suite added at the repository root whose basename also
-appears as a bare word in a scanned recipe would be cleared wrongly; that is the
-known hole, and it is narrow enough to name rather than to build parsing for.
+that name sits at the repository root. A tracked suite added at the repository
+root whose basename also appears as a bare word in a scanned recipe would be
+cleared wrongly. That is the known hole, and it is narrow enough to name rather
+than to build parsing for: the rule that would close it — abandon a line whose
+first word is an assignment — buys a contrived false green at the price of a
+plausible false red, the day someone lifts a recipe's paths into a variable.
+
+Two nearby holes are closed rather than named, because both are cheap. A suite
+name carrying a glob metacharacter is compared literally, not as a pattern, so it
+cannot match some other covered path; and a name carrying whitespace is refused by
+name, because output read by word cannot be seen to contain it. The gate works
+from the repository root rather than the caller's directory, so its verdict does
+not move with the caller — that much the suite asserts.
 
 **The dimensions keep separate recipe lists:**
 
@@ -122,11 +129,15 @@ writing a path `just format-check` checked, and a union over the two recipes is
 green over precisely that. They resolve identical sets today, so the split costs one
 `just` invocation and buys the disagreement.
 
-The dimensions are kept apart at all because `verify` reaches all of them, and a
-single merged scan would report a suite that is only *linted* as run. That
-separation holds only while these five recipes have no `just` dependencies — a
-`test: lint` would fold the linted set into the executed one. None has a dependency
-today; the gate does not check for one, and this sentence is the record of that.
+The dimensions are kept apart at all because a single merged scan would report a
+suite that is only *linted* as run. `verify` reaches every one of these recipes
+except `format`, which writes and so is a check's fixer rather than a check.
+
+That separation holds only while the five recipes stand alone: `test: lint` would
+fold the linted set into the executed one and go green over a suite nothing runs.
+None has a dependency today, and the gate reads `just --dump --dump-format json`
+and refuses to scan a recipe that has one, rather than reporting over a merged
+set. `jq` is already a prerequisite `tools-check` pins, so that check adds no tool.
 
 Adding an execution recipe means adding it to this table. That is one more
 hand-maintained list, and it is deliberate for the same reason ADR 0025 gave: the
@@ -192,8 +203,8 @@ suites.
   dependency is narrow: it needs the output on stderr to contain the paths a recipe
   names, in any order, on any line, with `#` retaining its comment meaning. A
   formatting change that preserves the paths does not affect the gate, and one that
-  drops them turns it red rather than green. `just` is already a hard prerequisite
-  of `just verify` and is pinned by `tools-check`, so the gate adds no new tool.
+  drops them turns it red rather than green. `just` and `jq` are both already hard
+  prerequisites pinned by `tools-check`, so the gate adds no new tool.
 - `just --dry-run format` is scanned even though `format` writes. Dry-run runs
   nothing and does not evaluate a `shell()` or backtick assignment, so scanning a
   writing recipe has no side effect; that was verified rather than assumed.
