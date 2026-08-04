@@ -361,24 +361,23 @@ assert_canonical_skills "$CLAUDE_CONFIG_DIR"
 # a copy of the repository with such a file planted in it instead.
 #
 # The copy takes the four repository paths `install.sh` reads under rather than
-# the whole tree, so a read that leaves them fails loudly here — `install:
-# missing source for <rel>: <path>`, naming the fixture — instead of being
-# satisfied by whatever a blanket copy happened to carry. Both the copy and its
-# destination sit under `$tmpdir`, so the suite's existing trap removes them.
+# the whole tree, so a read that leaves them fails loudly here, naming the
+# fixture path, instead of being satisfied by whatever a blanket copy happened
+# to carry. Both the copy and its destination sit under `$tmpdir`, so the
+# suite's existing trap removes them.
 fixture_repo="$tmpdir/fixture-repo"
 fixture_dest="$tmpdir/fixture-dest"
 # Both names are written once and read everywhere below. Spelling either at each
 # use lets an edit reach the planted entry and not the assertion that looks for
 # it, which leaves this case green while testing nothing — the vacuous-assertion
 # failure ADR 0025 names.
-#
-# The skill exists only in the copy, so the assertions cannot be satisfied by an
-# install that read the real repository. Every case above runs `./install.sh`,
-# and the fixture's copy of it is byte-identical, so normalising this call to
-# match them looks like a no-op — `install.sh` takes its repository root from
-# `${BASH_SOURCE[0]}`, and the fixture would stop being staged at all.
 fixture_skill=fixture-only
 fixture_entry=testdata
+# The skill has to be one the canonical tree does not carry, for the reason the
+# install call below gives. That is a property of the name, so assert it rather
+# than trusting the reader of a comment to preserve it.
+[[ ! -e "$REPO/content/skills/$fixture_skill" ]] ||
+	fail "fixture skill must be absent from the canonical tree: $fixture_skill"
 mkdir -p "$fixture_repo/docs"
 cp -pR "$REPO/install.sh" "$REPO/content" "$REPO/agents" "$fixture_repo/"
 cp -pR "$REPO/docs/licenses" "$fixture_repo/docs/"
@@ -393,6 +392,13 @@ write_text "$fixture_plant" 'not a directory'
 
 # A one-shot destination rather than the exported one, so the assertions above
 # keep the tree they were made against.
+#
+# The copy's installer, not `./install.sh`. Every case above runs the latter and
+# the fixture's copy is byte-identical, so normalising this call to match them
+# looks like a no-op — `install.sh` takes its repository root from
+# `${BASH_SOURCE[0]}`, and the fixture would stop being staged at all. What
+# catches that is the skill above existing only in the copy: the assertions then
+# cannot be satisfied by an install that read the real repository.
 CLAUDE_CONFIG_DIR="$fixture_dest" AGENT_CONFIG_HOST=test-host \
 	"$fixture_repo/install.sh" --agent claude
 
