@@ -208,9 +208,13 @@ suites.
   formatting change that preserves the paths does not affect the gate, and one that
   drops them turns it red rather than green. `just` and `jq` are both already hard
   prerequisites pinned by `tools-check`, so the gate adds no new tool.
-- `just --dry-run format` is scanned even though `format` writes. Dry-run runs
-  nothing and does not evaluate a `shell()` or backtick assignment, so scanning a
-  writing recipe has no side effect; that was verified rather than assumed.
+- `just --dry-run format` is scanned even though `format` writes. Dry-run does not
+  execute a recipe body, and does not evaluate a backtick assignment, so scanning a
+  writing recipe has no side effect. It *does* evaluate a `shell()` assignment, as
+  every `just` invocation does — including a dry-run of an unrelated recipe — so
+  that is a property of running `just` at all rather than of scanning `format`.
+  This `Justfile` has no such assignment; one added later would be evaluated five
+  more times per `just verify`. Both halves were verified rather than assumed.
 - Coverage is asserted over *tracked* files. An untracked spike or a copy under
   `/tmp` does not fail the gate, and a suite is enumerated the moment it is
   `git add`ed — which is before the pre-commit hook runs, so a new suite fails the

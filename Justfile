@@ -99,7 +99,8 @@ actions-check:
   actionlint
   zizmor --offline .github/workflows/
 
-verify: tools-check records lint format-check skills-check suites-check test public-safety references-check actions-check
+verify: tools-check records lint format-check skills-check suites-check test \
+        public-safety references-check actions-check
 
 ci: verify
   prek run --all-files
