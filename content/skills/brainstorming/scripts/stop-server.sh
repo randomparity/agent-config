@@ -26,13 +26,14 @@ mark_stopped() {
 # Enumerated, not the range [A-Za-z0-9_-]: a bash bracket expression takes its
 # ranges from the locale's collation, so under a territory UTF-8 locale -- the
 # ordinary interactive setting -- [A-Za-z] admits accented letters, and an id
-# this guard is meant to reject becomes a match that lets the kill below reach a
-# process this session never identified. Pinning the collation would mean an
-# `LC_ALL=C` subshell around the match, since a variable assignment
-# cannot prefix the `[[` builtin. Do not "simplify" this back to a range;
+# this guard is meant to reject -- one start-server.sh could not have generated
+# -- is honoured as this session's instance id. Pinning the collation would mean
+# an `LC_ALL=C` subshell around the match, since a variable assignment cannot
+# prefix the `[[` builtin. Do not "simplify" this back to a range;
 # testdata/stop-server-test.sh fails if you do. start-server.sh writes this id
 # and spells the same set out.
 SERVER_ID_CHARS='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-'
+readonly SERVER_ID_CHARS
 
 read_expected_server_id() {
   [[ -f "$SERVER_ID_FILE" ]] || return 1

@@ -166,8 +166,11 @@ profile_comment_list() {
 # Pinning the collation instead would mean an `LC_ALL=C` subshell around the
 # match, since a variable assignment cannot prefix the `[[` builtin. Do not
 # "simplify" these back to ranges; testdata/tracker-test.sh fails if you do.
+# The two differ by exactly one character: the space, which a label may contain
+# but cannot begin with.
 github_label_first='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._:/-'
 github_label_rest='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._:/ -'
+readonly github_label_first github_label_rest
 
 # GitHub exposes a label timeline. A tracker without one declares label_history
 # degraded to "unknown" rather than guessing, which the tracking conventions

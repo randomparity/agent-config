@@ -21,6 +21,9 @@ failed=0
 # the grammar, so the case still passes -- it just stops proving the property.
 utf8_locale=$(locale -a 2>/dev/null |
   rg -N -m1 '^[a-z]{2}_[A-Z]{2}\.(utf8|UTF-8)$' || true)
+if [ -z "$utf8_locale" ]; then
+  printf 'note: no territory UTF-8 locale; the accented case proves nothing\n' >&2
+fi
 
 session=""
 fake_pid=""

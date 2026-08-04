@@ -52,6 +52,8 @@ assert_contains() {
 # check.
 utf8_locale=$(locale -a 2>/dev/null |
 	rg -N -m1 '^[a-z]{2}_[A-Z]{2}\.(utf8|UTF-8)$' || true)
+[[ -n $utf8_locale ]] ||
+	printf 'tracker-test: no territory UTF-8 locale; the accented cases prove nothing\n' >&2
 
 # Three distinct paths default to github, and each is a place where a
 # regression would silently change which tracker a write reaches.
@@ -488,6 +490,17 @@ GH_CALL_LOG="$sandbox/calls" PATH="$sandbox/bin:$PATH" LC_ALL="${utf8_locale:-C}
 assert_exit 1 "$status" 'label-history with an accented label'
 assert_error "$sandbox/err" usage 'accented label'
 assert_contains 'label cannot be queried safely' "$sandbox/err"
+
+# The two classes differ by exactly one character -- the space, which the second
+# admits and the first does not -- so a label cannot begin with one. Written as
+# two constants that is a difference a later edit can erase in either direction,
+# and only one direction is caught by the loop below.
+status=0
+GH_CALL_LOG="$sandbox/calls" PATH="$sandbox/bin:$PATH" \
+	"$tracker" label-history --profile github --target example/repo 101 ' status:ready' \
+	>"$sandbox/out" 2>"$sandbox/err" || status=$?
+assert_exit 1 "$status" 'label-history with a leading-space label'
+assert_error "$sandbox/err" usage 'leading-space label'
 
 # The same grammar still admits every character a GitHub label actually uses, so
 # the enumeration is not quietly narrower than the range it replaced.

@@ -168,6 +168,7 @@ mkdir -p "${SESSION_DIR}/content" "$STATE_DIR"
 # Do not "simplify" this back to a range; testdata/start-server-test.sh fails if
 # you do. stop-server.sh reads this id back and spells the same set out.
 SERVER_ID_CHARS='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-'
+readonly SERVER_ID_CHARS
 
 SERVER_ID=""
 if [[ -r /dev/urandom ]]; then

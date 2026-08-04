@@ -52,6 +52,21 @@ run_case() {
 # property.
 utf8_locale=$(locale -a 2>/dev/null |
   rg -N -m1 '^[a-z]{2}_[A-Z]{2}\.(utf8|UTF-8)$' || true)
+if [ -z "$utf8_locale" ]; then
+  printf 'note: no territory UTF-8 locale; the accented case proves nothing\n' >&2
+fi
+
+# The stubs below are what an aborted run would leave in TMPDIR, so the removal
+# is a trap rather than a trailing statement: an assertion failure only bumps a
+# counter, but `set -e` turns any unexpected failure into an exit from here.
+server_id_dir=""
+cleanup_server_id_dir() {
+  if [ -n "$server_id_dir" ] && [ -d "$server_id_dir" ]; then
+    rm -R "$server_id_dir"
+  fi
+  server_id_dir=""
+}
+trap cleanup_server_id_dir EXIT
 
 # The server-id guard is unreachable from argv: start-server.sh derives the
 # candidate from /dev/urandom inside its own process. Shadow `od` so the guard
@@ -64,7 +79,8 @@ run_server_id_case() {
   local name=$1 stub_id=$2 expect=$3
   local dir stub project id_file id
 
-  dir="$(mktemp -d "${TMPDIR:-/tmp}/brainstorm-start-test.XXXXXX")"
+  server_id_dir="$(mktemp -d "${TMPDIR:-/tmp}/brainstorm-start-test.XXXXXX")"
+  dir="$server_id_dir"
   stub="$dir/bin"
   project="$dir/project"
   mkdir -p "$stub" "$project"
@@ -91,7 +107,8 @@ run_server_id_case() {
   elif [ "$expect" = accepted ] && [ "$id" = "$stub_id" ]; then
     passed=$((passed + 1))
     printf '  ok   %s\n' "$name"
-  elif [ "$expect" = rejected ] && [ "$id" != "$stub_id" ] && [ ${#id} -eq 32 ]; then
+  elif [ "$expect" = rejected ] && [ -n "$id" ] && [ "$id" != "$stub_id" ] &&
+    [ "${id#*é}" = "$id" ]; then
     passed=$((passed + 1))
     printf '  ok   %s\n' "$name"
   else
@@ -99,9 +116,7 @@ run_server_id_case() {
     printf '  FAIL %s (expected %s, committed id=%s)\n' "$name" "$expect" "$id"
   fi
 
-  if [ -d "$dir" ]; then
-    rm -R "$dir"
-  fi
+  cleanup_server_id_dir
 }
 
 main() {
