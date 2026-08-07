@@ -72,9 +72,32 @@ decides whether a campaign runs at all: on a fresh clone where no `.gitignore` w
 has run, `git check-ignore -q .agent/campaigns/` returns 1 and `campaign` stops with a
 named blocker — reproducing, by omission, the exact hard stop this change removes.
 
-So each of `campaign`, `sdd-workspace` and `start-server.sh` performs
-`printf '*\n' > .agent/.gitignore` before its first state write, on create and on
-resume. It is idempotent, so ordering stops mattering.
+So each of `campaign`, `sdd-workspace` and `start-server.sh` writes it before its first
+state write, on create and on resume.
+
+**Rooted, not literal.** The command is `printf '*\n' > "$root/.agent/.gitignore"`,
+where `$root` is that consumer's row in the resolution table — the main repo root for
+campaign, `--show-toplevel` for `sdd-workspace`, `--project-dir` for `start-server.sh`
+(and in its `/tmp` fallback branch there is no `.agent/` and no write at all).
+Idempotence holds *per root*: an unrooted `printf '*\n' > .agent/.gitignore` run from a
+linked worktree creates `<worktree>/.agent/.gitignore` while campaign's manifest sits at
+`<main>/.agent/campaigns/`, leaving the manifest unignored and a stray `.agent/` in
+every worktree. Since `campaign/SKILL.md` is prose an agent executes verbatim, the
+literal form is what would run.
+
+**The verification is rooted too.** `git check-ignore` handed an absolute path into the
+main worktree from inside a linked worktree exits **128** (`is outside repository at
+'<linked-worktree>'`), which campaign's fail-closed rule reads as a failure and turns
+into a named blocker — in exactly the resume-from-a-worktree case the split root rule
+exists to serve. Rooted as `git -C "$campaign_root" check-ignore -q .agent/campaigns/`
+it exits 0. Both probed on git 2.50.1.
+
+**The write refuses a tracked path.** Before writing, the consumer checks whether
+`.agent/.gitignore` is tracked (`git -C "$root" ls-files --error-unmatch
+.agent/.gitignore`) and stops with a named blocker if it is. `.agent/` is generic by
+design, which is what makes it a plausible name for a target repository's own agent
+tooling; a truncating redirect over a tracked file is the same "modifies the target
+repo" defect this change removes, relocated.
 
 ### Worktree resolution is split, because the two lifetimes differ
 
@@ -128,7 +151,7 @@ In scope — state these skills choose to create:
 | File | Change |
 |---|---|
 | `campaign/SKILL.md` | `.codex/campaigns/` → `.agent/campaigns/`; drop the `.git/info/exclude` step |
-| `subagent-driven-development/scripts/sdd-workspace` | `.superpowers/sdd` → `.agent/sdd`; rewrite the rationale comment |
+| `subagent-driven-development/scripts/sdd-workspace` | `.superpowers/sdd` → `.agent/sdd`; **move the ignore file from `$dir/.gitignore` up to `$root/.agent/.gitignore`**; rewrite the rationale comment |
 | `subagent-driven-development/scripts/task-brief` | default-path comment |
 | `subagent-driven-development/scripts/review-package` | default-path comment |
 | `subagent-driven-development/SKILL.md` | path; drop the `.git/info/exclude` fallback |
@@ -159,11 +182,14 @@ every remaining mention is bare — an invariant this change establishes rather 
 finds, since `stop-server.sh` and `visual-companion.md` today refer to storage with a
 bare `.superpowers/`.
 
-**"Bare" is decided by what follows the slash, and the prose is Markdown.** Every
-legitimate mention is inside a code span, so the byte after the slash is a backtick.
-A naive `[.](codex|claude|bob|superpowers)/[^[:space:]]` rejects all four. The
-existing home-rooted rule sidesteps the analogous trap with its trailing `(/|$)`;
-this one needs an explicit terminator set:
+**"Bare" is decided by what follows the slash, and the prose is Markdown.** The
+legitimate mentions terminate in more than one way: the four worktree-prose sites are
+inside code spans, so the next byte is a backtick, while
+`brainstorming/scripts/stop-server.sh:6` writes `Persistent directories
+(.superpowers/) are`, terminating on `)`. A naive
+`[.](codex|claude|bob|superpowers)/[^[:space:]]` rejects both shapes. The existing
+home-rooted rule sidesteps the analogous trap with its trailing `(/|$)`; this one needs
+an explicit terminator set:
 
 ```
 repo_pattern='[.](codex|claude|bob|superpowers)/[^[:space:]`,)"'"'"'.]'
@@ -175,19 +201,34 @@ bare root and passes. Anchoring the alternation on the slash is what keeps
 is a real Codex plugin path in `brainstorming/scripts/server.cjs` that must keep
 passing.
 
-`scripts/check-skill-layout-test.sh` pins both directions with six fixtures:
+`scripts/check-skill-layout-test.sh` pins both directions with nine fixtures. The live
+tree cannot stand in for the `claude` and `bob` arms — `rg '\.claude|\.bob'` over
+`content/` returns nothing — so dropping or misspelling either alternative would pass
+every other check here:
 
-| Fixture | Expected |
-|---|---|
-| ``under `.codex/`, a project-local`` (the worktree-prose form, ×1 of the 4 live sites) | pass |
-| `` `.superpowers/` `` bare at end of a code span | pass |
-| `.codex-plugin/plugin.json` | pass |
-| `.codex/campaigns/<slug>.md` | **fail** |
-| `.superpowers/sdd/progress.md` | **fail** |
-| `~/.codex/skills` (the existing home-rooted arm) | **fail** |
+| Fixture | Terminator | Expected |
+|---|---|---|
+| ``under `.codex/`, a project-local`` (1 of the 4 live sites) | backtick | pass |
+| `Persistent directories (.superpowers/) are` (the live `stop-server.sh` form) | `)` | pass |
+| `.codex-plugin/plugin.json` (real Codex plugin path) | n/a — no `/` after `codex` | pass |
+| `.codex/campaigns/<slug>.md` | — | **fail** |
+| `.superpowers/sdd/progress.md` | — | **fail** |
+| `.claude/settings/x.json` | — | **fail** |
+| `.bob/skills/x/SKILL.md` | — | **fail** |
+| `~/.codex/skills` (existing home-rooted arm, unchanged) | — | **fail** |
+| `.agent/campaigns/x.md` (the destination) | — | pass |
 
-The gate is then run against the real `content/skills/` tree, which is the only thing
-that proves the four live worktree-prose sites still pass.
+The gate is then run against the real `content/skills/` tree, which is what proves the
+four live worktree-prose sites still pass.
+
+**The rule gets its own diagnostic, not the existing one.** The home-rooted arm reports
+`installed config-root reference is forbidden` through a single hardcoded `skill_error`
+(`check-skill-layout.sh:264-266`). Appending the new pattern to that sink is the path of
+least resistance and would report a `.codex/campaigns/` violation under a message naming
+neither the rule nor the remedy. The repo-relative rule takes a separate results file and
+its own text — `repo-relative agent state path is forbidden; move it under .agent/` —
+which is also what the two failing fixtures assert on, since `assert_fails` matches the
+message string.
 
 ## This repository's own state
 

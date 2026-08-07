@@ -51,9 +51,22 @@ The last two rows are why the confinement is not a simple workspace boundary: `/
 and `$TMPDIR` are writable and sit outside the workspace — Codex's
 `[sandbox_workspace_write]` table carries `exclude_slash_tmp` and
 `exclude_tmpdir_env_var` keys precisely because they are writable by default. So
-`.git/` is not denied by confinement. It is *inside* the workspace and denied by a
-separate protection, and the two have different futures: a `writable_roots` entry
-widens the confinement and does nothing to the `.git/` rule.
+`.git/` is not denied by confinement: it is *inside* the workspace and subtracted from
+the writable set by a separate rule.
+
+How separate, exactly, was probed rather than assumed, because the obvious variation
+is the first thing a reader will try:
+
+| Probe (added to `-c sandbox_mode="workspace-write"`) | `echo x >> .git/info/exclude` |
+|---|---|
+| `-c 'sandbox_workspace_write.writable_roots=["<repo>/.git"]'` | wrote OK |
+| `-c 'sandbox_workspace_write.writable_roots=["<repo>"]'` | `Operation not permitted` |
+
+So the `.git/` subtraction is overridden by a `writable_roots` entry naming `.git`
+itself, and not by one naming the workspace root or a parent. It is a default, not an
+inviolable protection. That does not revive `.git/` as a destination — see the
+rejection below — but the reason is that a skill cannot require the entry, not that
+the entry would fail.
 
 So the `.git/info/exclude` instruction is dead code under Codex's default sandbox, and
 it fails in the worst available way: `campaign` follows it with a `git check-ignore`
@@ -94,10 +107,30 @@ it.** Both halves are load-bearing. A per-subdirectory file — which is what
 uncovered, so which skill happened to run first would decide whether the next one's
 state is ignored. And because `campaign` keeps a fail-closed `git check-ignore`
 verification, a consumer that creates its state directory without the ignore file stops
-the run. The write is `printf '*\n' > .agent/.gitignore`, idempotent, performed before
-the first state write on both create and resume. `.git/`, `$HOME`-rooted state directories, and any edit to
-`.git/info/exclude` are out for the sandbox reason above; a tracked `.gitignore` edit
-is out because it modifies the target repository.
+the run.
+
+**Both the write and the verification are rooted at the skill's own root, never at
+cwd.** The write is `printf '*\n' > "$root/.agent/.gitignore"` and the check is
+`git -C "$root" check-ignore -q .agent/campaigns/`, where `$root` is that skill's row
+in the table above. Idempotence holds per root, not globally, so an unrooted literal is
+not a smaller version of this rule but a different one. From a linked worktree the
+unrooted forms fail in opposite directions at once: the write lands at
+`<worktree>/.agent/.gitignore` while the manifest is at `<main>/.agent/campaigns/`, and
+`git check-ignore` handed an absolute path into the main worktree exits **128**
+`outside repository` — which `campaign` reads as a failure and turns into a named
+blocker, reproducing this record's opening defect by a new route. Rooted with `-C` the
+same check exits 0. Both probed on git 2.50.1.
+
+**The write is refused, not forced, when the path is tracked.** `.agent/` is a generic
+name chosen for neutrality, and neutrality is what makes collision plausible: a target
+repository may already track `.agent/.gitignore` for its own tooling. A truncating
+redirect over it would modify a tracked file in someone else's repository — the exact
+failure `.codex/` was abandoned for. So a consumer checks first and stops with a named
+blocker rather than clobbering.
+
+`.git/`, `$HOME`-rooted state directories, and any edit to `.git/info/exclude` are out
+for the sandbox reason above; a tracked `.gitignore` edit is out because it modifies
+the target repository.
 
 **The root a skill resolves against is decided by whether its state spans worktrees.**
 
@@ -176,10 +209,12 @@ The spec carries the pattern and the fixtures that pin both directions.
   there, and the skill's own fail-closed check turned that denial into a named blocker.
 - One directory holds every skill's scratch state, so a user has one thing to inspect
   or delete and one entry to recognise, instead of `.codex/` and `.superpowers/`.
-- The ignore mechanism no longer touches anything outside `.agent/`. No tracked file is
-  modified in a target repository, and nothing depends on that repository's own
-  `.gitignore` — which is what made the old approach fragile against repositories that
-  track `.codex/`.
+- The ignore mechanism no longer touches anything outside `.agent/`, and nothing depends
+  on the target repository's own `.gitignore` — which is what made the old approach
+  fragile against repositories that track `.codex/`. No tracked file is modified,
+  *because the write refuses when its own path is tracked*; without that guard the
+  guarantee would not hold, since a repository is free to track `.agent/.gitignore`
+  itself.
 - The sandbox constraint is recorded where it can be found. It was previously a comment
   in one script, which is why three skills were written against a denied write.
 - The gate's repo-relative rule constrains future canonical content: a skill that wants
@@ -203,11 +238,15 @@ The spec carries the pattern and the fixtures that pin both directions.
 
 ## Considered & rejected
 
-- **`.git/agent-state/`**, the location originally proposed. Rejected on evidence:
-  Codex's `workspace-write` sandbox denies it, and denies `.git/info/exclude` with it.
-  It is otherwise attractive — invisible to whole-tree tooling, never committed, scoped
-  to the clone — which is precisely why the constraint is recorded here rather than
-  left as a comment for the next person to rediscover.
+- **`.git/agent-state/`**, the location originally proposed. Rejected because Codex's
+  `workspace-write` sandbox denies it by default, and the only thing that lifts the
+  denial is a `writable_roots` entry naming `.git` in the *user's* Codex config — which
+  a skill running against arbitrary target repositories cannot require, and which is a
+  sandbox widening no skill should be asking a user to make on its behalf. Note the
+  precise ground: not that the write is impossible, but that making it possible is out
+  of a skill's reach. It is otherwise attractive — invisible to whole-tree tooling,
+  never committed, scoped to the clone — which is why the constraint is recorded here
+  rather than left as a comment for the next person to rediscover.
 - **A `$HOME`-rooted state directory** such as `~/.local/state/agent-config/<repo-hash>/`.
   Rejected for the same denial, and independently for locality: state would no longer
   travel with the worktree it describes, and a hash-keyed directory is hard to find when
