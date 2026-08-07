@@ -151,8 +151,11 @@ if [[ -n "$PROJECT_DIR" ]]; then
     echo "{\"error\": \"${PROJECT_DIR}/.agent/.gitignore is tracked in this repository; refusing to overwrite it\"}"
     exit 1
   fi
+  # Temp file then rename, not a plain redirect: the redirect truncates before it
+  # writes, and a concurrent reader of the ignore file sees the empty gap.
   mkdir -p "${PROJECT_DIR}/.agent"
-  printf '*\n' >"${PROJECT_DIR}/.agent/.gitignore"
+  printf '*\n' >"${PROJECT_DIR}/.agent/.gitignore.$$"
+  mv -f "${PROJECT_DIR}/.agent/.gitignore.$$" "${PROJECT_DIR}/.agent/.gitignore"
 
   SESSION_DIR="${PROJECT_DIR}/.agent/brainstorm/${SESSION_ID}"
   # Persist the bound port and key per project so a restart reuses them and an

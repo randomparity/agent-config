@@ -31,5 +31,14 @@ fi
 
 dir="$root/.agent/sdd"
 mkdir -p "$dir"
-printf '*\n' >"$root/.agent/.gitignore"
+
+# Write through a temp file and rename: a plain redirect truncates before it
+# writes, and $campaign's fail-closed `git check-ignore` reading that gap sees an
+# empty ignore file, reports the manifest unignored, and stops the run. rename(2)
+# is atomic within the directory, so a concurrent reader sees one version or the
+# other and never the gap.
+tmp="$root/.agent/.gitignore.$$"
+printf '*\n' >"$tmp"
+mv -f "$tmp" "$root/.agent/.gitignore"
+
 cd "$dir" && pwd
