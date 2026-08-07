@@ -202,10 +202,12 @@ validate_inventory() {
 # scanned nothing. Keep rg's diagnostics on their own stream instead of folding
 # them in with `2>&1`: mixed into the match list a warning line parses as a
 # result, and the gate reports it as a violation on a successful scan.
-scan_config_roots() { # rg-argument...
+scan_config_roots() { # results-file rg-argument...
+	local results="$1"
 	local status=0
+	shift
 
-	rg -l "$@" >>"$workspace/root-references" 2>"$workspace/rg-error" || status=$?
+	rg -l "$@" >>"$results" 2>"$workspace/rg-error" || status=$?
 	# 0 = matches, 1 = no matches, anything else = the scan did not happen.
 	[[ "$status" -le 1 ]] ||
 		skill_error 'content' "config-root scan failed: $(<"$workspace/rg-error")"
@@ -248,6 +250,20 @@ project_review_count="$(validate_inventory "$project_review_root" \
 # `testdata` entry under either really does ship and must stay visible here.
 root_pattern='(~|[$]HOME|[$][{]HOME[}])/[.](codex|claude|bob)(/|$)'
 
+# Repo-relative agent state, the sibling of the rule above. That one catches
+# `~/.codex/skills`; this catches `.codex/campaigns/x.md`, the shape that named one
+# agent's directory in content projected into all three.
+#
+# A bare root passes, and must: three skills name `.codex/` as where a harness's
+# native worktree tool nests a worktree, and `campaign` notes that many target repos
+# track it. Those are true statements about a real harness, not paths this content
+# writes. So "bare" is decided by the byte after the slash, and the class spells out
+# every terminator a mention can end on -- backtick and close-paren both occur live,
+# and a naive `[^[:space:]]` would reject all of them, since the prose is Markdown and
+# most of these sit in code spans. The alternation is anchored on the slash, which is
+# what keeps the real `.codex-plugin/plugin.json` out rather than the terminator set.
+repo_pattern='[.](codex|claude|bob|superpowers)/[^[:space:]`,)"'"'"']'
+
 # A missing root is caught here rather than left to `scan_config_roots`, so the
 # gate names the root that went away instead of quoting rg's diagnostic for it.
 for common_root in \
@@ -258,12 +274,26 @@ for common_root in \
 done
 
 : >"$workspace/root-references"
-scan_config_roots --glob '!testdata' --glob '!testdata/**' "$root_pattern" "$skills_root"
-scan_config_roots "$root_pattern" "$repo_root/content/languages" \
-	"$repo_root/content/references"
+scan_config_roots "$workspace/root-references" \
+	--glob '!testdata' --glob '!testdata/**' "$root_pattern" "$skills_root"
+scan_config_roots "$workspace/root-references" "$root_pattern" \
+	"$repo_root/content/languages" "$repo_root/content/references"
 root_reference="$(sed -n '1p' "$workspace/root-references")"
 [[ -z "$root_reference" ]] ||
 	skill_error "$root_reference" 'installed config-root reference is forbidden'
+
+# A separate results file, not a second pattern into the one above: sharing the sink
+# would report a repo-relative hit under the home-rooted rule's message, naming
+# neither the rule that fired nor the remedy.
+: >"$workspace/repo-references"
+scan_config_roots "$workspace/repo-references" \
+	--glob '!testdata' --glob '!testdata/**' "$repo_pattern" "$skills_root"
+scan_config_roots "$workspace/repo-references" "$repo_pattern" \
+	"$repo_root/content/languages" "$repo_root/content/references"
+repo_reference="$(sed -n '1p' "$workspace/repo-references")"
+[[ -z "$repo_reference" ]] ||
+	skill_error "$repo_reference" \
+		'repo-relative agent state path is forbidden; move it under .agent/'
 
 printf 'skills-check: ok (%s canonical skills, %s project review examples)\n' \
 	"$count" "$project_review_count"
