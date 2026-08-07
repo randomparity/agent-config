@@ -119,6 +119,102 @@ run_server_id_case() {
   cleanup_server_id_dir
 }
 
+# --project-dir state must stay out of git without the script touching a tracked
+# file (ADR 0027). The suite above locates its artifact with a path-agnostic
+# `find`, so it passes whether state lands in .agent/ or anywhere else and cannot
+# see the ignore contract at all. These two cases assert that contract directly.
+# The node stub is the same trick used above: server.cjs is not under test.
+run_ignore_case() {
+  local name=$1 tracked_contents=$2 expect=$3
+  local dir stub project got=0
+
+  server_id_dir="$(mktemp -d "${TMPDIR:-/tmp}/brainstorm-ignore-test.XXXXXX")"
+  dir="$server_id_dir"
+  stub="$dir/bin"
+  project="$dir/project"
+  mkdir -p "$stub" "$project"
+  printf '%s\n' '#!/usr/bin/env bash' 'printf "server-started\n"' >"$stub/node"
+  chmod +x "$stub/node"
+
+  git -C "$project" init -q
+  git -C "$project" config user.email test@example.com
+  git -C "$project" config user.name 'Test'
+  printf 'seed\n' >"$project/README.md"
+  git -C "$project" add README.md
+  git -C "$project" commit -qm seed
+  if [ -n "$tracked_contents" ]; then
+    mkdir -p "$project/.agent"
+    printf '%s\n' "$tracked_contents" >"$project/.agent/.gitignore"
+    git -C "$project" add -f .agent/.gitignore
+    git -C "$project" commit -qm 'repo tracks its own .agent/.gitignore'
+  fi
+
+  PATH="$stub:$PATH" "$SCRIPT" --project-dir "$project" \
+    >"$dir/out" 2>"$dir/err" || got=$?
+
+  if [ "$expect" = refuses ]; then
+    if [ "$got" -ne 0 ] && grep -qF 'refusing to modify it' "$dir/out" "$dir/err" &&
+      [ "$(cat "$project/.agent/.gitignore")" = "$tracked_contents" ]; then
+      passed=$((passed + 1))
+      printf '  ok   %s\n' "$name"
+    else
+      failed=$((failed + 1))
+      printf '  FAIL %s (exit=%s, tracked file now: %s)\n' \
+        "$name" "$got" "$(cat "$project/.agent/.gitignore")"
+    fi
+  elif [ "$(cat "$project/.agent/.gitignore" 2>/dev/null)" = '*' ] &&
+    [ -z "$(git -C "$project" status --porcelain)" ]; then
+    passed=$((passed + 1))
+    printf '  ok   %s\n' "$name"
+  else
+    failed=$((failed + 1))
+    printf '  FAIL %s (ignore file=%s, status=%s)\n' "$name" \
+      "$(cat "$project/.agent/.gitignore" 2>/dev/null)" \
+      "$(git -C "$project" status --porcelain)"
+  fi
+
+  cleanup_server_id_dir
+}
+
+# The branch a boolean test of `ls-files` would swallow: rev-parse still reports a
+# repository while the index is unreadable, so the query exits 128 and the answer
+# is unknown. Writing through on that is how a tracked ignore file gets clobbered.
+run_unanswerable_case() {
+  local name='an unanswerable tracked-query stops rather than clobbering'
+  local dir stub project got=0
+
+  server_id_dir="$(mktemp -d "${TMPDIR:-/tmp}/brainstorm-ignore-test.XXXXXX")"
+  dir="$server_id_dir"
+  stub="$dir/bin"
+  project="$dir/project"
+  mkdir -p "$stub" "$project"
+  printf '%s\n' '#!/usr/bin/env bash' 'printf "server-started\n"' >"$stub/node"
+  chmod +x "$stub/node"
+
+  git -C "$project" init -q
+  git -C "$project" config user.email test@example.com
+  git -C "$project" config user.name 'Test'
+  printf 'seed\n' >"$project/README.md"
+  git -C "$project" add README.md
+  git -C "$project" commit -qm seed
+  chmod 000 "$project/.git/index"
+
+  PATH="$stub:$PATH" "$SCRIPT" --project-dir "$project" \
+    >"$dir/out" 2>"$dir/err" || got=$?
+  chmod 644 "$project/.git/index"
+
+  if [ "$got" -ne 0 ] && grep -qF 'cannot determine whether' "$dir/out" "$dir/err"; then
+    passed=$((passed + 1))
+    printf '  ok   %s\n' "$name"
+  else
+    failed=$((failed + 1))
+    printf '  FAIL %s (exit=%s)\n' "$name" "$got"
+    sed -n '1,4p' "$dir/out" "$dir/err"
+  fi
+
+  cleanup_server_id_dir
+}
+
 main() {
   printf 'start-server.sh\n\n'
   run_case "missing --host value" 1 "--host requires a value" --host
@@ -136,6 +232,17 @@ main() {
     "abcd0123456789012345678901234567" accepted
   run_server_id_case "accented server id falls back to the hex generator" \
     "abéc0123456789012345678901234567" rejected
+  run_ignore_case "project state is ignored without touching a tracked file" \
+    "" writes
+  run_ignore_case "a tracked ignore file that exposes state is not overwritten" \
+    "unrelated-entry" refuses
+  # root ignores the mode bit this case turns on, so it would pass while proving
+  # nothing. Skip it loudly rather than bank a false green (ADR 0023).
+  if [ "$(id -u)" -eq 0 ]; then
+    printf '  skip run as root: the unreadable-index case proves nothing\n'
+  else
+    run_unanswerable_case
+  fi
 
   printf '\n%d passed, %d failed\n' "$passed" "$failed"
   [ "$failed" -eq 0 ]
