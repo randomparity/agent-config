@@ -19,26 +19,61 @@ set -euo pipefail
 
 root=$(git rev-parse --show-toplevel)
 
-# Refuse rather than clobber: .agent/ is a generic name and a repository may
-# track its own .agent/.gitignore. Output is discarded because this command
-# exits non-zero and prints to stderr on the ordinary untracked path, which
-# would otherwise kill this script under `set -e`.
-if git -C "$root" ls-files --error-unmatch .agent/.gitignore >/dev/null 2>&1; then
-	printf 'sdd-workspace: %s/.agent/.gitignore is tracked here; refusing to overwrite it\n' \
-		"$root" >&2
-	exit 1
-fi
+# Never clobber a tracked .agent/.gitignore: .agent/ is a generic name and a
+# repository may track its own. Keep all three answers apart rather than testing
+# the command as a boolean -- 0 is tracked, 1 is untracked, and anything else
+# (127 no git, 128 not a repo or a bad -C path) means the question was never
+# answered. Folding those into "untracked" would overwrite the very file this
+# check exists to protect. Output is discarded because the untracked path prints
+# git's pathspec error to stderr; the exit status is what carries the answer.
+ignore_file="$root/.agent/.gitignore"
+tracked=0
+git -C "$root" ls-files --error-unmatch .agent/.gitignore >/dev/null 2>&1 || tracked=$?
 
 dir="$root/.agent/sdd"
 mkdir -p "$dir"
 
-# Write through a temp file and rename: a plain redirect truncates before it
-# writes, and $campaign's fail-closed `git check-ignore` reading that gap sees an
-# empty ignore file, reports the manifest unignored, and stops the run. rename(2)
-# is atomic within the directory, so a concurrent reader sees one version or the
-# other and never the gap.
-tmp="$root/.agent/.gitignore.$$"
-printf '*\n' >"$tmp"
-mv -f "$tmp" "$root/.agent/.gitignore"
+case "$tracked" in
+0)
+	# Tracked is not automatically fatal. A repository that tracks its own ignore
+	# file and already covers the workspace is the benign case, and refusing here
+	# would take task-brief and review-package down with it. Verify the outcome
+	# instead of the mechanism, and stop only when the state is genuinely exposed.
+	if ! git -C "$root" check-ignore -q .agent/sdd/; then
+		printf 'sdd-workspace: %s is tracked here and does not ignore .agent/sdd/; refusing to modify it\n' \
+			"$ignore_file" >&2
+		exit 1
+	fi
+	;;
+1)
+	# Write through a temp file and rename: a plain redirect truncates before it
+	# writes, and $campaign's fail-closed `git check-ignore` reading that gap sees
+	# an empty ignore file, reports the manifest unignored, and stops the run.
+	# rename(2) is atomic within the directory, so a concurrent reader sees one
+	# version or the other and never the gap. The trap matters as much as the
+	# rename: without it an interrupted run leaves a .gitignore.XXXXXX behind and
+	# no ignore file to cover it, which is the exposure this whole block prevents.
+	tmp=$(mktemp "$root/.agent/.gitignore.XXXXXX")
+	trap 'rm -f "$tmp"' EXIT
+	printf '*\n' >"$tmp"
+	# mktemp creates 0600; the ignore file is not secret and git must read it
+	# whatever umask the calling skill happened to set.
+	chmod 644 "$tmp"
+	mv -f "$tmp" "$ignore_file"
+	trap - EXIT
+	;;
+*)
+	printf 'sdd-workspace: cannot determine whether %s is tracked (git exited %s)\n' \
+		"$ignore_file" "$tracked" >&2
+	exit 1
+	;;
+esac
 
-cd "$dir" && pwd
+# Not `cd && pwd`: a failed cd would exit non-zero having printed nothing at all,
+# and both callers capture this script's stdout, so they would abort with no
+# diagnostic from either side.
+cd "$dir" || {
+	printf 'sdd-workspace: cannot enter %s\n' "$dir" >&2
+	exit 1
+}
+pwd

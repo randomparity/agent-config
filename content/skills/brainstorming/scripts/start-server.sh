@@ -142,20 +142,55 @@ umask 077
 SESSION_ID="$$-$(date +%s)"
 
 if [[ -n "$PROJECT_DIR" ]]; then
-  # A self-ignoring .gitignore at the .agent/ root keeps sessions out of git
-  # without touching a tracked file. Refuse rather than clobber: .agent/ is a
-  # generic name and a repository may track its own .agent/.gitignore. The
-  # lookup discards its output because it exits non-zero and prints to stderr
-  # on the ordinary untracked path, which would kill this script under set -e.
-  if git -C "$PROJECT_DIR" ls-files --error-unmatch .agent/.gitignore >/dev/null 2>&1; then
-    echo "{\"error\": \"${PROJECT_DIR}/.agent/.gitignore is tracked in this repository; refusing to overwrite it\"}"
-    exit 1
-  fi
-  # Temp file then rename, not a plain redirect: the redirect truncates before it
-  # writes, and a concurrent reader of the ignore file sees the empty gap.
   mkdir -p "${PROJECT_DIR}/.agent"
-  printf '*\n' >"${PROJECT_DIR}/.agent/.gitignore.$$"
-  mv -f "${PROJECT_DIR}/.agent/.gitignore.$$" "${PROJECT_DIR}/.agent/.gitignore"
+  # umask 077 above is for session files that embed the session key. .agent/ is a
+  # directory two skills share, so pin its mode here instead of letting whichever
+  # skill runs first decide it. The session directories below stay 0700.
+  chmod 755 "${PROJECT_DIR}/.agent"
+
+  # A self-ignoring .gitignore at the .agent/ root keeps sessions out of git
+  # without touching a tracked file. --project-dir is not required to be a
+  # repository, so no repository means nothing to keep out of git and no reason
+  # to write the file at all -- that also covers a host with no git, where the
+  # question cannot be asked and skipping the write is the safe answer.
+  if git -C "$PROJECT_DIR" rev-parse --git-dir >/dev/null 2>&1; then
+    # Inside a repository the three answers are kept apart rather than tested as
+    # a boolean: 0 is tracked, 1 is untracked, and anything else means the query
+    # went unanswered. Folding the last into "untracked" would overwrite the
+    # tracked file this check exists to protect. Output is discarded because the
+    # untracked path prints git's pathspec error to stderr.
+    PROJECT_TRACKED=0
+    git -C "$PROJECT_DIR" ls-files --error-unmatch .agent/.gitignore >/dev/null 2>&1 ||
+      PROJECT_TRACKED=$?
+
+    case "$PROJECT_TRACKED" in
+    0)
+      # Tracked is not automatically fatal: a repository that tracks its own
+      # ignore file and already covers .agent/brainstorm/ is the benign case.
+      # Verify the outcome rather than refusing on the mechanism.
+      if ! git -C "$PROJECT_DIR" check-ignore -q .agent/brainstorm/; then
+        echo "{\"error\": \"${PROJECT_DIR}/.agent/.gitignore is tracked in this repository and does not ignore .agent/brainstorm/; refusing to modify it\"}"
+        exit 1
+      fi
+      ;;
+    1)
+      # Temp file then rename, not a plain redirect: the redirect truncates
+      # before it writes, and a concurrent reader of the ignore file sees the
+      # empty gap. The trap is what keeps an interrupted run from leaving a
+      # .gitignore.XXXXXX behind with no ignore file to cover it.
+      IGNORE_TMP=$(mktemp "${PROJECT_DIR}/.agent/.gitignore.XXXXXX")
+      trap 'rm -f "$IGNORE_TMP"' EXIT
+      printf '*\n' >"$IGNORE_TMP"
+      chmod 644 "$IGNORE_TMP"
+      mv -f "$IGNORE_TMP" "${PROJECT_DIR}/.agent/.gitignore"
+      trap - EXIT
+      ;;
+    *)
+      echo "{\"error\": \"cannot determine whether ${PROJECT_DIR}/.agent/.gitignore is tracked (git exited ${PROJECT_TRACKED})\"}"
+      exit 1
+      ;;
+    esac
+  fi
 
   SESSION_DIR="${PROJECT_DIR}/.agent/brainstorm/${SESSION_ID}"
   # Persist the bound port and key per project so a restart reuses them and an

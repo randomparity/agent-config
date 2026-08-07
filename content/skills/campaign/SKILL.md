@@ -107,15 +107,24 @@ the path is carried into a prompt, a log, or a subagent in another worktree.
 
 Before the first manifest write and again on resume:
 
-- if `git -C "$campaign_root" ls-files --error-unmatch .agent/.gitignore` succeeds,
-  the target repo tracks that file — **stop with a named blocker**, do not overwrite
-  it. Discard that command's output; on the ordinary untracked path it exits non-zero
-  and prints to stderr;
-- otherwise create `"$campaign_root/.agent/campaigns"` and write `*` into
-  `"$campaign_root/.agent/.gitignore"` — via a temp file and a rename, not a plain
-  redirect, which truncates before it writes and would let the check below read an
-  empty file. Idempotent, and the ignore file sits at `.agent/`, never
-  per-subdirectory, so a sibling `.agent/sdd/` is covered too.
+Read `git -C "$campaign_root" ls-files --error-unmatch .agent/.gitignore` as three
+answers, not two — discard its output, since on the ordinary untracked path it exits
+non-zero and prints to stderr, and branch on the exit status:
+
+- **exit 0 — the target repo tracks that file.** Never modify it. But tracked is not
+  by itself a blocker: if the tracked file already ignores `.agent/campaigns/`, the
+  repo is already correct, so leave it alone and carry on. Stop with a named blocker
+  only when the verification below fails;
+- **exit 1 — untracked.** Create `"$campaign_root/.agent/campaigns"` and write `*` into
+  `"$campaign_root/.agent/.gitignore"` — via a temp file in the same directory and a
+  rename, not a plain redirect, which truncates before it writes and would let the check
+  below read an empty file. Remove the temp file if the write does not complete, or an
+  interrupted run leaves it behind with no ignore file to cover it. Idempotent, and the
+  ignore file sits at `.agent/`, never per-subdirectory, so a sibling `.agent/sdd/` is
+  covered too;
+- **any other exit — the question went unanswered** (no git, not a repository, an
+  unreadable index). **Stop with a named blocker.** Treating this as "untracked" is how
+  a tracked ignore file gets clobbered.
 
 Verify with `git -C "$campaign_root" check-ignore -q .agent/campaigns/`. Run it with
 `-C` against that root, never as an absolute path from the current directory: from a
