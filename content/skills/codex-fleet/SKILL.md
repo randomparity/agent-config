@@ -26,11 +26,12 @@ Adapted from `suede-codex-fleet` in
    `git status` and out of a PR diff **before the first spawn** — it is high-volume and
    otherwise lands in whatever commit runs next. Ignore `out/` always. Ignore `briefs/`
    too *unless* this is a persistent fleet workspace whose reviewed briefs you keep as
-   templates (see *Fleet workspaces*) — that is the one case they belong in git. Either
-   write a self-ignoring `.gitignore` into the directory
-   (`printf '*\n' > out/.gitignore` — the recipe `subagent-driven-development` uses for
-   its workspace), or add the paths to `.git/info/exclude` (per-clone, local, never
-   committed — the recipe `$campaign` uses for its manifest). Verify with
+   templates (see *Fleet workspaces*) — that is the one case they belong in git. Write
+   a self-ignoring `.gitignore` into the directory (`printf '*\n' > out/.gitignore`).
+   `out/` is a caller-named worker deliverable directory rather than scratch state, so
+   it keeps its own per-directory ignore file and does not move under `.agent/`. Do not
+   use `.git/info/exclude` — a sandboxed agent may be denied writes to `.git/`
+   entirely, so it is not a fallback. Verify with
    `git check-ignore -q out/.` — note the trailing `/.`: a bare
    `git check-ignore -q out` reports *not ignored* even when every file inside is,
    because `*` in a child `.gitignore` matches the directory's contents and not the
