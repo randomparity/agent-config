@@ -8,7 +8,7 @@ set -euo pipefail
 # Each session gets its own directory to avoid conflicts.
 #
 # Options:
-#   --project-dir <path>  Store session files under <path>/.superpowers/brainstorm/
+#   --project-dir <path>  Store session files under <path>/.agent/brainstorm/
 #                         instead of /tmp. Files persist after server stops.
 #   --host <bind-host>    Host/interface to bind (default: 127.0.0.1).
 #                         Use 0.0.0.0 in remote/containerized environments.
@@ -142,11 +142,23 @@ umask 077
 SESSION_ID="$$-$(date +%s)"
 
 if [[ -n "$PROJECT_DIR" ]]; then
-  SESSION_DIR="${PROJECT_DIR}/.superpowers/brainstorm/${SESSION_ID}"
+  # A self-ignoring .gitignore at the .agent/ root keeps sessions out of git
+  # without touching a tracked file. Refuse rather than clobber: .agent/ is a
+  # generic name and a repository may track its own .agent/.gitignore. The
+  # lookup discards its output because it exits non-zero and prints to stderr
+  # on the ordinary untracked path, which would kill this script under set -e.
+  if git -C "$PROJECT_DIR" ls-files --error-unmatch .agent/.gitignore >/dev/null 2>&1; then
+    echo "{\"error\": \"${PROJECT_DIR}/.agent/.gitignore is tracked in this repository; refusing to overwrite it\"}"
+    exit 1
+  fi
+  mkdir -p "${PROJECT_DIR}/.agent"
+  printf '*\n' >"${PROJECT_DIR}/.agent/.gitignore"
+
+  SESSION_DIR="${PROJECT_DIR}/.agent/brainstorm/${SESSION_ID}"
   # Persist the bound port and key per project so a restart reuses them and an
   # already-open browser tab reconnects to the same URL with a valid cookie.
-  export BRAINSTORM_PORT_FILE="${PROJECT_DIR}/.superpowers/brainstorm/.last-port"
-  export BRAINSTORM_TOKEN_FILE="${PROJECT_DIR}/.superpowers/brainstorm/.last-token"
+  export BRAINSTORM_PORT_FILE="${PROJECT_DIR}/.agent/brainstorm/.last-port"
+  export BRAINSTORM_TOKEN_FILE="${PROJECT_DIR}/.agent/brainstorm/.last-token"
 else
   SESSION_DIR="/tmp/brainstorm-${SESSION_ID}"
 fi
