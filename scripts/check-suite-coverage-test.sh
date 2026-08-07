@@ -26,6 +26,11 @@ fail() {
 # backup suffix and GNU sed does not, so a bare `sed -i SCRIPT FILE` runs SCRIPT as
 # a suffix on macOS and dies on the filename. Rewriting through a temp file needs no
 # -i at all. Every fixture edit below goes through this.
+#
+# It does not preserve the file's mode — the temp file takes the umask's, so a 755
+# input comes back 644. Every call site here edits the fixture Justfile, which is 644
+# and never executed; do not reach for this on the +x suite fixtures new_fixture
+# creates without adding `cp -p` first.
 sed_i() {
 	local script=$1 file=$2 tmp=$2.sed-tmp
 	sed "$script" "$file" >"$tmp" && mv "$tmp" "$file"
@@ -223,11 +228,10 @@ expect_red "$fixture" 'renamed recipe' 'no recipe named lint'
 new_fixture
 accented=$fixture/scripts/café-test.sh
 printf '#!/usr/bin/env bash\n# accented\nexit 0\n' >"$accented"
-# A backslash-newline, not \n: GNU sed expands \n in a replacement and BSD sed inserts
-# a literal 'n', joining the two suites into one `beta-test.shn  ./scripts/café-test.sh`
-# line. That names no file, so beta goes unreached and the expect_green below fails —
-# loudly, not silently. The portable form is here to keep the case testing what it says,
-# not to avert a false green.
+# A backslash-newline, not \n: the backslash-newline is POSIX and every sed takes it,
+# whereas \n in a replacement is a GNU extension no BSD sed is required to support.
+# Apple's current sed does happen to expand it — probed on this host, byte-identical
+# output — so this is portability to the seds that do not, not a fix for a live break.
 sed_i 's|^  ./scripts/beta-test.sh|  ./scripts/beta-test.sh\
   ./scripts/café-test.sh|' "$fixture/Justfile"
 git -C "$fixture" add -A
