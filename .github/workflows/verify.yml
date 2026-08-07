@@ -11,7 +11,15 @@ permissions:
 
 jobs:
   verify:
-    runs-on: ubuntu-latest
+    # macOS is not redundant coverage. Its system bash is 3.2 and its sed is BSD,
+    # and both have already shipped breakage this suite could not see from ubuntu
+    # alone: a `mapfile` that exits 127 and a `sed -i` that reads the script as a
+    # backup suffix. Neither reproduces on GNU userland (ADR 0027).
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
