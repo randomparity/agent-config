@@ -190,8 +190,11 @@ with a *bare* `.superpowers/`, so the invariant is something this change establi
 rather than something it found. The legitimate mentions are real and must keep passing —
 `using-git-worktrees`, `build-tdd` and `work-issue` each name bare `.codex/` as an
 example of where a harness's *native worktree tool* nests a worktree, which is a true
-fact about that harness. The rule needs no allowlist, so it cannot rot into an
-exemption outliving its reason.
+fact about that harness — four mentions across those three files, `using-git-worktrees`
+carrying two. A fifth bare mention must keep passing too: `campaign/SKILL.md`'s note
+that many target repositories *track* `.codex/`, which survives untouched even though
+the rest of that file is rewritten. The rule needs no allowlist, so it cannot rot into
+an exemption outliving its reason.
 
 **"Bare" is decided by what follows the slash, and prose is Markdown.** Every one of
 those legitimate mentions is written in a code span, so the byte after the slash is a
@@ -264,7 +267,7 @@ The spec carries the pattern and the fixtures that pin both directions.
   already provides it, and gets it wrong the first time two branches share a name after
   a slash-to-dash flattening.
 - **A blanket repo-relative ban on agent roots, bare or not.** Rejected: it fails the
-  three worktree-placement mentions, which are factually correct and describe real
+  four worktree-placement mentions across three skills, which are factually correct and describe real
   harness behaviour. Making the gate green would mean deleting true statements from the
   documentation to satisfy a pattern.
 - **An allowlist of files exempt from the repo-relative rule.** Rejected for the reason

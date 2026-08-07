@@ -75,8 +75,14 @@ named blocker — reproducing, by omission, the exact hard stop this change remo
 So each of `campaign`, `sdd-workspace` and `start-server.sh` writes it before its first
 state write, on create and on resume.
 
-**Rooted, not literal.** The command is `printf '*\n' > "$root/.agent/.gitignore"`,
-where `$root` is that consumer's row in the resolution table — the main repo root for
+**Rooted, not literal — and it creates the directory.** The command is
+`mkdir -p "$root/.agent" && printf '*\n' > "$root/.agent/.gitignore"`. The `mkdir` is
+not optional: a bare redirect into a missing directory exits 1 with `no such file or
+directory` and creates nothing, which is precisely the fresh-clone case this rule
+exists for. `sdd-workspace` gets away without one today only because its own
+`mkdir -p "$dir"` runs first, and `start-server.sh`'s only `mkdir -p` is *after* the
+point the ordering rule below places this write. Here `$root` is that consumer's row in
+the resolution table — the main repo root for
 campaign, `--show-toplevel` for `sdd-workspace`, `--project-dir` for `start-server.sh`
 (and in its `/tmp` fallback branch there is no `.agent/` and no write at all).
 Idempotence holds *per root*: an unrooted `printf '*\n' > .agent/.gitignore` run from a
@@ -92,9 +98,19 @@ into a named blocker — in exactly the resume-from-a-worktree case the split ro
 exists to serve. Rooted as `git -C "$campaign_root" check-ignore -q .agent/campaigns/`
 it exits 0. Both probed on git 2.50.1.
 
-**The write refuses a tracked path.** Before writing, the consumer checks whether
-`.agent/.gitignore` is tracked (`git -C "$root" ls-files --error-unmatch
-.agent/.gitignore`) and stops with a named blocker if it is. `.agent/` is generic by
+**The write refuses a tracked path.** Before writing, the consumer runs
+
+```sh
+if git -C "$root" ls-files --error-unmatch .agent/.gitignore >/dev/null 2>&1; then
+  <stop with a named blocker>
+fi
+```
+
+and stops if the path is tracked. The redirection and the `if` are both load-bearing:
+on the normal untracked path the command exits 1 and prints `did not match any file(s)
+known to git`, so an unguarded call kills `sdd-workspace` and `start-server.sh` (both
+`set -euo pipefail`) on every clean run and puts an error line in campaign's transcript
+on the success path. `.agent/` is generic by
 design, which is what makes it a plausible name for a target repository's own agent
 tooling; a truncating redirect over a tracked file is the same "modifies the target
 repo" defect this change removes, relocated.
@@ -158,7 +174,7 @@ In scope — state these skills choose to create:
 | `brainstorming/scripts/start-server.sh` | `.superpowers/brainstorm/` → `.agent/brainstorm/` |
 | `brainstorming/scripts/stop-server.sh` | comment |
 | `brainstorming/visual-companion.md` | paths and the `.gitignore` reminder |
-| `codex-fleet/SKILL.md` | replace `.git/info/exclude` advice with the self-ignoring pattern |
+| `codex-fleet/SKILL.md` | delete the `.git/info/exclude` alternative only. Its `out/` is a **caller-named worker deliverable directory, not scratch state**, so it stays outside `.agent/`, keeps its own per-directory self-ignoring `.gitignore`, and is not bound by the "never per-subdirectory" rule |
 
 Out of scope, deliberately: the bare `.codex/` mentions in
 `using-git-worktrees/SKILL.md`, `build-tdd/SKILL.md` and `work-issue/SKILL.md`.
@@ -192,7 +208,7 @@ home-rooted rule sidesteps the analogous trap with its trailing `(/|$)`; this on
 an explicit terminator set:
 
 ```
-repo_pattern='[.](codex|claude|bob|superpowers)/[^[:space:]`,)"'"'"'.]'
+repo_pattern='[.](codex|claude|bob|superpowers)/[^[:space:]`,)"'"'"']'
 ```
 
 A slash followed by a backtick, comma, close-paren, quote, period or whitespace ends a
@@ -215,8 +231,16 @@ every other check here:
 | `.superpowers/sdd/progress.md` | — | **fail** |
 | `.claude/settings/x.json` | — | **fail** |
 | `.bob/skills/x/SKILL.md` | — | **fail** |
-| `~/.codex/skills` (existing home-rooted arm, unchanged) | — | **fail** |
+| `.codex/.gitignore` (hidden state under an agent root) | — | **fail** |
+| `~/.codex/skills` (home-rooted arm — now trips **both** rules; assert on the home-rooted message) | — | **fail** |
 | `.agent/campaigns/x.md` (the destination) | — | pass |
+
+The `~/.codex/skills` row is no longer only the old arm's. The repo-relative pattern
+has no left anchor, so `~/.codex/s` matches it too and a home-rooted path emits both
+diagnostics — the second carrying a remedy ("move it under `.agent/`") that does not
+apply to it. Left-anchoring is not the fix: `<project>/.superpowers/brainstorm/` at
+`visual-companion.md:56` has a slash before the root and must keep matching. The
+fixture therefore asserts on the home-rooted message only.
 
 The gate is then run against the real `content/skills/` tree, which is what proves the
 four live worktree-prose sites still pass.
@@ -227,7 +251,7 @@ four live worktree-prose sites still pass.
 least resistance and would report a `.codex/campaigns/` violation under a message naming
 neither the rule nor the remedy. The repo-relative rule takes a separate results file and
 its own text — `repo-relative agent state path is forbidden; move it under .agent/` —
-which is also what the two failing fixtures assert on, since `assert_fails` matches the
+which is also what the four new-rule failing fixtures assert on, since `assert_fails` matches the
 message string.
 
 ## This repository's own state
