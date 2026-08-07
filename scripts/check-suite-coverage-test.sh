@@ -223,9 +223,11 @@ expect_red "$fixture" 'renamed recipe' 'no recipe named lint'
 new_fixture
 accented=$fixture/scripts/café-test.sh
 printf '#!/usr/bin/env bash\n# accented\nexit 0\n' >"$accented"
-# A backslash-newline, not \n: GNU sed expands \n in a replacement and BSD sed
-# inserts a literal 'n', which would wire the accented suite onto the end of the
-# beta line and quietly test nothing.
+# A backslash-newline, not \n: GNU sed expands \n in a replacement and BSD sed inserts
+# a literal 'n', joining the two suites into one `beta-test.shn  ./scripts/café-test.sh`
+# line. That names no file, so beta goes unreached and the expect_green below fails —
+# loudly, not silently. The portable form is here to keep the case testing what it says,
+# not to avert a false green.
 sed_i 's|^  ./scripts/beta-test.sh|  ./scripts/beta-test.sh\
   ./scripts/café-test.sh|' "$fixture/Justfile"
 git -C "$fixture" add -A
