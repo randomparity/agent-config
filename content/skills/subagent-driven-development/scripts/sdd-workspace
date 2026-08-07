@@ -3,11 +3,13 @@
 # artifacts: task briefs, implementer reports, review packages, and the
 # progress ledger. Print the directory's absolute path.
 #
-# The workspace lives in the working tree (not under .git/) because Codex can
-# treat .git/ as a protected path and deny agent writes there — which blocks
-# an implementer subagent from writing its report file. A self-ignoring
-# .gitignore keeps the workspace out of `git status` and out of accidental
-# commits without modifying any tracked file.
+# The workspace lives in the working tree, not under .git/, because Codex's
+# workspace-write sandbox denies writes there and would block an implementer
+# subagent from writing its report file.
+#
+# The ignore file sits at .agent/, not .agent/sdd/: a sibling .agent/campaigns/
+# written later by $campaign has to be covered too, and whichever skill ran
+# first would otherwise decide whether the next one's state is ignored.
 #
 # Single source of truth for the workspace location, so task-brief and
 # review-package cannot drift to different directories.
@@ -16,7 +18,18 @@
 set -euo pipefail
 
 root=$(git rev-parse --show-toplevel)
-dir="$root/.superpowers/sdd"
+
+# Refuse rather than clobber: .agent/ is a generic name and a repository may
+# track its own .agent/.gitignore. Output is discarded because this command
+# exits non-zero and prints to stderr on the ordinary untracked path, which
+# would otherwise kill this script under `set -e`.
+if git -C "$root" ls-files --error-unmatch .agent/.gitignore >/dev/null 2>&1; then
+	printf 'sdd-workspace: %s/.agent/.gitignore is tracked here; refusing to overwrite it\n' \
+		"$root" >&2
+	exit 1
+fi
+
+dir="$root/.agent/sdd"
 mkdir -p "$dir"
-printf '*\n' >"$dir/.gitignore"
+printf '*\n' >"$root/.agent/.gitignore"
 cd "$dir" && pwd

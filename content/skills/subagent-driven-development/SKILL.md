@@ -269,17 +269,18 @@ a ledger file, not only in todos.
   re-dispatch them; resume at the first task not marked complete.
 - **The workspace is what keeps the ledger out of git, and only the script
   creates it.** `scripts/sdd-workspace` writes a self-ignoring `.gitignore`
-  (`*`) into `.superpowers/sdd/`, and that file is the whole mechanism keeping
+  (`*`) into `.agent/`, and that file is the whole mechanism keeping
   the ledger, task briefs, implementer reports, and review packages out of
   `git status` and out of a PR diff. Writing `progress.md` at a hardcoded path
   with an editor tool skips the script, so in a repo that tracks everything the
   ledger becomes an untracked file the next `git add -A` sweeps into someone's
   commit. Run the script — or `task-brief`/`review-package`, which call it —
   before the first write, then confirm:
-  `git check-ignore -q "$(git rev-parse --show-toplevel)/.superpowers/sdd/progress.md"`.
-  If that fails, add `.superpowers/` to `.git/info/exclude` (per-clone, local,
-  never committed, independent of the repo's tracked `.gitignore` — the recipe
-  `$campaign` uses for its manifest) and re-check before dispatching Task 1.
+  `git check-ignore -q "$(git rev-parse --show-toplevel)/.agent/sdd/progress.md"`.
+  If that fails, stop and report it: the script writes `.agent/.gitignore` itself,
+  so a failure here means that write was refused or reverted, not that a further
+  ignore step is owed. Do not reach for `.git/info/exclude` — a sandboxed agent
+  may be denied writes to `.git/` entirely, so that path is not a fallback.
 - When a task's review comes back clean, append one line to the ledger in
   the same message as your other bookkeeping:
   `Task N: complete (commits <base7>..<head7>, review clean)`.
