@@ -18,23 +18,32 @@ hard-stops under Codex, in the skill whose state directory is named `.codex/`.
 
 ## Evidence
 
-Probed against Codex CLI 0.146.0, seatbelt sandbox, `sandbox_mode=workspace-write`,
-in a throwaway repository:
+Each row was produced by running, from the root of a throwaway git repository,
+`codex sandbox -c sandbox_mode="workspace-write" -- bash -c '<probe>'` against Codex
+CLI 0.146.0 on **macOS, seatbelt backend**. Linux, where Codex sandboxes with
+Landlock/seccomp instead, was not probed.
 
-| Target | Result |
+| Probe | Result |
 |---|---|
-| `.git/agent-state/` | `mkdir: Operation not permitted` |
-| `.git/info/exclude` | `Operation not permitted` |
-| `$HOME/.local/state/...` | `mkdir: Operation not permitted` |
-| working-tree dir + self-ignoring `.gitignore` | wrote OK; absent from `git status` |
+| `mkdir -p .git/agent-state` | `Operation not permitted` |
+| `echo x >> .git/info/exclude` | `Operation not permitted` |
+| `mkdir -p "$HOME/.local/state/agent-config/probe"` | `Operation not permitted` |
+| `mkdir -p .superpowers/sdd` | wrote OK |
+| `echo x > /tmp/probe` | wrote OK |
+| `echo x > "$TMPDIR/probe"` | wrote OK |
 
-The last row was checked in both directions in one run: a directory written with
-`printf '*\n' > .gitignore` did not appear in `git status --porcelain`, while a
+The ignore mechanism was checked in both directions in one run: a directory written
+with `printf '*\n' > .gitignore` did not appear in `git status --porcelain`, while a
 sibling written without one appeared as `??`. `git check-ignore -q` confirmed the
 first.
 
-This rules out `.git/` and any `$HOME`-rooted location as the destination. Only a
-working-tree directory is writable by every agent this repository targets.
+This rules out `.git/` and any `$HOME`-rooted location as the destination. Note the
+last two rows: `/tmp` and `$TMPDIR` *are* writable and sit outside the workspace, so
+the constraint is not a plain workspace boundary — `.git/` is denied by a protection
+inside the workspace, `$HOME` by the confinement outside it. What that leaves is the
+working tree as the only **durable** location writable by every agent this repository
+targets; `/tmp` is writable but is exactly the ephemeral fallback `brainstorm` already
+treats as lossy.
 
 The constraint was already known to one script — `sdd-workspace`'s header comment
 states it — but recorded nowhere else, which is how three skills came to depend on
@@ -47,20 +56,42 @@ particular agent or toolkit.
 
 ```
 .agent/
-├── .gitignore          # contains only: *
-├── campaigns/          # root: $(git rev-parse --git-common-dir)/..  → shared
-├── sdd/                # root: $(git rev-parse --show-toplevel)      → per-worktree
-└── brainstorm/         # root: caller's --project-dir                → per-invocation
+├── .gitignore          # contains only: *   — written by EVERY consumer, idempotently
+├── campaigns/          # root: main repo root, absolutized  → shared
+├── sdd/                # root: git rev-parse --show-toplevel → per-worktree
+└── brainstorm/         # root: caller's --project-dir        → per-invocation
 ```
+
+### Every consumer writes `.agent/.gitignore`, at the `.agent/` root
+
+Not per-subdirectory, and not delegated to whichever skill happens to run first.
+`sdd-workspace` today writes `$dir/.gitignore`, which under a naive rename becomes
+`.agent/sdd/.gitignore` and leaves a sibling `.agent/campaigns/` uncovered. Since
+`campaign` keeps its fail-closed `git check-ignore` verification, that ordering
+decides whether a campaign runs at all: on a fresh clone where no `.gitignore` writer
+has run, `git check-ignore -q .agent/campaigns/` returns 1 and `campaign` stops with a
+named blocker — reproducing, by omission, the exact hard stop this change removes.
+
+So each of `campaign`, `sdd-workspace` and `start-server.sh` performs
+`printf '*\n' > .agent/.gitignore` before its first state write, on create and on
+resume. It is idempotent, so ordering stops mattering.
 
 ### Worktree resolution is split, because the two lifetimes differ
 
 A campaign manifest must span the worktrees it dispatches into. `campaign` runs
 waves of up to five worktree-isolated subagents, the orchestrator is its only
 writer, and a resume has to reattach to the same manifest from wherever it is
-resumed. It therefore resolves against `$(git rev-parse --git-common-dir)/..`,
-which yields the main repository root from inside any linked worktree — the idiom
-`finishing-a-development-branch/SKILL.md:118` already uses.
+resumed. It therefore resolves against
+`git -C "$(git rev-parse --git-common-dir)/.." rev-parse --show-toplevel`, which is the
+idiom `finishing-a-development-branch/SKILL.md:118` uses.
+
+The wrapper is not decoration. `git rev-parse --git-common-dir` returns an absolute
+path only from a *linked* worktree; from the main worktree it returns `.git` at the
+root and `../.git` from a subdirectory, so the bare `$(…)/..` form is the cwd-relative
+literal `.git/..`. That is correct only while the process stays in the same directory,
+and a manifest path is written into prompts, logs and resumes and read by subagents in
+other worktrees. `git -C … rev-parse --show-toplevel` returns an absolute canonical
+path from every cwd.
 
 SDD artifacts belong to one branch's work. Five parallel campaign subagents each
 running SDD would collide on a shared `progress.md`, so `sdd-workspace` keeps
@@ -121,22 +152,55 @@ probe, which is plugin discovery for a real Codex path, not state.
 `root_pattern='(~|[$]HOME|[$][{]HOME[}])/[.](codex|claude|bob)(/|$)'`. It has no
 rule for repo-relative ones, which is the hole `.codex/campaigns/` used.
 
-The extension rejects an agent-or-toolkit root **carrying a subpath**
-(`.codex/x`, `.claude/x`, `.bob/x`, `.superpowers/x`) and permits a bare root. That
-discriminator is not arbitrary: across the whole canonical set today, every
-storage location carries a subpath and every legitimate reference is a bare root.
-It needs no allowlist, so it cannot rot into a stale exemption.
+The extension rejects an agent-or-toolkit root **carrying a subpath** and permits a
+bare root. It needs no allowlist, so it cannot rot into a stale exemption. Once this
+change lands, every storage location the canonical set names carries a subpath and
+every remaining mention is bare — an invariant this change establishes rather than
+finds, since `stop-server.sh` and `visual-companion.md` today refer to storage with a
+bare `.superpowers/`.
 
-`scripts/check-skill-layout-test.sh` gains a fixture for each arm — a subpath form
-that must fail, and a bare form that must pass — so the discriminator is proven to
-bite in both directions rather than only the one.
+**"Bare" is decided by what follows the slash, and the prose is Markdown.** Every
+legitimate mention is inside a code span, so the byte after the slash is a backtick.
+A naive `[.](codex|claude|bob|superpowers)/[^[:space:]]` rejects all four. The
+existing home-rooted rule sidesteps the analogous trap with its trailing `(/|$)`;
+this one needs an explicit terminator set:
+
+```
+repo_pattern='[.](codex|claude|bob|superpowers)/[^[:space:]`,)"'"'"'.]'
+```
+
+A slash followed by a backtick, comma, close-paren, quote, period or whitespace ends a
+bare root and passes. Anchoring the alternation on the slash is what keeps
+`.codex-plugin/plugin.json` out of the rule — `.codex-plugin` is not `.codex/`, and it
+is a real Codex plugin path in `brainstorming/scripts/server.cjs` that must keep
+passing.
+
+`scripts/check-skill-layout-test.sh` pins both directions with six fixtures:
+
+| Fixture | Expected |
+|---|---|
+| ``under `.codex/`, a project-local`` (the worktree-prose form, ×1 of the 4 live sites) | pass |
+| `` `.superpowers/` `` bare at end of a code span | pass |
+| `.codex-plugin/plugin.json` | pass |
+| `.codex/campaigns/<slug>.md` | **fail** |
+| `.superpowers/sdd/progress.md` | **fail** |
+| `~/.codex/skills` (the existing home-rooted arm) | **fail** |
+
+The gate is then run against the real `content/skills/` tree, which is the only thing
+that proves the four live worktree-prose sites still pass.
 
 ## This repository's own state
 
-Three live manifests under `.codex/campaigns/` move to `.agent/campaigns/`. The
-now-dead `.codex/campaigns/` line comes out of `.git/info/exclude`. The stale
-`.superpowers/sdd/` directory is left for the user to remove or keep; it is not
-this change's to delete.
+Three live manifests under `.codex/campaigns/` move to `.agent/campaigns/`.
+
+The now-dead `.codex/campaigns/` line in `.git/info/exclude` is **operator work, not
+agent work** — removing it is a write to `.git/`, the very write this change
+establishes an agent cannot perform under Codex's sandbox. An agent implementing this
+spec must not attempt it and stop on the denial it just documented. The line is inert
+once nothing writes to `.codex/campaigns/`, so leaving it costs nothing.
+
+The stale `.superpowers/sdd/` directory is left for the user to remove or keep; it is
+not this change's to delete.
 
 ## Verification
 
