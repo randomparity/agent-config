@@ -63,7 +63,7 @@ reproducible normal form. The slug is a short hash of that normal form, so `10 1
 and `11 10` map to one manifest, the same NL query reattaches across runs even as
 its matches change, and the filename stays bounded regardless of set size. Store
 the full normal form in the manifest (`Normalized-selector`), because a short hash
-can collide. Use `.codex/campaigns/<slug>.md`. Routing on the existing file — on
+can collide. Use `.agent/campaigns/<slug>.md`. Routing on the existing file — on
 any match, **first confirm the loaded manifest's `Normalized-selector` equals this
 run's**; on mismatch it is a hash collision, so fall through to a disambiguated
 filename (`<slug>-2.md`, …) rather than resuming a foreign campaign:
@@ -79,7 +79,7 @@ filename (`<slug>-2.md`, …) rather than resuming a foreign campaign:
   drive triage and PR bodies).
 - **File with `Status: complete`** → the prior campaign under this selector
   finished. Do **not** reattach (that silently no-ops). Archive it under a unique
-  name (`.codex/campaigns/<slug>-done-<UTC-timestamp>.md`, timestamp-suffixed so
+  name (`.agent/campaigns/<slug>-done-<UTC-timestamp>.md`, timestamp-suffixed so
   two same-day completions don't collide) and create a fresh manifest.
 
 On create, populate: the resolved queue with per-issue status, the completion
@@ -89,11 +89,33 @@ placeholders for the `$preflight` findings (step 2) and step-4 assignments.
 **Keep the manifest out of git without relying on the target repo's `.gitignore`.**
 `$campaign` runs against arbitrary repos, and many **track** `.codex/` — there
 the manifest would land in a per-issue PR diff or trip `$preflight`'s dirty-tree
-stop. So ensure `.codex/campaigns/` is in `.git/info/exclude` (per-clone, local,
-never committed, independent of the repo's tracked `.gitignore`) — idempotent: add
-it if absent, on both create and resume, so a resume in a fresh clone is covered
-too. If the path is somehow still not ignored (`git check-ignore -q` fails), stop
-with that as a named blocker rather than proceeding to pollute a PR.
+stop. So resolve the campaign root once and work against it:
+
+    campaign_root=$(git -C "$(git rev-parse --git-common-dir)/.." rev-parse --show-toplevel)
+
+That is the **main** repository root from inside any linked worktree, which is what
+lets a resume reattach to the same manifest from wherever it runs. The bare
+`$(git rev-parse --git-common-dir)/..` is not a substitute — from the main worktree
+it is the cwd-relative literal `.git/..`, which stops meaning anything once the path
+is carried into a prompt, a log, or a subagent in another worktree.
+
+Then, before the first manifest write and again on resume:
+
+- if `git -C "$campaign_root" ls-files --error-unmatch .agent/.gitignore` succeeds,
+  the target repo tracks that file — **stop with a named blocker**, do not overwrite
+  it. Discard that command's output; on the ordinary untracked path it exits non-zero
+  and prints to stderr;
+- otherwise create `"$campaign_root/.agent/campaigns"` and write `*` into
+  `"$campaign_root/.agent/.gitignore"`. Idempotent, and the ignore file sits at
+  `.agent/`, never per-subdirectory, so a sibling `.agent/sdd/` is covered too.
+
+Verify with `git -C "$campaign_root" check-ignore -q .agent/campaigns/`. Run it with
+`-C` against that root, never as an absolute path from the current directory: from a
+linked worktree an absolute path into the main worktree exits 128 `outside repository`,
+which this rule would misread as "not ignored". If the check still fails, stop with
+that as a named blocker rather than proceeding to pollute a PR. Do **not** fall back
+to `.git/info/exclude` — a sandboxed agent may be denied writes to `.git/` entirely,
+so that path is not a fallback.
 
 Discipline: the **orchestrator is the only writer** — every step reads/updates the
 manifest instead of re-deriving state, and subagent prompts reference manifest
