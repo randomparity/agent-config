@@ -109,8 +109,33 @@ state is ignored. And because `campaign` keeps a fail-closed `git check-ignore`
 verification, a consumer that creates its state directory without the ignore file stops
 the run.
 
+This rule governs *scratch state under `.agent/`*, and does not reach a caller-named
+deliverable directory. `codex-fleet`'s `out/` is the standing example: the caller
+chooses the path, the contents are the run's product rather than state the skill hides
+from itself, and an ignore file there is scoped to that one directory by construction.
+A future reader applying the paragraph above to `out/` would be generalizing it past
+what it decides.
+
+**The write is atomic — a temp file in the same directory, then a rename — never a
+truncating redirect.** `>` truncates before it writes, and `campaign`'s fail-closed
+`git check-ignore` reading that gap sees an empty ignore file, reports the manifest
+unignored, and stops the run. `rename(2)` within a directory is atomic, so a concurrent
+reader sees one version or the other and never the gap. The temp file is removed by an
+`EXIT` trap: without one an interrupted run leaves the temp file behind with no ignore
+file yet to cover it, which is the exposure this rule exists to close.
+
+**A tracked ignore file is never modified, but tracked is not by itself fatal.** A
+target repository that tracks its own `.agent/.gitignore` and already covers the state
+path is the benign case, and refusing there would stop `sdd-workspace` — and with it
+`task-brief` and `review-package` — over a repository that was already correct. The
+consumer verifies the outcome with `git check-ignore` and stops only when the state is
+genuinely exposed. The tracked-lookup itself has three answers, not two: tracked,
+untracked, and *unanswered* (no git, not a repository, an unreadable index). Testing it
+as a boolean folds the third into "untracked" and writes straight through the file the
+rule protects.
+
 **Both the write and the verification are rooted at the skill's own root, never at
-cwd.** The write is `printf '*\n' > "$root/.agent/.gitignore"` and the check is
+cwd.** The write targets `"$root/.agent/.gitignore"` and the check is
 `git -C "$root" check-ignore -q .agent/campaigns/`, where `$root` is that skill's row
 in the table above. Idempotence holds per root, not globally, so an unrooted literal is
 not a smaller version of this rule but a different one. From a linked worktree the

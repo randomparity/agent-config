@@ -98,8 +98,12 @@ A consumer checks first and stops with a named blocker. The check must not abort
 caller: it exits non-zero and prints to stderr on the ordinary *untracked* path, and
 two of the three consumers run `set -euo pipefail`.
 
-The exact commands live in the scripts and in `check-skill-layout-test.sh`, where
-`just verify` runs them. This document states what must hold, not the bytes.
+The exact commands live in the scripts. `sdd-workspace-test.sh` and the two
+`run_ignore_case` arms of `start-server-test.sh` exercise them — the untracked write,
+the tracked-but-covering pass, the tracked-and-exposing refusal, the unanswered query,
+and the temp-file cleanup on a failed write — and `just verify` runs both suites.
+`check-skill-layout-test.sh` covers the *gate*, not these commands. This document
+states what must hold, not the bytes.
 
 ### Worktree resolution is split, because the two lifetimes differ
 
@@ -197,13 +201,20 @@ an explicit terminator set:
 repo_pattern='[.](codex|claude|bob|superpowers)/[^[:space:]`,)"'"'"']'
 ```
 
-A slash followed by a backtick, comma, close-paren, quote, period or whitespace ends a
-bare root and passes. Anchoring the alternation on the slash is what keeps
+A slash followed by a backtick, comma, close-paren, either quote, or whitespace ends a
+bare root and passes. A period deliberately does **not**: `.codex/.gitignore` is a real
+repo-relative state path and has to fail, which it only does because the class stops
+short of `.`. The cost is that a bare root ending a sentence — `not under .codex/.` —
+trips the rule and gets told to move under `.agent/`, which is wrong advice for a
+factual mention. Every live mention sits inside a code span, so the exposure is a future
+mention written outside one; the trade is taken deliberately in favour of catching the
+hidden-state path. Anchoring the alternation on the slash is what keeps
 `.codex-plugin/plugin.json` out of the rule — `.codex-plugin` is not `.codex/`, and it
 is a real Codex plugin path in `brainstorming/scripts/server.cjs` that must keep
 passing.
 
-`scripts/check-skill-layout-test.sh` pins both directions with nine fixtures. The live
+`scripts/check-skill-layout-test.sh` pins both directions. The table below is
+illustrative, not a census — the suite is the count. The live
 tree cannot stand in for the `claude` and `bob` arms — `rg '\.claude|\.bob'` over
 `content/` returns nothing — so dropping or misspelling either alternative would pass
 every other check here:
@@ -211,7 +222,7 @@ every other check here:
 | Fixture | Terminator | Expected |
 |---|---|---|
 | ``under `.codex/`, a project-local`` (1 of the 4 live sites) | backtick | pass |
-| `Persistent directories (.superpowers/) are` (the live `stop-server.sh` form) | `)` | pass |
+| `Persistent directories (.superpowers/) are` (the pre-change `stop-server.sh` form) | `)` | pass |
 | `.codex-plugin/plugin.json` (real Codex plugin path) | n/a — no `/` after `codex` | pass |
 | `.codex/campaigns/<slug>.md` | — | **fail** |
 | `.superpowers/sdd/progress.md` | — | **fail** |
@@ -222,11 +233,15 @@ every other check here:
 | `.agent/campaigns/x.md` (the destination) | — | pass |
 
 The `~/.codex/skills` row is no longer only the old arm's. The repo-relative pattern
-has no left anchor, so `~/.codex/s` matches it too and a home-rooted path emits both
-diagnostics — the second carrying a remedy ("move it under `.agent/`") that does not
-apply to it. Left-anchoring is not the fix: `<project>/.superpowers/brainstorm/` at
-`visual-companion.md:56` has a slash before the root and must keep matching. The
-fixture therefore asserts on the home-rooted message only.
+has no left anchor, so `~/.codex/s` matches it too — but only one diagnostic is ever
+printed: `skill_error` ends in `exit 1`, and the home-rooted check runs first, so the
+home-rooted message wins and the repo-relative remedy ("move it under `.agent/`"),
+which does not apply to a home-rooted path, is never reached. That ordering is load-
+bearing rather than incidental: neutering the home-rooted rule makes the repo-relative
+one fire in its place with the wrong remedy. Left-anchoring is not the fix either — a
+`<project>/.agent/brainstorm/` form has a slash before the root, so an anchor would
+stop the rule matching the very shape it is written for. The fixture therefore asserts
+on the home-rooted message only.
 
 The gate is then run against the real `content/skills/` tree, which is what proves the
 four live worktree-prose sites still pass.
@@ -261,8 +276,12 @@ that exercise the changed `start-server.sh`), `lint` and `format-check` over the
 edited shell scripts, and `records` over the new ADR.
 
 The brainstorm server suites are the functional arm: they start and stop the real
-server, so a broken session-directory path fails them rather than passing a
-text-only review.
+server. Path correctness is not what they prove — they locate their artifact with a
+path-agnostic `find`, and the layout gate is what catches a reverted path across all
+shipped content. What they prove is the ignore contract: `run_ignore_case` asserts
+`.agent/.gitignore` contains `*` and the tree stays clean, that a tracked ignore file
+leaving state exposed is refused rather than overwritten, and that an unanswerable
+tracked-query stops instead of writing through.
 
 ## Non-goals
 
