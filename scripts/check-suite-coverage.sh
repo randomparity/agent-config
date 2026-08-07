@@ -107,7 +107,14 @@ report_unreached() {
 
 # -z rather than newlines: git quotes a non-ASCII path otherwise, and an escaped
 # path can never match the recipe output it is compared against.
-mapfile -d '' -t suites < <(git ls-files -z -- '*-test.sh')
+#
+# Read in a loop rather than `mapfile -d ''`: mapfile is a bash 4 builtin and the
+# macOS system shell is bash 3.2, where this gate exited 127 and took `just verify`
+# with it. CI runs ubuntu, so nothing caught it there.
+suites=()
+while IFS= read -r -d '' suite; do
+	suites+=("$suite")
+done < <(git ls-files -z -- '*-test.sh')
 if ((${#suites[@]} == 0)); then
 	printf 'suite-coverage: no tracked *-test.sh found; refusing to pass over nothing\n' >&2
 	exit 1

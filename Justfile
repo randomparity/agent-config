@@ -41,6 +41,13 @@ lint:
     content/skills/github-tracking/assets/*.sh \
     content/skills/github-tracking/assets/profiles/*.sh \
     content/skills/github-tracking/assets/testdata/*.sh
+  # Named one by one, not by glob: these three are extensionless, so no `*.sh`
+  # pattern reaches them and they sat outside every gate until #74 put new logic
+  # in sdd-workspace.
+  shellcheck content/skills/subagent-driven-development/scripts/sdd-workspace \
+    content/skills/subagent-driven-development/scripts/task-brief \
+    content/skills/subagent-driven-development/scripts/review-package \
+    content/skills/subagent-driven-development/scripts/testdata/*.sh
 
 # The brainstorming scripts and the suite that exercises them take `-i 2`. The
 # scripts are vendored two-space-indented (ADR 0005, under which an upstream
@@ -57,6 +64,12 @@ format-check:
   shfmt -d content/skills/github-tracking/assets/*.sh \
     content/skills/github-tracking/assets/profiles/*.sh \
     content/skills/github-tracking/assets/testdata/*.sh
+  # Repository default, not `-i 2`: these are first-party, so the ADR 0005
+  # re-vendor argument that earns the brainstorming carve-out does not apply.
+  shfmt -d content/skills/subagent-driven-development/scripts/sdd-workspace \
+    content/skills/subagent-driven-development/scripts/task-brief \
+    content/skills/subagent-driven-development/scripts/review-package \
+    content/skills/subagent-driven-development/scripts/testdata/*.sh
 
 format:
   shfmt -w install.sh install-tools.sh install-test.sh install-tools-test.sh scripts/*.sh
@@ -68,6 +81,10 @@ format:
   shfmt -w content/skills/github-tracking/assets/*.sh \
     content/skills/github-tracking/assets/profiles/*.sh \
     content/skills/github-tracking/assets/testdata/*.sh
+  shfmt -w content/skills/subagent-driven-development/scripts/sdd-workspace \
+    content/skills/subagent-driven-development/scripts/task-brief \
+    content/skills/subagent-driven-development/scripts/review-package \
+    content/skills/subagent-driven-development/scripts/testdata/*.sh
 
 test:
   ./install-test.sh
@@ -75,6 +92,7 @@ test:
   ./content/skills/issue/scripts/testdata/create-verified-issue-test.sh
   ./content/skills/brainstorming/scripts/testdata/start-server-test.sh
   ./content/skills/brainstorming/scripts/testdata/stop-server-test.sh
+  ./content/skills/subagent-driven-development/scripts/testdata/sdd-workspace-test.sh
   ./content/skills/github-tracking/assets/testdata/tracker-test.sh
   ./scripts/check-public-safety-test.sh
   ./scripts/check-deployed-references-test.sh

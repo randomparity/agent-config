@@ -303,6 +303,52 @@ mkdir -p "$root/content/languages/testdata"
 printf '%s\n' 'Use ~/.claude/skills here.' >"$root/content/languages/testdata/fixture.md"
 assert_fails 'installed config-root reference is forbidden' "$root"
 
+# Repo-relative agent state. The rule above catches `~/.codex/skills`; this one
+# catches `.codex/campaigns/x.md`, the shape that put a Codex-named directory into
+# every agent's projection. A bare root has to keep passing, so each arm is pinned
+# in both directions rather than left to the live tree -- which covers neither
+# `.claude` nor `.bob` at all, and so would clear a dropped alternative silently.
+repo_state_error='repo-relative agent state path is forbidden'
+
+for state_path in \
+	'.codex/campaigns/x.md' \
+	'.superpowers/sdd/progress.md' \
+	'.claude/settings/x.json' \
+	'.bob/skills/x/SKILL.md' \
+	'.codex/.gitignore'; do
+	root="$(new_fixture)"
+	printf 'State goes in %s here.\n' "$state_path" >>"$root/content/skills/skill-01/SKILL.md"
+	assert_fails "$repo_state_error" "$root"
+done
+
+# The legitimate bare mentions, each terminating a different way. The first four
+# are the live forms: three skills name `.codex/` as where a harness's native
+# worktree tool nests a worktree, `campaign` notes that target repos track it, and
+# `stop-server.sh` closes the root with `)` rather than a backtick. `.codex-plugin`
+# is a real Codex path that the slash anchor -- not the terminator set -- excludes.
+# shellcheck disable=SC2016 # the backticks are literal Markdown code spans, and the
+# byte after the slash is exactly what these fixtures pin -- expanding them would
+# delete the terminator under test.
+for bare_mention in \
+	'Refuse it if it nests under `.codex/`, a project-local dir.' \
+	'Persistent directories (.superpowers/) are kept.' \
+	'Many target repos track `.codex/` themselves.' \
+	"const p = path.join(root, '.codex-plugin/plugin.json')" \
+	'State goes in .agent/campaigns/x.md here.'; do
+	root="$(new_fixture)"
+	printf '%s\n' "$bare_mention" >>"$root/content/skills/skill-01/SKILL.md"
+	output="$(cd "$root" && bash scripts/check-skill-layout.sh)"
+	[[ "$output" == 'skills-check: ok (1 canonical skills, 1 project review examples)' ]] ||
+		fail "bare mention should pass: $bare_mention: $output"
+done
+
+# The repo-relative rule covers every root the home-rooted rule covers. Neither
+# `content/languages` nor `content/references` creates state today, and both deploy
+# verbatim, so a state path added to either has to be caught the same way.
+root="$(new_fixture)"
+printf '%s\n' 'State goes in .codex/campaigns/x.md here.' >>"$root/content/languages/python.md"
+assert_fails "$repo_state_error" "$root"
+
 # rg exits 2 for any scan it could not complete, and the gate used to read that
 # as "no matches" and report ok. Root reads an unreadable file, so there the case
 # would assert nothing.
