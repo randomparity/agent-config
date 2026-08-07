@@ -75,45 +75,31 @@ named blocker — reproducing, by omission, the exact hard stop this change remo
 So each of `campaign`, `sdd-workspace` and `start-server.sh` writes it before its first
 state write, on create and on resume.
 
-**Rooted, not literal — and it creates the directory.** The command is
-`mkdir -p "$root/.agent" && printf '*\n' > "$root/.agent/.gitignore"`. The `mkdir` is
-not optional: a bare redirect into a missing directory exits 1 with `no such file or
-directory` and creates nothing, which is precisely the fresh-clone case this rule
-exists for. `sdd-workspace` gets away without one today only because its own
-`mkdir -p "$dir"` runs first, and `start-server.sh`'s only `mkdir -p` is *after* the
-point the ordering rule below places this write. Here `$root` is that consumer's row in
-the resolution table — the main repo root for
-campaign, `--show-toplevel` for `sdd-workspace`, `--project-dir` for `start-server.sh`
-(and in its `/tmp` fallback branch there is no `.agent/` and no write at all).
-Idempotence holds *per root*: an unrooted `printf '*\n' > .agent/.gitignore` run from a
-linked worktree creates `<worktree>/.agent/.gitignore` while campaign's manifest sits at
-`<main>/.agent/campaigns/`, leaving the manifest unignored and a stray `.agent/` in
-every worktree. Since `campaign/SKILL.md` is prose an agent executes verbatim, the
-literal form is what would run.
+**Rooted, not literal.** Each consumer resolves `$root` from its row in the resolution
+table, creates `$root/.agent/` if absent, and writes the ignore file there. The
+directory creation is part of the contract: a bare redirect into a missing directory
+fails and creates nothing, which is precisely the fresh-clone case this rule exists
+for. Idempotence holds *per root*, not globally — an unrooted write run from a linked
+worktree lands in the worktree while campaign's manifest sits in the main root, leaving
+the manifest unignored and a stray `.agent/` in every worktree. Since
+`campaign/SKILL.md` is prose an agent executes verbatim, its command must carry the
+root explicitly.
 
-**The verification is rooted too.** `git check-ignore` handed an absolute path into the
-main worktree from inside a linked worktree exits **128** (`is outside repository at
-'<linked-worktree>'`), which campaign's fail-closed rule reads as a failure and turns
-into a named blocker — in exactly the resume-from-a-worktree case the split root rule
-exists to serve. Rooted as `git -C "$campaign_root" check-ignore -q .agent/campaigns/`
-it exits 0. Both probed on git 2.50.1.
+**The verification is rooted too.** `git check-ignore` given an absolute path into the
+main worktree from inside a linked worktree exits **128** (`is outside repository`),
+which campaign's fail-closed rule reads as a failure — in exactly the
+resume-from-a-worktree case the split root exists to serve. It runs with `-C` against
+the same root the manifest resolved to. Probed on git 2.50.1.
 
-**The write refuses a tracked path.** Before writing, the consumer runs
+**The write refuses a tracked path.** `.agent/` is generic by design, so a target
+repository may track `.agent/.gitignore` for its own tooling; a truncating redirect
+over it is the same "modifies the target repo" defect this change removes, relocated.
+A consumer checks first and stops with a named blocker. The check must not abort its
+caller: it exits non-zero and prints to stderr on the ordinary *untracked* path, and
+two of the three consumers run `set -euo pipefail`.
 
-```sh
-if git -C "$root" ls-files --error-unmatch .agent/.gitignore >/dev/null 2>&1; then
-  <stop with a named blocker>
-fi
-```
-
-and stops if the path is tracked. The redirection and the `if` are both load-bearing:
-on the normal untracked path the command exits 1 and prints `did not match any file(s)
-known to git`, so an unguarded call kills `sdd-workspace` and `start-server.sh` (both
-`set -euo pipefail`) on every clean run and puts an error line in campaign's transcript
-on the success path. `.agent/` is generic by
-design, which is what makes it a plausible name for a target repository's own agent
-tooling; a truncating redirect over a tracked file is the same "modifies the target
-repo" defect this change removes, relocated.
+The exact commands live in the scripts and in `check-skill-layout-test.sh`, where
+`just verify` runs them. This document states what must hold, not the bytes.
 
 ### Worktree resolution is split, because the two lifetimes differ
 
