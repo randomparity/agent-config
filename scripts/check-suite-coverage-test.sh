@@ -22,6 +22,15 @@ fail() {
 	exit 1
 }
 
+# In-place edit that both seds agree on. BSD sed reads -i's next argument as the
+# backup suffix and GNU sed does not, so a bare `sed -i SCRIPT FILE` runs SCRIPT as
+# a suffix on macOS and dies on the filename. Rewriting through a temp file needs no
+# -i at all. Every fixture edit below goes through this.
+sed_i() {
+	local script=$1 file=$2 tmp=$2.sed-tmp
+	sed "$script" "$file" >"$tmp" && mv "$tmp" "$file"
+}
+
 # A fixture repository shaped like this one: a plain `test` recipe listing suites
 # one per line, a shebang `records` recipe that runs one suite and byte-compares a
 # mirrored copy it never invokes, and glob-based lint and format recipes. Sets
@@ -122,19 +131,19 @@ expect_green "$fixture" 'untracked suite'
 
 # Deleting a suite's line from `test` is the mutation that must go red.
 new_fixture
-sed -i '/beta-test\.sh/d' "$fixture/Justfile"
+sed_i '/beta-test\.sh/d' "$fixture/Justfile"
 expect_red "$fixture" 'suite dropped from test' \
 	'scripts/beta-test.sh' 'executed' 'Justfile test recipe'
 
 # Commenting the line out must go red too. `just --dry-run` prints the comment
 # verbatim, so a gate that reads its output as "what will run" is green here.
 new_fixture
-sed -i 's|^  ./scripts/beta-test.sh|  # ./scripts/beta-test.sh|' "$fixture/Justfile"
+sed_i 's|^  ./scripts/beta-test.sh|  # ./scripts/beta-test.sh|' "$fixture/Justfile"
 expect_red "$fixture" 'suite commented out of test' 'scripts/beta-test.sh' 'executed'
 
 # An unreached suite under .github/scripts/ is pointed at `records`, not `test`.
 new_fixture
-sed -i '/gamma-test\.sh/d' "$fixture/Justfile"
+sed_i '/gamma-test\.sh/d' "$fixture/Justfile"
 expect_red "$fixture" 'suite dropped from records' \
 	'.github/scripts/gamma-test.sh' 'records'
 
@@ -142,16 +151,16 @@ expect_red "$fixture" 'suite dropped from records' \
 # `format` are not merged: a suite the checker names and the writer does not is
 # the disagreement ADR 0025 recorded.
 new_fixture
-sed -i 's| scripts/\*.sh | |' "$fixture/Justfile"
+sed_i 's| scripts/\*.sh | |' "$fixture/Justfile"
 expect_red "$fixture" 'suite dropped from lint' 'scripts/beta-test.sh' 'linted'
 
 new_fixture
-sed -i 's|^  shfmt -w alpha-test.sh scripts/\*.sh|  shfmt -w alpha-test.sh|' \
+sed_i 's|^  shfmt -w alpha-test.sh scripts/\*.sh|  shfmt -w alpha-test.sh|' \
 	"$fixture/Justfile"
 expect_red "$fixture" 'suite dropped from format' 'scripts/beta-test.sh' 'formatted'
 
 new_fixture
-sed -i 's|^  shfmt -d alpha-test.sh scripts/\*.sh|  shfmt -d alpha-test.sh|' \
+sed_i 's|^  shfmt -d alpha-test.sh scripts/\*.sh|  shfmt -d alpha-test.sh|' \
 	"$fixture/Justfile"
 expect_red "$fixture" 'suite dropped from format-check' \
 	'scripts/beta-test.sh' 'format-checked'
@@ -166,7 +175,7 @@ expect_red "$fixture" 'diverged mirror' 'mirror/gamma-test.sh' 'executed'
 # A copy of a suite that is itself unreached clears nothing.
 new_fixture
 cp "$fixture/mirror/gamma-test.sh" "$fixture/mirror/delta-test.sh"
-sed -i '/gamma-test\.sh/d' "$fixture/Justfile"
+sed_i '/gamma-test\.sh/d' "$fixture/Justfile"
 git -C "$fixture" add -A
 expect_red "$fixture" 'copies of an unreached suite' \
 	'mirror/gamma-test.sh' 'mirror/delta-test.sh'
@@ -198,14 +207,14 @@ expect_red "$fixture" 'suite deleted but not staged' \
 # A scanned recipe that pulls in another folds that recipe's dimension into its
 # own, so the gate refuses to read it rather than reporting over a merged set.
 new_fixture
-sed -i 's|^test:$|test: lint|' "$fixture/Justfile"
+sed_i 's|^test:$|test: lint|' "$fixture/Justfile"
 expect_red "$fixture" 'scanned recipe with a dependency' \
 	'recipe test has dependencies (lint)' 'stand alone'
 
 # A renamed recipe leaves its dimension unscanned, which the gate must say rather
 # than dying inside the dump lookup.
 new_fixture
-sed -i 's|^lint:$|linting:|' "$fixture/Justfile"
+sed_i 's|^lint:$|linting:|' "$fixture/Justfile"
 expect_red "$fixture" 'renamed recipe' 'no recipe named lint'
 
 # A non-ASCII suite name is enumerated as its own bytes. Read through git's default
@@ -214,8 +223,11 @@ expect_red "$fixture" 'renamed recipe' 'no recipe named lint'
 new_fixture
 accented=$fixture/scripts/café-test.sh
 printf '#!/usr/bin/env bash\n# accented\nexit 0\n' >"$accented"
-sed -i 's|^  ./scripts/beta-test.sh|  ./scripts/beta-test.sh\n  ./scripts/café-test.sh|' \
-	"$fixture/Justfile"
+# A backslash-newline, not \n: GNU sed expands \n in a replacement and BSD sed
+# inserts a literal 'n', which would wire the accented suite onto the end of the
+# beta line and quietly test nothing.
+sed_i 's|^  ./scripts/beta-test.sh|  ./scripts/beta-test.sh\
+  ./scripts/café-test.sh|' "$fixture/Justfile"
 git -C "$fixture" add -A
 expect_green "$fixture" 'non-ASCII suite name'
 
