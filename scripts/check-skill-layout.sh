@@ -202,12 +202,18 @@ validate_inventory() {
 # scanned nothing. Keep rg's diagnostics on their own stream instead of folding
 # them in with `2>&1`: mixed into the match list a warning line parses as a
 # result, and the gate reports it as a violation on a successful scan.
+#
+# --hidden --no-ignore is not optional: rg skips dot-prefixed and gitignored files
+# by default, but install.sh stages skills with `cp -pR`, which copies both. Without
+# these the scan set is narrower than the delivery set, and a dot-prefixed file
+# under content/skills/ would ship to users unscanned while this gate printed ok.
+# They belong here rather than at the call sites so the two rules cannot drift.
 scan_config_roots() { # results-file rg-argument...
 	local results="$1"
 	local status=0
 	shift
 
-	rg -l "$@" >>"$results" 2>"$workspace/rg-error" || status=$?
+	rg -l --hidden --no-ignore "$@" >>"$results" 2>"$workspace/rg-error" || status=$?
 	# 0 = matches, 1 = no matches, anything else = the scan did not happen.
 	[[ "$status" -le 1 ]] ||
 		skill_error 'content' "config-root scan failed: $(<"$workspace/rg-error")"
@@ -248,7 +254,7 @@ project_review_count="$(validate_inventory "$project_review_root" \
 # path argument they follow. `content/skills` is the only root `stage_skills`
 # filters; `content/languages` and `content/references` deploy verbatim, so a
 # `testdata` entry under either really does ship and must stay visible here.
-root_pattern='(~|[$]HOME|[$][{]HOME[}])/[.](codex|claude|bob)(/|$)'
+root_pattern='(~|[$]HOME|[$][{]HOME[}])/[.](codex|claude|bob|superpowers)(/|$)'
 
 # Repo-relative agent state, the sibling of the rule above. That one catches
 # `~/.codex/skills`; this catches `.codex/campaigns/x.md`, the shape that named one
