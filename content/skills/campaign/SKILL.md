@@ -48,6 +48,17 @@ labels for the resolved numbers to evaluate this (the NL path already has them).
 Any trailing free text after the selector is **completion notes** — context on
 what "done" means for this batch; carry it into triage and PR bodies.
 
+**Resolve the campaign root before anything writes.** Every path below is relative
+to it, and it is not the current directory:
+
+    campaign_root=$(git -C "$(git rev-parse --git-common-dir)/.." rev-parse --show-toplevel)
+
+That is the **main** repository root from inside any linked worktree, which is what
+lets a resume reattach to the same manifest from wherever it runs. Resolve it once,
+here, and use `"$campaign_root/…"` for every read and write that follows — a bare
+`.agent/campaigns/…` resolves against the current directory, so from a worktree it
+silently creates a *second* manifest and the campaign forks.
+
 **Initialize the campaign manifest** — the single source of truth for this run —
 **find-or-create, never blind-create**. Key it on a **selector identity stable
 across runs**, not on the resolved membership (which drifts for NL/query selectors
@@ -63,8 +74,8 @@ reproducible normal form. The slug is a short hash of that normal form, so `10 1
 and `11 10` map to one manifest, the same NL query reattaches across runs even as
 its matches change, and the filename stays bounded regardless of set size. Store
 the full normal form in the manifest (`Normalized-selector`), because a short hash
-can collide. Use `.agent/campaigns/<slug>.md`. Routing on the existing file — on
-any match, **first confirm the loaded manifest's `Normalized-selector` equals this
+can collide. Use `"$campaign_root/.agent/campaigns/<slug>.md"`. Routing on the
+existing file — on any match, **first confirm the loaded manifest's `Normalized-selector` equals this
 run's**; on mismatch it is a hash collision, so fall through to a disambiguated
 filename (`<slug>-2.md`, …) rather than resuming a foreign campaign:
 
@@ -79,8 +90,8 @@ filename (`<slug>-2.md`, …) rather than resuming a foreign campaign:
   drive triage and PR bodies).
 - **File with `Status: complete`** → the prior campaign under this selector
   finished. Do **not** reattach (that silently no-ops). Archive it under a unique
-  name (`.agent/campaigns/<slug>-done-<UTC-timestamp>.md`, timestamp-suffixed so
-  two same-day completions don't collide) and create a fresh manifest.
+  name (`"$campaign_root/.agent/campaigns/<slug>-done-<UTC-timestamp>.md"`,
+  timestamp-suffixed so two same-day completions don't collide) and create a fresh manifest.
 
 On create, populate: the resolved queue with per-issue status, the completion
 notes, the completion condition (**every queued issue closed or merged**), and
@@ -89,25 +100,22 @@ placeholders for the `$preflight` findings (step 2) and step-4 assignments.
 **Keep the manifest out of git without relying on the target repo's `.gitignore`.**
 `$campaign` runs against arbitrary repos, and many **track** `.codex/` — there
 the manifest would land in a per-issue PR diff or trip `$preflight`'s dirty-tree
-stop. So resolve the campaign root once and work against it:
+stop. So use `$campaign_root` from step 1 — and note why it is wrapped: the bare
+`$(git rev-parse --git-common-dir)/..` is not a substitute, because from the main
+worktree it is the cwd-relative literal `.git/..`, which stops meaning anything once
+the path is carried into a prompt, a log, or a subagent in another worktree.
 
-    campaign_root=$(git -C "$(git rev-parse --git-common-dir)/.." rev-parse --show-toplevel)
-
-That is the **main** repository root from inside any linked worktree, which is what
-lets a resume reattach to the same manifest from wherever it runs. The bare
-`$(git rev-parse --git-common-dir)/..` is not a substitute — from the main worktree
-it is the cwd-relative literal `.git/..`, which stops meaning anything once the path
-is carried into a prompt, a log, or a subagent in another worktree.
-
-Then, before the first manifest write and again on resume:
+Before the first manifest write and again on resume:
 
 - if `git -C "$campaign_root" ls-files --error-unmatch .agent/.gitignore` succeeds,
   the target repo tracks that file — **stop with a named blocker**, do not overwrite
   it. Discard that command's output; on the ordinary untracked path it exits non-zero
   and prints to stderr;
 - otherwise create `"$campaign_root/.agent/campaigns"` and write `*` into
-  `"$campaign_root/.agent/.gitignore"`. Idempotent, and the ignore file sits at
-  `.agent/`, never per-subdirectory, so a sibling `.agent/sdd/` is covered too.
+  `"$campaign_root/.agent/.gitignore"` — via a temp file and a rename, not a plain
+  redirect, which truncates before it writes and would let the check below read an
+  empty file. Idempotent, and the ignore file sits at `.agent/`, never
+  per-subdirectory, so a sibling `.agent/sdd/` is covered too.
 
 Verify with `git -C "$campaign_root" check-ignore -q .agent/campaigns/`. Run it with
 `-C` against that root, never as an absolute path from the current directory: from a
