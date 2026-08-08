@@ -42,11 +42,11 @@ git -C "$ambient" commit -qm 'ambient seed'
 git -C "$ambient" worktree add -qb external-one "$worktree_one"
 git -C "$ambient" worktree add -qb external-two "$worktree_two"
 
-common_dir=$(git -C "$ambient" rev-parse --path-format=absolute --git-common-dir)
 ambient_git_dir=$(git -C "$ambient" rev-parse --absolute-git-dir)
+common_dir=$ambient_git_dir
 worktree_one_git_dir=$(git -C "$worktree_one" rev-parse --absolute-git-dir)
 worktree_two_git_dir=$(git -C "$worktree_two" rev-parse --absolute-git-dir)
-worktree_one_index=$(git -C "$worktree_one" rev-parse --path-format=absolute --git-path index)
+worktree_one_index=$worktree_one_git_dir/index
 
 snapshot_worktree() {
 	local path=$1 git_dir=$2 destination=$3
