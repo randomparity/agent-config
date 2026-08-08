@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# The pre-commit hook exports a git environment for the file it is checking. A
-# fixture repository built under an inherited GIT_DIR is the real repository with
-# a different work tree, so every assertion below would read the wrong index.
-unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY \
-	GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_COMMON_DIR GIT_CEILING_DIRECTORIES
+# Hooks export repository-local Git variables that override `git -C`. Clear
+# Git's complete reported set before any fixture repository is discovered.
+while IFS= read -r variable; do
+	[ -n "$variable" ] || continue
+	unset "$variable"
+done < <(git rev-parse --local-env-vars)
 
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 gate=$repo_root/scripts/check-suite-coverage.sh
