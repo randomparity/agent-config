@@ -1,15 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-clear_local_git_env() {
-	local variable
-	while IFS= read -r variable; do
-		[ -n "$variable" ] || continue
-		unset "$variable"
-	done < <(git rev-parse --local-env-vars)
-}
-
-clear_local_git_env
+while IFS= read -r variable; do
+	[ -n "$variable" ] || continue
+	unset "$variable"
+done < <(git rev-parse --local-env-vars)
 
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
 tmp_prefix=${TMPDIR:-/tmp}/git-fixture-isolation-test.
