@@ -100,6 +100,7 @@ test:
   ./scripts/check-cleared-dependencies-test.sh
   ./scripts/check-skill-layout-test.sh
   ./scripts/check-suite-coverage-test.sh
+  ./scripts/git-fixture-isolation-test.sh
 
 skills-check:
   ./scripts/check-skill-layout.sh

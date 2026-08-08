@@ -11,6 +11,13 @@
 
 set -euo pipefail
 
+# Hooks export repository-local Git variables that override `git -C`. Clear
+# Git's complete reported set before any fixture repository is discovered.
+while IFS= read -r variable; do
+	[ -n "$variable" ] || continue
+	unset "$variable"
+done < <(git rev-parse --local-env-vars)
+
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 # The suite lives in `testdata/` so it is excluded from the installed payload
 # (ADR 0025); the script it exercises ships, and sits one level up.
