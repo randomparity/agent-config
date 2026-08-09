@@ -109,6 +109,7 @@ test:
   ./content/skills/issue/scripts/testdata/create-verified-issue-test.sh
   ./content/skills/brainstorming/scripts/testdata/start-server-test.sh
   ./content/skills/brainstorming/scripts/testdata/stop-server-test.sh
+  node ./content/skills/brainstorming/scripts/testdata/server-control-test.cjs
   ./content/skills/subagent-driven-development/scripts/testdata/sdd-workspace-test.sh
   ./content/skills/preflight/scripts/testdata/architecture-awareness-test.sh
   ./content/skills/github-tracking/assets/testdata/tracker-test.sh
