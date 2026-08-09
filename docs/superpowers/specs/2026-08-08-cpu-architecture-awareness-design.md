@@ -12,8 +12,8 @@ preflight independently owns host detection.
 
 ## Architecture
 
-The canonical preflight skill gains one executable helper,
-`scripts/detect-host-architecture`. It calls the literal `uname -m` command and emits one
+The canonical preflight skill gains two executable helpers. The first,
+`scripts/detect-host-architecture`, calls the literal `uname -m` command and emits one
 normalized value:
 
 | Observed machine | Recorded host architecture |
@@ -31,6 +31,7 @@ stdout. Its complete result contract is:
 | Recognized machine | 0 | `ok<TAB><normalized>` | empty |
 | Unknown machine | 2 | `unsupported<TAB><raw>` | supported values and update action |
 | Empty machine | 2 | `unsupported<TAB><empty>` | supported values and update action |
+| Machine with controls | 2 | `unsupported<TAB><escaped-raw>` | escaped value and update action |
 | `uname` missing | 3 | `detection-failed<TAB>uname-missing` | install or expose `uname` |
 | `uname -m` exits N | 3 | `detection-failed<TAB>uname-exit-N` | command failure and retry action |
 
@@ -43,7 +44,7 @@ work. Before architecture-sensitive work, preflight reports the captured diagnos
 asks the operator to update detection or restore `uname`. The helper has no target input:
 this keeps observation structurally separate from intent.
 
-Preflight runs the helper during environment discovery. Each agent applies its native
+Preflight runs the detector during environment discovery. Each agent applies its native
 applicable-instruction precedence to determine which project-local instruction and policy
 files are effective. Those effective files are authoritative for declared targets.
 Preflight records every effective target declaration and three distinct findings in the
@@ -75,6 +76,14 @@ deterministic:
 | 4 | Host is in the effective target set | `included` |
 | 5 | Host is not in the effective target set | `different` |
 
+After extracting the effective declarations, preflight invokes
+`scripts/resolve-architecture-context <host-status> <host-value>
+<conflict|none|declared> [targets...]`, passing every declaration as a separate argument.
+The resolver emits exactly `HOST_ARCHITECTURE<TAB><rendering>` and
+`ARCHITECTURE_RELATIONSHIP<TAB><value>` records. Invalid states, missing required target
+arguments, inconsistent target arguments, or an unescaped control character in the host
+field exit 64 with no stdout and an owned diagnostic on stderr.
+
 For membership only, recognized target aliases use the same canonical mapping as host
 aliases. Original effective declarations remain unchanged in `TARGET_ARCHITECTURES`.
 Membership covers singleton and multi-target sets identically. Targets the table does not
@@ -100,7 +109,8 @@ configuration.
   host claim.
 - An empty or unknown machine value records an unsupported/raw host and produces a
   diagnostic containing that value and the supported normalized values before sensitive
-  work.
+  work. Backslashes and control characters are escaped so stdout remains exactly one
+  tab-delimited record while retaining the observation.
 - Missing project target declarations are recorded as missing, not inferred.
 - Conflicting effective target declarations are surfaced for project-owner clarification
   before target-sensitive work; native instruction precedence resolves applicability,
@@ -112,15 +122,16 @@ configuration.
 
 A shell suite replaces `uname` at the process boundary and verifies exit status, exact
 stdout, and stderr for every supported raw name, both x86 and ARM aliases, unknown and
-empty output, a missing command, and every representative non-zero command exit. The same
-suite asserts `HOST_ARCHITECTURE` rendering for every result class. Contract cases exercise
+empty output, escaped tab/newline output, a missing command, and every representative
+non-zero command exit. The same suite executes the installed context resolver and asserts
+`HOST_ARCHITECTURE` rendering for every result class. Contract cases exercise
 all five relationship states, including host membership in a multi-target set and combined
 failure conditions that prove first-match precedence. They also assert that the canonical
 preflight package records all three architecture fields and that the Claude, Codex, and Bob
 projections preserve the separation and project-policy authority.
 
 The suite is wired into execution, lint, format-check, and format recipes. The install
-test continues to prove that the preflight helper reaches every agent's installed skill
+test continues to prove that both preflight helpers reach every agent's installed skill
 tree. `just verify` remains the aggregate release gate.
 
 To prove the tests bite, implementation temporarily changes one supported mapping and

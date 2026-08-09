@@ -51,6 +51,7 @@ lint:
   shellcheck agents/claude/shared/statusline.sh \
     content/skills/systematic-debugging/find-polluter.sh
   shellcheck content/skills/preflight/scripts/detect-host-architecture \
+    content/skills/preflight/scripts/resolve-architecture-context \
     content/skills/preflight/scripts/testdata/*.sh
 
 # The brainstorming scripts and the suite that exercises them take `-i 2`. The
@@ -79,6 +80,7 @@ format-check:
   shfmt -i 2 -d agents/claude/shared/statusline.sh \
     content/skills/systematic-debugging/find-polluter.sh
   shfmt -d content/skills/preflight/scripts/detect-host-architecture \
+    content/skills/preflight/scripts/resolve-architecture-context \
     content/skills/preflight/scripts/testdata/*.sh
 
 format:
@@ -98,6 +100,7 @@ format:
   shfmt -i 2 -w agents/claude/shared/statusline.sh \
     content/skills/systematic-debugging/find-polluter.sh
   shfmt -w content/skills/preflight/scripts/detect-host-architecture \
+    content/skills/preflight/scripts/resolve-architecture-context \
     content/skills/preflight/scripts/testdata/*.sh
 
 test:

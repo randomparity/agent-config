@@ -34,7 +34,9 @@ and do not evaluate the payload as shell code. Accept only these status/payload 
 - exit 2 with `unsupported<TAB><raw-or-empty>`; or
 - exit 3 with `detection-failed<TAB><reason>`.
 
-Anything else is a malformed detector result and stops preflight with the observed status
+Unsupported raw values escape backslashes, tabs, carriage returns, and newlines so the
+payload remains exactly one record while retaining the observation. Anything else is a
+malformed detector result and stops preflight with the observed status
 and a request to repair the installed preflight package. Render `HOST_ARCHITECTURE` as the
 normalized value, `unsupported (<raw-or-empty>)`, or `detection failed (<reason>)`.
 
@@ -45,7 +47,10 @@ target architectures. Record every effective target declaration in
 a target from the host, discard a declared target because it differs from the host, or use
 an overridden declaration. Contradictory effective declarations remain unresolved.
 
-Derive `ARCHITECTURE_RELATIONSHIP` with this first-match table:
+Pass the detector status and value, the target state (`conflict`, `none`, or `declared`),
+and each preserved declaration as a separate argument to
+`scripts/resolve-architecture-context`. Use its `HOST_ARCHITECTURE` and
+`ARCHITECTURE_RELATIONSHIP` records. The resolver implements this first-match table:
 
 | Priority | Condition | Value |
 |---:|---|---|

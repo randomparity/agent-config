@@ -24,6 +24,10 @@ arm64 | aarch64) normalized_architecture=arm64 ;;
 ppc64le | s390x) normalized_architecture="$machine_output" ;;
 *)
 	raw_architecture="${machine_output:-<empty>}"
+	raw_architecture="${raw_architecture//\\/\\\\}"
+	raw_architecture="${raw_architecture//$'\t'/\\t}"
+	raw_architecture="${raw_architecture//$'\r'/\\r}"
+	raw_architecture="${raw_architecture//$'\n'/\\n}"
 	printf 'unsupported\t%s\n' "$raw_architecture"
 	printf "detect-host-architecture: unsupported machine '%s'; supported: " \
 		"$raw_architecture" >&2

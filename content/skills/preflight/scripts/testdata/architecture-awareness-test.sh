@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../../.." && pwd)"
 DETECTOR="$ROOT/content/skills/preflight/scripts/detect-host-architecture"
+RESOLVER="$ROOT/content/skills/preflight/scripts/resolve-architecture-context"
 FIXTURE="$(mktemp -d "${TMPDIR:-/tmp}/architecture-awareness-test.XXXXXX")"
 
 cleanup() {
@@ -91,9 +92,54 @@ run_case unsupported output riscv64 0 2 $'unsupported\triscv64' \
 	"detect-host-architecture: unsupported machine 'riscv64'; supported: x86_64, arm64, ppc64le, s390x"
 run_case empty output '' 0 2 $'unsupported\t<empty>' \
 	"detect-host-architecture: unsupported machine '<empty>'; supported: x86_64, arm64, ppc64le, s390x"
+run_case tab output $'riscv\t64' 0 2 $'unsupported\triscv\\t64' \
+	"detect-host-architecture: unsupported machine 'riscv\\t64'; supported: x86_64, arm64, ppc64le, s390x"
+run_case newline output $'riscv\n64' 0 2 $'unsupported\triscv\\n64' \
+	"detect-host-architecture: unsupported machine 'riscv\\n64'; supported: x86_64, arm64, ppc64le, s390x"
 run_case uname-failure fail '' 42 3 $'detection-failed\tuname-exit-42' \
 	'detect-host-architecture: uname -m failed with exit 42; retry after fixing uname'
 run_missing_uname
+
+assert_context() {
+	local expected="$1"
+	shift
+	local actual
+	actual="$("$RESOLVER" "$@")"
+	[[ "$actual" == "$expected" ]] ||
+		fail "context $*: expected '$expected', got '$actual'"
+}
+
+[[ -x "$RESOLVER" ]] || fail "missing executable resolver: $RESOLVER"
+assert_context $'HOST_ARCHITECTURE\tx86_64\nARCHITECTURE_RELATIONSHIP\tincluded' \
+	ok x86_64 declared amd64 arm64
+assert_context $'HOST_ARCHITECTURE\tarm64\nARCHITECTURE_RELATIONSHIP\tdifferent' \
+	ok arm64 declared x86_64 ppc64le
+assert_context $'HOST_ARCHITECTURE\tx86_64\nARCHITECTURE_RELATIONSHIP\tno-target-declared' \
+	ok x86_64 none
+assert_context $'HOST_ARCHITECTURE\tunsupported (riscv64)\nARCHITECTURE_RELATIONSHIP\thost-unresolved' \
+	unsupported riscv64 declared riscv64
+assert_context $'HOST_ARCHITECTURE\tdetection failed (uname-exit-42)\nARCHITECTURE_RELATIONSHIP\thost-unresolved' \
+	detection-failed uname-exit-42 declared x86_64
+assert_context $'HOST_ARCHITECTURE\tdetection failed (uname-missing)\nARCHITECTURE_RELATIONSHIP\tunresolved-target-conflict' \
+	detection-failed uname-missing conflict x86_64 arm64
+
+resolver_error="$FIXTURE/resolver-error"
+resolver_status=0
+"$RESOLVER" ok $'x86_64\nspoofed' declared x86_64 \
+	>"$resolver_error.stdout" 2>"$resolver_error.stderr" || resolver_status=$?
+[[ "$resolver_status" -eq 64 ]] || fail "resolver malformed input: got exit $resolver_status"
+assert_file '' "$resolver_error.stdout" 'resolver malformed input stdout'
+assert_file 'resolve-architecture-context: host value must be one escaped record field' \
+	"$resolver_error.stderr" 'resolver malformed input stderr'
+
+mutated_resolver="$FIXTURE/mutated-resolver"
+cp "$RESOLVER" "$mutated_resolver"
+sed -i.bak 's/relationship=included/relationship=different/' "$mutated_resolver"
+chmod +x "$mutated_resolver"
+mutated_output="$("$mutated_resolver" ok x86_64 declared amd64 arm64)"
+if [[ "$mutated_output" == *$'ARCHITECTURE_RELATIONSHIP\tincluded'* ]]; then
+	fail 'relationship mutation unexpectedly preserved the included result'
+fi
 
 preflight="$ROOT/content/skills/preflight/SKILL.md"
 # shellcheck disable=SC2016 # these backticks are literal Markdown code spans;
@@ -131,6 +177,18 @@ for projection in "${projection_files[@]}"; do
 		'Host architecture and project target architectures are separate facts.'
 	assert_contains "$projection" \
 		'Applicable project-local instructions and policy are authoritative for target architectures.'
+	assert_contains "$projection" 'architecture-sensitive generation, build, or verification'
+	assert_contains "$projection" 'preflight'
+	assert_contains "$projection" 'retain'
+	rg -Fiq -- 'never infer' "$projection" ||
+		fail "$projection does not prohibit target inference"
 done
+
+mutated_projection="$FIXTURE/mutated-projection.md"
+cp "${projection_files[0]}" "$mutated_projection"
+sed -i.bak '/[Nn]ever infer/d' "$mutated_projection"
+if rg -Fiq -- 'never infer' "$mutated_projection"; then
+	fail 'projection contract mutation unexpectedly passed'
+fi
 
 printf 'architecture-awareness-test: all assertions passed\n'
