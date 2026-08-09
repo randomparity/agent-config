@@ -1,5 +1,7 @@
 set shell := ["bash", "-eu", "-o", "pipefail", "-c"]
 
+test_public_safety_command := "./scripts/check-public-safety-test.sh"
+
 default:
   just --list
 
@@ -112,13 +114,18 @@ test:
   ./content/skills/subagent-driven-development/scripts/testdata/sdd-workspace-test.sh
   ./content/skills/preflight/scripts/testdata/architecture-awareness-test.sh
   ./content/skills/github-tracking/assets/testdata/tracker-test.sh
-  ./scripts/check-public-safety-test.sh
+  {{test_public_safety_command}}
   ./scripts/check-deployed-references-test.sh
   ./scripts/check-workflow-scope-contract-test.sh
   ./scripts/check-cleared-dependencies-test.sh
   ./scripts/check-skill-layout-test.sh
   ./scripts/check-suite-coverage-test.sh
   ./scripts/git-fixture-isolation-test.sh
+  ./scripts/select-verification-test.sh
+  ./scripts/check-change-aware-policy-test.sh
+
+test-public-safety:
+  {{test_public_safety_command}}
 
 skills-check:
   ./scripts/check-skill-layout.sh
@@ -128,6 +135,9 @@ suites-check:
 
 public-safety:
   ./scripts/check-public-safety.sh
+
+commit-check:
+  ./scripts/select-verification.sh
 
 references-check:
   ./scripts/check-deployed-references.sh
