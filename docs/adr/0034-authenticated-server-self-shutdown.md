@@ -22,7 +22,9 @@ pairs the PID,
 per-start server identifier, session directory, control port, and a separate random control
 credential. It is installed before a session-local recovery copy so an interrupted publication
 still leaves the live server discoverable. Ephemeral `/tmp` sessions retain only session-local
-control metadata and do not publish the stable project record. `start-server.sh` canonicalizes
+control metadata and do not publish the stable project record. This mode is gated by whether the
+caller supplied `--project-dir`, not by classifying the resulting path; path aliases therefore
+cannot turn an ephemeral invocation into a persistent one. `start-server.sh` canonicalizes
 the project directory to its physical
 absolute path after creating it; both scripts derive the stable record from that identity and the
 session directory returned by start remains the stop command's input.
@@ -32,9 +34,10 @@ One shipped Node helper owns metadata validation and the stop request for both
 expected PID and server identifier. The control listener accepts requests only from loopback,
 compares the credential, PID, and identifier inside the target process, closes the user-facing
 listener, acknowledges success only after that listener releases its port, and then exits itself.
-The helper starts a successor only after that authenticated acknowledgement. A timeout or lost
-connection is stale recovery, never successful shutdown. Shell scripts never signal a PID from
-this metadata.
+An authenticated acknowledgement is successful shutdown and permits normal same-port replacement.
+A timeout, refusal, or lost acknowledgement is not successful shutdown, but under the approved
+recovery policy it still permits startup through the normal bind/fallback path after predecessor
+metadata is handled as described below. Shell scripts never signal a PID from this metadata.
 
 Missing, malformed, stale, or unreachable metadata is removed when owned by the caller and is
 treated as recoverable. An unreachable or unresponsive predecessor is not force-killed.

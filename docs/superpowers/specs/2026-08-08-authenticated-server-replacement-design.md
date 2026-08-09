@@ -44,7 +44,9 @@ metadata inputs, but the server emits no `server-started` line until both listen
 publication completes. With `--project-dir`, the server atomically installs the authoritative
 `.agent/brainstorm/active-server.json` first, then installs an identical session-local recovery
 copy. A crash between those renames leaves the live server discoverable by the next start.
-Ephemeral sessions install only the session-local copy. Failure before the stable commit or during
+Ephemeral mode is selected solely by the absence of `--project-dir`; it installs only the
+session-local copy and never infers persistence from the canonical path. Failure before the stable
+commit or during
 the ephemeral copy closes both listeners and exits without readiness; persistent failure after the
 stable commit preserves that authoritative recovery record unless authenticated rollback succeeds.
 
@@ -136,3 +138,6 @@ and assert it is called for exactly 32 bytes whose exact returned value becomes 
 separate format tests assert 64 hex characters. Mutation proof must demonstrate that bypassing the
 RNG boundary, server-side identity validation, or predecessor stop makes the tests fail. Run
 `just verify` as the repository gate.
+
+Exercise ephemeral mode through a physical `/tmp` alias and prove no stable record is written;
+persistence is determined by option state, never by a path-prefix check.
