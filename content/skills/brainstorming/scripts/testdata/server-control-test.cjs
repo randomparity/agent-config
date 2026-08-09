@@ -419,6 +419,36 @@ async function main() {
     await close(server);
   });
 
+  await test('terminal shutdown closes a partial-header control connection', async () => {
+    const token = '5'.repeat(64);
+    const server = trackedServer(control.createControlServer({
+      token,
+      pid: process.pid,
+      serverId: '4'.repeat(32),
+      closeUserListener: async () => {}
+    }));
+    const port = await listen(server);
+    const partial = net.createConnection({ host: '127.0.0.1', port });
+    cleanups.push(() => partial.destroy());
+    await new Promise((resolve, reject) => {
+      partial.once('connect', resolve);
+      partial.once('error', reject);
+    });
+    partial.write('POST /stop HTTP/1.1\r\nHost: 127.0.0.1\r\nAuthorization:');
+    const closed = new Promise((resolve) => {
+      server.once('terminal', () => server.close(resolve));
+    });
+    const response = await post(port, token, {
+      pid: process.pid,
+      server_id: '4'.repeat(32)
+    });
+    assert.equal(response.body.status, 'stopped');
+    await Promise.race([
+      closed,
+      new Promise((_, reject) => setTimeout(() => reject(new Error('close timeout')), 500))
+    ]);
+  });
+
   await test('bounded client authenticates against a real control listener', async () => {
     const token = 'e'.repeat(64);
     const server = trackedServer(control.createControlServer({

@@ -303,6 +303,7 @@ function isLoopbackRequest(request) {
 function createControlServer({ token, pid, serverId, closeUserListener }) {
   let lifecycle = 'running';
   let terminalSent = false;
+  const controlSockets = new Set();
   const server = http.createServer((request, response) => {
     if (!isLoopbackRequest(request) || request.method !== 'POST' || request.url !== '/stop') {
       sendJson(response, 404, { status: 'failed', reason: 'not_found' });
@@ -344,6 +345,10 @@ function createControlServer({ token, pid, serverId, closeUserListener }) {
       const emitTerminal = () => {
         if (!terminalOutcome || terminalSent) return;
         terminalSent = true;
+        for (const socket of controlSockets) {
+          if (socket === request.socket) socket.end();
+          else socket.destroy();
+        }
         server.emit('terminal', terminalOutcome);
       };
       response.once('close', () => {
@@ -369,6 +374,10 @@ function createControlServer({ token, pid, serverId, closeUserListener }) {
       terminalTimer.unref();
     });
     request.on('error', () => clearTimeout(receiveTimer));
+  });
+  server.on('connection', (socket) => {
+    controlSockets.add(socket);
+    socket.once('close', () => controlSockets.delete(socket));
   });
   return server;
 }
