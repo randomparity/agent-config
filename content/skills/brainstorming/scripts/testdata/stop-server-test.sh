@@ -101,8 +101,8 @@ run_missing_twice() {
 run_malformed_preserved() {
   local name='malformed present metadata fails closed and survives'
   local session record output got=0
-  fixture="$(mktemp -d "${TMPDIR:-/tmp}/brainstorm-stop-test.XXXXXX")"
-  session="$fixture/session"
+  fixture="$(mktemp -d "/tmp/brainstorm-stop-test.XXXXXX")"
+  session="$(cd -P -- "$fixture" && printf '%s' "$PWD")"
   record="$session/state/server-control.json"
   mkdir -p "$session/state"
   printf '{broken\n' >"$record"
@@ -168,8 +168,8 @@ run_marker_failure_exits_and_preserves() {
 run_confirmed_dead_cleanup() {
   local name='confirmed-dead metadata is cleaned as stale_pid'
   local session record output got=0
-  fixture="$(mktemp -d "${TMPDIR:-/tmp}/brainstorm-stop-test.XXXXXX")"
-  session="$fixture/session"
+  fixture="$(mktemp -d "/tmp/brainstorm-stop-test.XXXXXX")"
+  session="$(cd -P -- "$fixture" && printf '%s' "$PWD")"
   record="$session/state/server-control.json"
   mkdir -p "$session/state"
   write_record "$record" "$session" 2147483647 "$(printf 'a%.0s' {1..32})"
@@ -190,8 +190,8 @@ run_indeterminate_live_preserved() {
     printf '  skip %s: Linux provides exact unrelated-process proof\n' "$name"
     return
   fi
-  fixture="$(mktemp -d "${TMPDIR:-/tmp}/brainstorm-stop-test.XXXXXX")"
-  session="$fixture/session"
+  fixture="$(mktemp -d "/tmp/brainstorm-stop-test.XXXXXX")"
+  session="$(cd -P -- "$fixture" && printf '%s' "$PWD")"
   record="$session/state/server-control.json"
   mkdir -p "$session/state"
   write_record "$record" "$session" $$ "$(printf 'c%.0s' {1..32})"
@@ -208,8 +208,8 @@ run_indeterminate_live_preserved() {
 run_loose_mode_preserved() {
   local name='group-readable recovery metadata fails closed and survives'
   local session record output got=0
-  fixture="$(mktemp -d "${TMPDIR:-/tmp}/brainstorm-stop-test.XXXXXX")"
-  session="$fixture/session"
+  fixture="$(mktemp -d "/tmp/brainstorm-stop-test.XXXXXX")"
+  session="$(cd -P -- "$fixture" && printf '%s' "$PWD")"
   record="$session/state/server-control.json"
   mkdir -p "$session/state"
   write_record "$record" "$session" $$ "$(printf 'd%.0s' {1..32})"
@@ -239,8 +239,8 @@ run_proven_unrelated() {
     printf '  skip %s: /proc argv boundaries unavailable\n' "$name"
     return
   fi
-  fixture="$(mktemp -d "${TMPDIR:-/tmp}/brainstorm-stop-test.XXXXXX")"
-  session="$fixture/session"
+  fixture="$(mktemp -d "/tmp/brainstorm-stop-test.XXXXXX")"
+  session="$(cd -P -- "$fixture" && printf '%s' "$PWD")"
   record="$session/state/server-control.json"
   mkdir -p "$session/state"
   sleep 300 &

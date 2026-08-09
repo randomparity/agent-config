@@ -129,11 +129,15 @@ function ensurePrivateStateRoot(home) {
   }
 }
 
-function projectStateFor(identity, home) {
-  const root = ensurePrivateStateRoot(home);
-  const projectKey = crypto.createHash('sha256')
+function projectKeyForIdentity(identity) {
+  return crypto.createHash('sha256')
     .update(Buffer.from(identity, 'utf8'))
     .digest('hex');
+}
+
+function projectStateFor(identity, home) {
+  const root = ensurePrivateStateRoot(home);
+  const projectKey = projectKeyForIdentity(identity);
   return { projectKey, root, recordPath: path.join(root, `${projectKey}.json`) };
 }
 
@@ -204,7 +208,8 @@ function readMetadata(recordPath, expectation = {}) {
     }
     const pid = Number.isInteger(record && record.pid) ? record.pid : null;
     if (!validateRecord(record)) return metadataInvalid('invalid', pid);
-    if (expectation.kind === 'stable' && record.project_key !== expectation.projectKey) {
+    if (Object.prototype.hasOwnProperty.call(expectation, 'projectKey') &&
+        record.project_key !== expectation.projectKey) {
       return metadataInvalid('project_mismatch', pid);
     }
     if (expectation.kind === 'session') {
@@ -297,6 +302,7 @@ function isLoopbackRequest(request) {
 
 function createControlServer({ token, pid, serverId, closeUserListener }) {
   let lifecycle = 'running';
+  let terminalSent = false;
   const server = http.createServer((request, response) => {
     if (!isLoopbackRequest(request) || request.method !== 'POST' || request.url !== '/stop') {
       sendJson(response, 404, { status: 'failed', reason: 'not_found' });
@@ -333,17 +339,34 @@ function createControlServer({ token, pid, serverId, closeUserListener }) {
         return;
       }
       lifecycle = 'stopping';
+      let responseClosed = false;
+      let terminalOutcome = null;
+      const emitTerminal = () => {
+        if (!terminalOutcome || terminalSent) return;
+        terminalSent = true;
+        server.emit('terminal', terminalOutcome);
+      };
+      response.once('close', () => {
+        responseClosed = true;
+        emitTerminal();
+      });
+      let statusCode;
+      let responseBody;
       try {
         await closeUserListener();
-        sendJson(response, 200, { status: 'stopped' });
-        response.once('finish', () => server.emit('terminal', { status: 'stopped' }));
+        terminalOutcome = { status: 'stopped' };
+        statusCode = 200;
+        responseBody = { status: 'stopped' };
       } catch (error) {
-        sendJson(response, 500, { status: 'failed', reason: 'shutdown_cleanup' });
-        response.once('finish', () => server.emit('terminal', {
-          status: 'failed',
-          error
-        }));
+        terminalOutcome = { status: 'failed', error };
+        statusCode = 500;
+        responseBody = { status: 'failed', reason: 'shutdown_cleanup' };
       }
+      response.once('finish', emitTerminal);
+      if (responseClosed) emitTerminal();
+      else sendJson(response, statusCode, responseBody);
+      const terminalTimer = setTimeout(emitTerminal, 50);
+      terminalTimer.unref();
     });
     request.on('error', () => clearTimeout(receiveTimer));
   });
@@ -522,6 +545,22 @@ function isEphemeralSession(sessionDir) {
     path.basename(sessionDir).startsWith('brainstorm-');
 }
 
+function expectedProjectKeyForSession(sessionDir) {
+  if (isEphemeralSession(sessionDir)) return null;
+  const brainstormDirectory = path.dirname(sessionDir);
+  const agentDirectory = path.dirname(brainstormDirectory);
+  if (path.basename(brainstormDirectory) !== 'brainstorm' ||
+      path.basename(agentDirectory) !== '.agent') {
+    throw new ControlError(
+      'invalid_session_layout',
+      `Persistent brainstorm session path has an invalid layout: ${sessionDir}`
+    );
+  }
+  const projectDirectory = path.dirname(agentDirectory);
+  const identity = readProjectIdentity(Buffer.from(projectDirectory, 'utf8'));
+  return projectKeyForIdentity(identity);
+}
+
 function failureForStop(recordPath, pid) {
   const suffix = pid ? `; PID ${pid} left running` : '';
   return {
@@ -543,7 +582,11 @@ async function replaceProject(identity) {
 
 async function stopSession(sessionDir) {
   const recordPath = activeRecordPath(sessionDir);
-  const metadata = readMetadata(recordPath, { kind: 'session', sessionDir });
+  const metadata = readMetadata(recordPath, {
+    kind: 'session',
+    sessionDir,
+    projectKey: expectedProjectKeyForSession(sessionDir)
+  });
   if (metadata.kind === 'missing') return { exitCode: 0, body: { status: 'not_running' } };
 
   if (metadata.kind !== 'valid') {

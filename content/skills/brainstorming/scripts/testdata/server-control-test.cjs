@@ -4,9 +4,10 @@ const assert = require('assert').strict;
 const crypto = require('crypto');
 const fs = require('fs');
 const http = require('http');
+const net = require('net');
 const os = require('os');
 const path = require('path');
-const { spawnSync } = require('child_process');
+const { spawn, spawnSync } = require('child_process');
 
 const CONTROL_PATH = path.join(__dirname, '..', 'server-control.cjs');
 const control = require(CONTROL_PATH);
@@ -87,6 +88,44 @@ function post(port, token, body) {
     });
     request.on('error', reject);
     request.end(bytes);
+  });
+}
+
+function writeAndWaitForClose(port, bytes, timeoutMs = 2000) {
+  return new Promise((resolve, reject) => {
+    const socket = net.createConnection({ host: '127.0.0.1', port });
+    const timer = setTimeout(() => {
+      socket.destroy();
+      reject(new Error('peer close timeout'));
+    }, timeoutMs);
+    socket.on('connect', () => socket.write(bytes));
+    socket.on('close', () => {
+      clearTimeout(timer);
+      resolve();
+    });
+    socket.on('error', (error) => {
+      clearTimeout(timer);
+      reject(error);
+    });
+  });
+}
+
+function runControlCli(command, input, environment) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [CONTROL_PATH, command], {
+      env: { ...process.env, ...environment }
+    });
+    const output = [];
+    const errors = [];
+    child.stdout.on('data', (chunk) => output.push(chunk));
+    child.stderr.on('data', (chunk) => errors.push(chunk));
+    child.on('error', reject);
+    child.on('exit', (exitCode) => resolve({
+      exitCode,
+      stdout: Buffer.concat(output).toString('utf8'),
+      stderr: Buffer.concat(errors).toString('utf8')
+    }));
+    child.stdin.end(input);
   });
 }
 
@@ -208,6 +247,33 @@ async function main() {
     assert.equal(control.readMetadata(recordPath, { kind: 'session' }).kind, 'invalid');
   });
 
+  await test('metadata validates every numeric and credential boundary', () => {
+    for (const overrides of [
+      { pid: 0 },
+      { pid: 2147483648 },
+      { control_port: 1023 },
+      { control_port: 65536 },
+      { server_id: 'a'.repeat(31) },
+      { server_id: 'a'.repeat(65) },
+      { control_token: 'A'.repeat(64) },
+      { control_token: 'b'.repeat(63) },
+      { project_key: 'c'.repeat(63) },
+      { session_dir: 'relative' }
+    ]) {
+      assert.equal(control.validateRecord(validRecord(overrides)), false);
+    }
+  });
+
+  await test('private state rejects a symlinked path component', () => {
+    const home = temporaryDirectory();
+    const target = temporaryDirectory();
+    fs.symlinkSync(target, path.join(home, '.local'));
+    assert.throws(
+      () => control.projectStateFor('/tmp/project', home),
+      /authorize or write-enable/
+    );
+  });
+
   await test('control listener validates identity and transitions only once', async () => {
     let wrongCloseCalls = 0;
     const wrongToken = 'c'.repeat(64);
@@ -222,8 +288,18 @@ async function main() {
       pid: process.pid + 1,
       server_id: 'd'.repeat(32)
     });
+    const wrongCredential = await post(wrongPort, '0'.repeat(64), {
+      pid: process.pid,
+      server_id: 'd'.repeat(32)
+    });
+    const wrongId = await post(wrongPort, wrongToken, {
+      pid: process.pid,
+      server_id: 'x'.repeat(32)
+    });
     await close(wrongServer);
     assert.equal(wrong.statusCode, 403);
+    assert.equal(wrongCredential.statusCode, 403);
+    assert.equal(wrongId.statusCode, 403);
     assert.equal(wrongCloseCalls, 0);
 
     let releaseClose;
@@ -240,6 +316,7 @@ async function main() {
       }
     }));
     const port = await listen(server);
+    assert.equal(server.address().address, '127.0.0.1');
     const firstPromise = post(port, token, {
       pid: process.pid,
       server_id: 'f'.repeat(32)
@@ -254,6 +331,91 @@ async function main() {
     releaseClose();
     const first = await firstPromise;
     assert.equal(first.body.status, 'stopped');
+    await close(server);
+  });
+
+  await test('authenticated disconnect still reaches one terminal transition', async () => {
+    let releaseClose;
+    let enteredClose;
+    const closeEntered = new Promise((resolve) => { enteredClose = resolve; });
+    const closeGate = new Promise((resolve) => { releaseClose = resolve; });
+    const token = '9'.repeat(64);
+    const server = trackedServer(control.createControlServer({
+      token,
+      pid: process.pid,
+      serverId: '8'.repeat(32),
+      closeUserListener: async () => {
+        enteredClose();
+        await closeGate;
+      }
+    }));
+    let terminalCount = 0;
+    const terminal = new Promise((resolve) => {
+      server.on('terminal', (outcome) => {
+        terminalCount += 1;
+        resolve(outcome);
+      });
+    });
+    const port = await listen(server);
+    const bytes = Buffer.from(JSON.stringify({
+      pid: process.pid,
+      server_id: '8'.repeat(32)
+    }));
+    const request = http.request({
+      host: '127.0.0.1',
+      port,
+      method: 'POST',
+      path: '/stop',
+      headers: {
+        authorization: `Bearer ${token}`,
+        'content-type': 'application/json',
+        'content-length': bytes.length
+      }
+    });
+    request.on('error', () => {});
+    request.end(bytes);
+    await closeEntered;
+    request.destroy();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    releaseClose();
+    const outcome = await Promise.race([
+      terminal,
+      new Promise((_, reject) => setTimeout(() => reject(new Error('terminal timeout')), 500))
+    ]);
+    assert.equal(outcome.status, 'stopped');
+    assert.equal(terminalCount, 1);
+    await close(server);
+  });
+
+  await test('control listener closes oversized and incomplete request bodies', async () => {
+    let closeCalls = 0;
+    const server = trackedServer(control.createControlServer({
+      token: '7'.repeat(64),
+      pid: process.pid,
+      serverId: '6'.repeat(32),
+      closeUserListener: async () => { closeCalls += 1; }
+    }));
+    const port = await listen(server);
+    const oversizedHead = Buffer.from([
+      'POST /stop HTTP/1.1',
+      'Host: 127.0.0.1',
+      `Content-Length: ${control.CONTROL_LIMITS.requestBytes + 1}`,
+      '',
+      ''
+    ].join('\r\n'));
+    await writeAndWaitForClose(port, Buffer.concat([
+      oversizedHead,
+      Buffer.alloc(control.CONTROL_LIMITS.requestBytes + 1, 0x61)
+    ]));
+    const incomplete = Buffer.from([
+      'POST /stop HTTP/1.1',
+      'Host: 127.0.0.1',
+      'Content-Length: 2',
+      '',
+      '{'
+    ].join('\r\n'));
+    await writeAndWaitForClose(port, incomplete);
+    assert.equal(closeCalls, 0);
     await close(server);
   });
 
@@ -301,6 +463,20 @@ async function main() {
     }));
     await close(oversizedServer);
     assert.deepEqual(oversized, { status: 'failed', reason: 'oversized_response' });
+  });
+
+  await test('client enforces one non-resetting whole-request deadline', async () => {
+    const stalledServer = trackedServer(http.createServer(() => {}));
+    const port = await listen(stalledServer);
+    const started = Date.now();
+    const outcome = await control.requestAuthenticatedStop(validRecord({
+      control_port: port
+    }));
+    const elapsed = Date.now() - started;
+    assert.deepEqual(outcome, { status: 'failed', reason: 'deadline' });
+    assert.ok(elapsed >= 2800, `deadline fired early after ${elapsed}ms`);
+    assert.ok(elapsed < 4000, `deadline fired late after ${elapsed}ms`);
+    await close(stalledServer);
   });
 
   await test('Linux argv matching preserves NUL boundaries with or without a final NUL', () => {
@@ -375,6 +551,44 @@ async function main() {
     }
   });
 
+  await test('replacement recovers a live stable-only publication', async () => {
+    const home = temporaryDirectory();
+    const project = temporaryDirectory();
+    const missingSession = path.join(project, '.agent', 'brainstorm', 'missing');
+    let closeCalls = 0;
+    const token = '1'.repeat(64);
+    const serverId = '0'.repeat(32);
+    const server = trackedServer(control.createControlServer({
+      token,
+      pid: process.pid,
+      serverId,
+      closeUserListener: async () => { closeCalls += 1; }
+    }));
+    server.on('terminal', () => server.close());
+    const port = await listen(server);
+    const previousHome = process.env.HOME;
+    process.env.HOME = home;
+    try {
+      assert.throws(() => control.publishActiveRecords({
+        projectDir: project,
+        sessionDir: missingSession,
+        pid: process.pid,
+        serverId,
+        controlPort: port,
+        controlToken: token
+      }), /ENOENT/);
+      const result = await runControlCli('replace-project', project, { HOME: home });
+      assert.equal(result.exitCode, 0, result.stderr);
+      assert.equal(JSON.parse(result.stdout).status, 'handled');
+      assert.equal(closeCalls, 1);
+      assert.equal(control.readMetadata(control.projectStateFor(project, home).recordPath).kind,
+        'missing');
+    } finally {
+      process.env.HOME = previousHome;
+      if (server.listening) await close(server);
+    }
+  });
+
   await test('metadata rejects a symlink recovery copy without following it', () => {
     const directory = temporaryDirectory();
     const target = path.join(directory, 'target.json');
@@ -382,6 +596,89 @@ async function main() {
     fs.writeFileSync(target, JSON.stringify(validRecord()), { mode: 0o600 });
     fs.symlinkSync(target, link);
     assert.equal(control.readMetadata(link).kind, 'invalid');
+  });
+
+  await test('session project-key mismatches send no control request', async () => {
+    let requestCount = 0;
+    const peer = trackedServer(http.createServer((_request, response) => {
+      requestCount += 1;
+      response.writeHead(403, { 'content-type': 'application/json' });
+      response.end('{"status":"failed","reason":"identity_mismatch"}\n');
+    }));
+    const port = await listen(peer);
+    const home = temporaryDirectory();
+    const previousHome = process.env.HOME;
+    process.env.HOME = home;
+    const ephemeral = fs.realpathSync(fs.mkdtempSync('/tmp/brainstorm-key-test-'));
+    cleanups.push(() => fs.rmSync(ephemeral, { recursive: true, force: true }));
+    const project = temporaryDirectory();
+    const persistent = path.join(project, '.agent', 'brainstorm', 'session');
+    try {
+      for (const [session, projectKey] of [
+        [ephemeral, 'a'.repeat(64)],
+        [persistent, 'b'.repeat(64)]
+      ]) {
+        fs.mkdirSync(path.join(session, 'state'), { recursive: true, mode: 0o700 });
+        control.atomicInstallMetadata(path.join(session, 'state', 'server-control.json'),
+          validRecord({
+            session_dir: session,
+            project_key: projectKey,
+            control_port: port
+          }));
+        await control.stopSession(session);
+      }
+      assert.equal(requestCount, 0);
+    } finally {
+      process.env.HOME = previousHome;
+      await close(peer);
+    }
+  });
+
+  await test('successful stop cannot remove a newer stable record', async () => {
+    const home = temporaryDirectory();
+    const project = temporaryDirectory();
+    const session = path.join(project, '.agent', 'brainstorm', 'session');
+    fs.mkdirSync(path.join(session, 'state'), { recursive: true, mode: 0o700 });
+    const previousHome = process.env.HOME;
+    process.env.HOME = home;
+    const token = '5'.repeat(64);
+    const serverId = '4'.repeat(32);
+    const server = trackedServer(control.createControlServer({
+      token,
+      pid: process.pid,
+      serverId,
+      closeUserListener: async () => {}
+    }));
+    server.on('terminal', () => server.close());
+    const port = await listen(server);
+    try {
+      const published = control.publishActiveRecords({
+        projectDir: project,
+        sessionDir: session,
+        pid: process.pid,
+        serverId,
+        controlPort: port,
+        controlToken: token
+      });
+      const newer = validRecord({
+        pid: process.pid + 1,
+        server_id: '3'.repeat(32),
+        session_dir: session,
+        project_key: published.projectKey,
+        control_port: port,
+        control_token: '2'.repeat(64)
+      });
+      control.atomicInstallMetadata(published.stableRecordPath, newer);
+      const stopped = await control.stopSession(session);
+      assert.equal(stopped.body.status, 'stopped');
+      assert.deepEqual(control.readMetadata(published.stableRecordPath), {
+        kind: 'valid',
+        record: newer
+      });
+    } finally {
+      process.env.HOME = previousHome;
+      if (server.listening) await close(server);
+    }
   });
 
   process.stdout.write(`\n${passed} passed, 0 failed\n`);
