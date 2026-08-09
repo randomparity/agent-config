@@ -38,6 +38,9 @@ compares all three inside its own process. A mismatch is rejected without changi
 state. On a match it closes the user listener and WebSocket clients, responds only after that
 listener has released its port, then closes the control listener and exits. This identity check
 and self-termination are one server-side operation, so there is no verify-to-signal PID race.
+Before awaiting closure, the first valid request atomically changes an in-process lifecycle value
+from `running` to `stopping`. Later valid requests return a bounded `stopping` response and never
+repeat listener closure or exit scheduling.
 
 The server process owns publication. `start-server.sh` passes the canonical paths and prepared
 metadata inputs, but the server emits no `server-started` line until both listeners have bound and
@@ -50,12 +53,12 @@ commit or during
 the ephemeral copy closes both listeners and exits without readiness; persistent failure after the
 stable commit preserves that authoritative recovery record unless authenticated rollback succeeds.
 
-Each rename is atomic; the pair is deliberately not described as a transaction. If an install
-fails, start uses whichever prepared or installed record exists to request self-shutdown and
-returns one parseable error object. It removes installed metadata only after authenticated
-shutdown succeeds. If rollback is unreachable or times out, it preserves the authoritative
-stable record when present, otherwise the owner-only prepared session record, and includes that
-metadata path (never its credential) in the error so the shared helper can retry the stop.
+Each rename is atomic; the pair is deliberately not described as a transaction. If publication
+fails, the server removes its prepared files, closes both listeners, and exits after emitting one
+parseable error object for the launcher to return. If the authoritative record was already
+installed, it remains as stale input for the next invocation rather than risking deletion of a
+newer record. No launcher-side authenticated rollback runs against a server that has failed
+publication.
 
 Before starting a persistent successor, `start-server.sh` invokes the shared helper on the stable
 metadata. `stopped`, `not_running`, `stale`, malformed, empty, missing, timeout, and connection
@@ -130,10 +133,9 @@ active record in the supported serial path. Add focused cases for symlink, non-r
 unknown-version, type-invalid, and mismatched-session metadata; listener address inspection and
 loopback-address unit cases; oversized request bodies; and connection/response timeout bounds.
 Inject a crash after stable installation but before session-copy installation and prove the next
-start discovers and stops that server. Fail each installation and assert successful rollback
-removes its records while stdout stays parseable JSON. Inject rollback timeout and prove the
-authoritative stable record, or the prepared recovery record when no stable record exists, remains
-usable while the error discloses no credential. Substitute a deterministic `randomBytes` function
+start discovers and stops that server. Fail each installation and assert the server closes both
+listeners, removes prepared files, and emits parseable JSON; where the stable record was installed,
+the next start consumes it safely as stale. Substitute a deterministic `randomBytes` function
 and assert it is called for exactly 32 bytes whose exact returned value becomes lowercase hex;
 separate format tests assert 64 hex characters. Mutation proof must demonstrate that bypassing the
 RNG boundary, server-side identity validation, or predecessor stop makes the tests fail. Run
@@ -141,3 +143,7 @@ RNG boundary, server-side identity validation, or predecessor stop makes the tes
 
 Exercise ephemeral mode through a physical `/tmp` alias and prove no stable record is written;
 persistence is determined by option state, never by a path-prefix check.
+
+Send two valid authenticated stop requests before user-listener closure completes and prove only
+one lifecycle transition occurs; the retry receives deterministic `stopping` JSON without a raw
+exception or second close.
