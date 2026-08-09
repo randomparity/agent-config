@@ -49,8 +49,9 @@ token do not change classification. A later `bash` argument to another interpret
 as `not-bash`, or an extensionless file without a shebang does not enter the inventory. Each
 inventory fails closed when empty and rejects whitespace in paths because recipe output is
 intentionally tokenized by words. Indexed first-line capture is limited to 4,096 characters while
-the producer is drained; a longer first line fails with actionable guidance instead of consuming
-memory proportional to a contributor-controlled blob or silently leaving the file out.
+the producer is drained. The bounded prefix is sufficient to classify ordinary shebangs without
+retaining memory proportional to a contributor-controlled blob; an overlong non-Bash line remains
+outside the inventory rather than creating policy for unrelated extensionless data.
 
 Dimension metadata identifies both the inventory and the recipes to scan. The execution dimension
 checks suites only. Lint, format-check, and format check the broader shell inventory. For each
@@ -66,9 +67,9 @@ those exact commands.
 ## Failure Handling
 
 Missing tools, missing scanned recipes, recipe dependencies, empty inventories, unsupported
-whitespace paths, overlong indexed first lines, missing tracked files, and unreached sources remain
-fail-closed with a path and actionable guidance. An indexed extensionless path that cannot be read
-cannot silently disappear from the shell inventory; enumeration reports the read failure.
+whitespace paths, missing tracked files, and unreached sources remain fail-closed with a path and
+actionable guidance. An indexed extensionless path that cannot be read cannot silently disappear
+from the shell inventory; enumeration reports the read failure.
 
 ## Threat Model
 
@@ -102,8 +103,8 @@ a later extension dot. Each positive fixture has its own removal mutation provin
 that fixture as uncovered. The initial fixture must pass. Mutations also remove each ordinary shell
 file from lint, format-check, and format in turn and assert the gate fails with the path and
 dimension. Empty and large non-Bash indexed files prove bounded reads do not create false failures;
-a fixture whose first line exceeds 4,096 characters must fail with its path and the limit. Existing
-suite execution, copy, pathname, dependency, and empty-enumeration cases continue to pass.
+a fixture whose non-Bash first line exceeds 4,096 characters must remain a bounded near miss.
+Existing suite execution, copy, pathname, dependency, and empty-enumeration cases continue to pass.
 
 The implementation follows test-first development: add the new fixture and red mutations, prove the
 current checker misses them, then implement the inventory split and recipe wiring. `just verify` is

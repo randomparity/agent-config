@@ -211,14 +211,13 @@ new_fixture
 printf '#!/usr/bin/env bash\nexit 0\n' >"$fixture/scripts/spike-test.sh"
 expect_green "$fixture" 'untracked suite'
 
-# A contributor-controlled extensionless blob cannot make Bash retain an
-# unbounded first line while the gate classifies its shebang.
+# A contributor-controlled extensionless non-shell blob cannot make Bash retain
+# an unbounded first line or broaden the gate to unrelated data files.
 new_fixture
 dd if=/dev/zero bs=4097 count=1 2>/dev/null | tr '\000' x \
 	>"$fixture/scripts/overlong-first-line"
 git -C "$fixture" add -A
-expect_red "$fixture" 'overlong indexed first line' \
-	'scripts/overlong-first-line' 'exceeds 4096 characters'
+expect_green "$fixture" 'overlong non-shell indexed first line'
 
 # Deleting a suite's line from `test` is the mutation that must go red.
 new_fixture
