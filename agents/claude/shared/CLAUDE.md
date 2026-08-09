@@ -52,6 +52,13 @@ Sync first (`git fetch origin`); evaluate architecture → code quality → test
 
 ### Done means proven
 
+Host architecture and project target architectures are separate facts.
+Applicable project-local instructions and policy are authoritative for target architectures.
+Before
+architecture-sensitive generation, build, or verification, run `$preflight` and retain
+its recorded host, effective targets, and relationship. Never infer a target from the
+host or drop a declared target because it differs from the current machine.
+
 Unit tests green ≠ working. If the environment can exercise the change end-to-end (functional suite, live VM, real hardware, the actual user path), run that proof before reporting done and say which arms ran. Confirm the deployed build matches HEAD before live-testing; detect the host you're on (arch, OS, versions) before building. If your change adds a prerequisite, update provisioning/setup scripts in the same PR — the requirement is yours.
 
 ### Blockers

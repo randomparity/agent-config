@@ -260,6 +260,8 @@ AGENT_CONFIG_HOST=test-host ./install.sh --agent all
 assert_file "$CLAUDE_CONFIG_DIR/CLAUDE.md"
 assert_file "$CLAUDE_CONFIG_DIR/settings.json"
 assert_canonical_skills "$CLAUDE_CONFIG_DIR"
+assert_executable \
+	"$CLAUDE_CONFIG_DIR/skills/preflight/scripts/detect-host-architecture"
 assert_no_stub_profile "$CLAUDE_CONFIG_DIR"
 assert_no_test_suites "$CLAUDE_CONFIG_DIR"
 assert_not_file "$CLAUDE_CONFIG_DIR/skills/accessibility-reviewer/SKILL.md"
@@ -276,6 +278,8 @@ assert_json_value "$CLAUDE_CONFIG_DIR/settings.json" ".env.AGENT_CONFIG_TEST" "c
 assert_file "$CODEX_CONFIG_DIR/AGENTS.md"
 assert_file "$CODEX_CONFIG_DIR/config.toml"
 assert_canonical_skills "$CODEX_CONFIG_DIR"
+assert_executable \
+	"$CODEX_CONFIG_DIR/skills/preflight/scripts/detect-host-architecture"
 assert_no_stub_profile "$CODEX_CONFIG_DIR"
 assert_no_test_suites "$CODEX_CONFIG_DIR"
 assert_not_file "$CODEX_CONFIG_DIR/skills/accessibility-reviewer/SKILL.md"
@@ -295,6 +299,8 @@ assert_file "$BOB_CONFIG_DIR/mcp.json"
 assert_file "$BOB_CONFIG_DIR/mcp_settings.json"
 assert_file "$BOB_CONFIG_DIR/rules/global-development-standards.md"
 assert_canonical_skills "$BOB_CONFIG_DIR"
+assert_executable \
+	"$BOB_CONFIG_DIR/skills/preflight/scripts/detect-host-architecture"
 assert_no_stub_profile "$BOB_CONFIG_DIR"
 assert_no_test_suites "$BOB_CONFIG_DIR"
 assert_not_file "$BOB_CONFIG_DIR/skills/accessibility-reviewer/SKILL.md"
