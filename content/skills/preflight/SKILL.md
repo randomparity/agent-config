@@ -34,8 +34,9 @@ and do not evaluate the payload as shell code. Accept only these status/payload 
 - exit 2 with `unsupported<TAB><raw-or-empty>`; or
 - exit 3 with `detection-failed<TAB><reason>`.
 
-Unsupported raw values escape backslashes, tabs, carriage returns, and newlines so the
-payload remains exactly one record while retaining the observation. Anything else is a
+Unsupported raw values use Bash's shell-safe `%q` representation so every byte remains
+observable without adding fields, records, or terminal control sequences. Never evaluate
+that representation as shell code. Anything else is a
 malformed detector result and stops preflight with the observed status
 and a request to repair the installed preflight package. Render `HOST_ARCHITECTURE` as the
 normalized value, `unsupported (<raw-or-empty>)`, or `detection failed (<reason>)`.
@@ -50,7 +51,8 @@ an overridden declaration. Contradictory effective declarations remain unresolve
 Pass the detector status and value, the target state (`conflict`, `none`, or `declared`),
 and each preserved declaration as a separate argument to
 `scripts/resolve-architecture-context`. Use its `HOST_ARCHITECTURE` and
-`ARCHITECTURE_RELATIONSHIP` records. The resolver implements this first-match table:
+`TARGET_ARCHITECTURES` records and its final `ARCHITECTURE_RELATIONSHIP` record as one
+context result. The resolver implements this first-match table:
 
 | Priority | Condition | Value |
 |---:|---|---|
@@ -64,7 +66,7 @@ For membership only, normalize recognized target aliases with the detector's map
 preserve the original declarations in `TARGET_ARCHITECTURES`. The same membership rule
 applies to singleton and multi-target sets.
 
-Record all three fields in the task plan or durable workflow state before any
+Retain that complete result in the task plan or durable workflow state before any
 architecture-sensitive generation, build, or verification, and retain them for later
 operations. Architecture-insensitive work may continue when the host is unresolved.
 Sensitive work stops with the detector's actionable diagnostic when the host is

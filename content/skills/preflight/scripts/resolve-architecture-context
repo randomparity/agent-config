@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+export LC_ALL=C
 
 fail() {
 	printf 'resolve-architecture-context: %s\n' "$1" >&2
@@ -22,9 +23,14 @@ host_value="$2"
 target_state="$3"
 shift 3
 
-if [[ "$host_value" == *$'\t'* || "$host_value" == *$'\r'* || "$host_value" == *$'\n'* ]]; then
+if [[ "$host_value" =~ [[:cntrl:]] ]]; then
 	fail 'host value must be one escaped record field'
 fi
+for target in "$@"; do
+	if [[ "$target" =~ [[:cntrl:]] ]]; then
+		fail 'target declarations must be printable record fields'
+	fi
+done
 
 case "$host_status" in
 ok) host_rendering="$host_value" ;;
@@ -64,4 +70,11 @@ elif [[ "$target_state" == declared ]]; then
 fi
 
 printf 'HOST_ARCHITECTURE\t%s\n' "$host_rendering"
+if [[ "$target_state" == none ]]; then
+	printf 'TARGET_ARCHITECTURES\tnone declared\n'
+else
+	for target in "$@"; do
+		printf 'TARGET_ARCHITECTURES\t%s\n' "$target"
+	done
+fi
 printf 'ARCHITECTURE_RELATIONSHIP\t%s\n' "$relationship"

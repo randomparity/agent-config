@@ -22,8 +22,8 @@ and override global defaults.
 Preflight owns host detection and normalizes common machine names to `x86_64`, `arm64`,
 `ppc64le`, or `s390x`. A helper beside the canonical preflight skill performs that
 deterministic normalization. For an unsupported host it returns a non-success detection
-status together with the raw machine value, escaping control characters so the
-machine-readable result stays one record. A detection failure instead identifies why
+status together with a shell-safe representation of the raw machine value so the
+machine-readable result stays printable and one record. A detection failure instead identifies why
 `uname -m` could not produce a value. Success, unsupported input, and detection failure
 have distinct machine-readable payloads and exit statuses. Preflight records the payload
 and continues architecture-insensitive work; only architecture-sensitive generation,
@@ -39,7 +39,8 @@ declared target with the detected host.
 
 Preflight derives the architecture relationship with one installed, precedence-ordered
 resolver after an agent has applied native instruction precedence and supplied the
-effective declarations.
+effective declarations. The resolver returns the host rendering, every preserved target
+declaration, and the relationship as one context result.
 Contradictory effective targets produce `unresolved-target-conflict`; otherwise an
 unsupported or undetected host produces `host-unresolved`; otherwise no declaration
 produces `no-target-declared`; otherwise membership of the normalized host in the

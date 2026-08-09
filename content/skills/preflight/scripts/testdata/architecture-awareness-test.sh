@@ -88,14 +88,19 @@ run_case arm64 output arm64 0 0 $'ok\tarm64' ''
 run_case aarch64 output aarch64 0 0 $'ok\tarm64' ''
 run_case ppc64le output ppc64le 0 0 $'ok\tppc64le' ''
 run_case s390x output s390x 0 0 $'ok\ts390x' ''
+supported_suffix='; supported: x86_64, arm64, ppc64le, s390x'
 run_case unsupported output riscv64 0 2 $'unsupported\triscv64' \
-	"detect-host-architecture: unsupported machine 'riscv64'; supported: x86_64, arm64, ppc64le, s390x"
+	"detect-host-architecture: unsupported machine riscv64$supported_suffix"
 run_case empty output '' 0 2 $'unsupported\t<empty>' \
-	"detect-host-architecture: unsupported machine '<empty>'; supported: x86_64, arm64, ppc64le, s390x"
-run_case tab output $'riscv\t64' 0 2 $'unsupported\triscv\\t64' \
-	"detect-host-architecture: unsupported machine 'riscv\\t64'; supported: x86_64, arm64, ppc64le, s390x"
-run_case newline output $'riscv\n64' 0 2 $'unsupported\triscv\\n64' \
-	"detect-host-architecture: unsupported machine 'riscv\\n64'; supported: x86_64, arm64, ppc64le, s390x"
+	"detect-host-architecture: unsupported machine <empty>$supported_suffix"
+run_case tab output $'riscv\t64' 0 2 $'unsupported\t$\'riscv\\t64\'' \
+	"detect-host-architecture: unsupported machine \$'riscv\\t64'$supported_suffix"
+run_case newline output $'riscv\n64' 0 2 $'unsupported\t$\'riscv\\n64\'' \
+	"detect-host-architecture: unsupported machine \$'riscv\\n64'$supported_suffix"
+run_case escape output $'riscv\e64' 0 2 $'unsupported\t$\'riscv\\E64\'' \
+	"detect-host-architecture: unsupported machine \$'riscv\\E64'$supported_suffix"
+run_case bell output $'riscv\a64' 0 2 $'unsupported\t$\'riscv\\a64\'' \
+	"detect-host-architecture: unsupported machine \$'riscv\\a64'$supported_suffix"
 run_case uname-failure fail '' 42 3 $'detection-failed\tuname-exit-42' \
 	'detect-host-architecture: uname -m failed with exit 42; retry after fixing uname'
 run_missing_uname
@@ -110,18 +115,48 @@ assert_context() {
 }
 
 [[ -x "$RESOLVER" ]] || fail "missing executable resolver: $RESOLVER"
-assert_context $'HOST_ARCHITECTURE\tx86_64\nARCHITECTURE_RELATIONSHIP\tincluded' \
+assert_context "$(printf '%s\n' $'HOST_ARCHITECTURE\tx86_64' \
+	$'TARGET_ARCHITECTURES\tamd64' $'TARGET_ARCHITECTURES\tarm64' \
+	$'ARCHITECTURE_RELATIONSHIP\tincluded')" \
 	ok x86_64 declared amd64 arm64
-assert_context $'HOST_ARCHITECTURE\tarm64\nARCHITECTURE_RELATIONSHIP\tdifferent' \
+assert_context "$(printf '%s\n' $'HOST_ARCHITECTURE\tarm64' \
+	$'TARGET_ARCHITECTURES\tx86_64' $'TARGET_ARCHITECTURES\tppc64le' \
+	$'ARCHITECTURE_RELATIONSHIP\tdifferent')" \
 	ok arm64 declared x86_64 ppc64le
-assert_context $'HOST_ARCHITECTURE\tx86_64\nARCHITECTURE_RELATIONSHIP\tno-target-declared' \
+assert_context "$(printf '%s\n' $'HOST_ARCHITECTURE\tx86_64' \
+	$'TARGET_ARCHITECTURES\tnone declared' \
+	$'ARCHITECTURE_RELATIONSHIP\tno-target-declared')" \
 	ok x86_64 none
-assert_context $'HOST_ARCHITECTURE\tunsupported (riscv64)\nARCHITECTURE_RELATIONSHIP\thost-unresolved' \
+assert_context "$(printf '%s\n' $'HOST_ARCHITECTURE\tunsupported (riscv64)' \
+	$'TARGET_ARCHITECTURES\triscv64' $'ARCHITECTURE_RELATIONSHIP\thost-unresolved')" \
 	unsupported riscv64 declared riscv64
-assert_context $'HOST_ARCHITECTURE\tdetection failed (uname-exit-42)\nARCHITECTURE_RELATIONSHIP\thost-unresolved' \
+assert_context "$(printf '%s\n' $'HOST_ARCHITECTURE\tdetection failed (uname-exit-42)' \
+	$'TARGET_ARCHITECTURES\tx86_64' $'ARCHITECTURE_RELATIONSHIP\thost-unresolved')" \
 	detection-failed uname-exit-42 declared x86_64
-assert_context $'HOST_ARCHITECTURE\tdetection failed (uname-missing)\nARCHITECTURE_RELATIONSHIP\tunresolved-target-conflict' \
+assert_context "$(printf '%s\n' $'HOST_ARCHITECTURE\tdetection failed (uname-missing)' \
+	$'TARGET_ARCHITECTURES\tx86_64' $'TARGET_ARCHITECTURES\tarm64' \
+	$'ARCHITECTURE_RELATIONSHIP\tunresolved-target-conflict')" \
 	detection-failed uname-missing conflict x86_64 arm64
+
+later_context="$FIXTURE/later-context"
+"$RESOLVER" ok arm64 declared x86_64 ppc64le >"$later_context"
+later_host=''
+later_relationship=''
+later_targets=()
+while IFS=$'\t' read -r field value extra; do
+	[[ -z "$extra" ]] || fail "later context has an extra field: $field"
+	case "$field" in
+	HOST_ARCHITECTURE) later_host="$value" ;;
+	TARGET_ARCHITECTURES) later_targets+=("$value") ;;
+	ARCHITECTURE_RELATIONSHIP) later_relationship="$value" ;;
+	*) fail "later context has an unknown field: $field" ;;
+	esac
+done <"$later_context"
+[[ "$later_host" == arm64 ]] || fail "later context lost host: $later_host"
+[[ "${later_targets[*]}" == 'x86_64 ppc64le' ]] ||
+	fail "later context lost targets: ${later_targets[*]}"
+[[ "$later_relationship" == different ]] ||
+	fail "later context lost relationship: $later_relationship"
 
 resolver_error="$FIXTURE/resolver-error"
 resolver_status=0

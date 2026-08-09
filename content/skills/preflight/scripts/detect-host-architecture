@@ -23,13 +23,13 @@ x86_64 | amd64) normalized_architecture=x86_64 ;;
 arm64 | aarch64) normalized_architecture=arm64 ;;
 ppc64le | s390x) normalized_architecture="$machine_output" ;;
 *)
-	raw_architecture="${machine_output:-<empty>}"
-	raw_architecture="${raw_architecture//\\/\\\\}"
-	raw_architecture="${raw_architecture//$'\t'/\\t}"
-	raw_architecture="${raw_architecture//$'\r'/\\r}"
-	raw_architecture="${raw_architecture//$'\n'/\\n}"
+	if [[ -z "$machine_output" ]]; then
+		raw_architecture='<empty>'
+	else
+		printf -v raw_architecture '%q' "$machine_output"
+	fi
 	printf 'unsupported\t%s\n' "$raw_architecture"
-	printf "detect-host-architecture: unsupported machine '%s'; supported: " \
+	printf 'detect-host-architecture: unsupported machine %s; supported: ' \
 		"$raw_architecture" >&2
 	printf '%s\n' 'x86_64, arm64, ppc64le, s390x' >&2
 	exit 2
