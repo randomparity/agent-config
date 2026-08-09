@@ -41,13 +41,14 @@ There are three event contracts:
 verification was selected and the elapsed whole-suite time. GitHub's two operating-system legs
 therefore retain the existing portability coverage without recursively invoking the full suite.
 
-The prek configuration has separate stage-scoped hooks. Pre-commit uses `always_run`, passes no
-filenames, and invokes `just commit-check` once; pre-push also passes no filenames and invokes
-`just push-check`, the repository ref-validation wrapper. Only `push-check` invokes fixed
-`just ci`, after validation. The repository `hooks` recipe installs both shims explicitly, and
-`install-tools.sh` delegates hook setup to that recipe after confirming Just is available. Full
-verification dry-runs both configured stages so malformed configuration or a missing stage fails
-without executing either hook.
+The prek configuration owns only pre-commit: it uses `always_run`, passes no filenames, and invokes
+`just commit-check` once. The repository `hooks` recipe installs that prek stage, then installs a
+tracked native `scripts/pre-push-hook` shim at Git's resolved pre-push hook path. The native shim
+receives Git's standard input before any framework consumes it and forwards the stream unchanged to
+`just push-check`. Only `push-check` invokes fixed `just ci`, after validation. `install-tools.sh`
+delegates hook setup to the `hooks` recipe after confirming Just is available. Full verification
+dry-runs the configured pre-commit stage and exercises native-hook installation without executing
+the complete hook.
 
 ## Commit selector
 
@@ -74,12 +75,14 @@ The first policy version deliberately maps only these exact surfaces:
 | `scripts/check-public-safety-test.sh` | `lint format-check test-public-safety suites-check` | Shell recipes, the focused fixture, and suite reachability observe the test |
 
 A focused mapping is valid only when its policy row accounts for every complete-suite recipe that
-can observe or be affected by the path. An independent policy-coverage fixture records the
-normalized `just --dry-run` command inventory for every `verify` dependency and fails when a
-dependency is added or its command surface changes until the observer inventory is reviewed and
-updated. Selector tests separately assert every row's entire selected recipe set. If the observer
-set cannot be established from recipe inputs and guardrail contracts, the path remains unmapped
-and selects `just ci`.
+can observe or be affected by the path. A human-reviewed observer manifest records every `verify`
+dependency, a `git hash-object` fingerprint of its normalized `just --dry-run` command inventory,
+and fingerprints of the transitive repository implementation paths that command invokes. The
+independent policy-coverage fixture fails when a dependency, command, or declared implementation
+changes until the observer inventory is reviewed and updated. It also rejects a dry-run-named
+repository script absent from the manifest. Selector tests separately assert every row's entire
+selected recipe set. If the observer set cannot be established from recipe inputs and guardrail
+contracts, the path remains unmapped and selects `just ci`.
 
 `Justfile` exposes focused recipes for existing individual suites so the selector never embeds
 raw test commands. Shared command strings are held once and expanded by both the focused recipe
@@ -105,8 +108,8 @@ never asserted numerically by tests.
 - A staged-path enumeration failure reports that Git could not read the index and exits nonzero;
   it never falls through to the successful empty-change path.
 - If one focused check fails, later checks do not run; the failing command's output remains intact.
-- Invalid prek configuration fails `just verify` during stage dry-runs without recursively running
-  either hook.
+- Invalid prek configuration fails `just verify` during the pre-commit dry-run. Native pre-push
+  installation or forwarding failures are covered by the hook integration fixture.
 - For remote branch updates, a non-delete pushed object that is not the checked-out `HEAD`,
   multiple pushed trees, or any dirty working-tree state fails before verification with an
   actionable diagnostic. Non-branch ref updates do not trigger or block verification.
@@ -123,9 +126,10 @@ recipe names come from a fixed allowlist; no `eval`, word re-parsing, pathname e
 path-derived command construction is allowed. Logs report only fixed recipe names, preventing
 terminal-control text in a filename from entering output.
 
-The pre-push boundary receives Git ref updates from Git. A repository-owned wrapper parses the
-fixed four-field lines and selects only remote `refs/heads/*` updates. Branch deletions are ignored;
-each remaining branch local object must equal the checked-out `HEAD`. When at least one branch is
+The native pre-push shim receives Git ref updates and preserves them on standard input to
+`push-check`; prek never handles that stage. The repository-owned validator parses the fixed
+four-field lines and selects only remote `refs/heads/*` updates. Branch deletions are ignored; each
+remaining branch local object must equal the checked-out `HEAD`. When at least one branch is
 updated, the wrapper requires a clean working tree before running fixed `just ci`. Malformed input,
 a non-HEAD branch object, multiple branch trees, or dirty state fails with an actionable diagnostic
 instead of testing different content. Non-branch remote refs pass through without invoking `ci`.
@@ -140,7 +144,7 @@ CI remains the independent full-verification backstop for hook bypass.
 ## Regression proof
 
 The selector test uses a fake `just` executable and a disposable Git repository. It proves
-ordinary prose, record files, representative known shell families, projection content, duplicate
+ordinary prose, record files, the public-safety shell family, duplicate
 categories, and multi-file focused changes select the intended recipes once and in stable order.
 It proves global recipes, shared contracts, hook configuration, selector policy, workflows,
 unknown paths, deletions, either endpoint of a rename, a large staged set, and mixed
@@ -154,12 +158,13 @@ the relevant diagnostic.
 
 The test also proves an empty staged set is a no-op, an enumerator failure is nonzero, a focused
 failure is propagated, and later recipes stop. Configuration checks prove pre-commit always runs
-`commit-check` without filenames, pre-push runs `push-check` without filenames, and hook setup
-installs both stages. A disposable repository installs the configured pre-push shim and invokes it
-with Git-shaped standard input, proving the real hook reaches the wrapper and `ci` exactly once.
-A fake-command integration case separately proves `just ci` invokes `just verify` once and never
-invokes a prek hook. Output assertions require selection and elapsed-time labels but do not compare
-duration values.
+`commit-check` without filenames and hook setup installs both the prek pre-commit stage and native
+pre-push shim. A disposable repository invokes the installed native shim with multiple Git-shaped
+standard-input lines, proving it preserves the complete stream to `push-check` and reaches `ci`
+exactly once. The observer-policy fixture mutates a directly invoked guard script without changing
+its Just command and proves the stale manifest fails. A fake-command integration case separately
+proves `just ci` invokes `just verify` once and never invokes a prek hook. Output assertions require
+selection and elapsed-time labels but do not compare duration values.
 
 Implementation follows TDD: first add red selector/configuration/CI-count cases, then implement
 the selector, recipes, stage configuration, setup wiring, and documentation. Focused tests and
