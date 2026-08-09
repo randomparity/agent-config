@@ -97,8 +97,9 @@ never asserted numerically by tests.
 - If one focused check fails, later checks do not run; the failing command's output remains intact.
 - Invalid prek configuration fails `just verify` during stage dry-runs without recursively running
   either hook.
-- A non-delete pushed object that is not the checked-out `HEAD`, multiple pushed trees, or any
-  dirty working-tree state fails before verification with an actionable diagnostic.
+- For remote branch updates, a non-delete pushed object that is not the checked-out `HEAD`,
+  multiple pushed trees, or any dirty working-tree state fails before verification with an
+  actionable diagnostic. Non-branch ref updates do not trigger or block verification.
 - A pre-push failure blocks the push. A contributor who bypasses it receives the same failure from
   GitHub CI.
 
@@ -113,13 +114,14 @@ path-derived command construction is allowed. Logs report only fixed recipe name
 terminal-control text in a filename from entering output.
 
 The pre-push boundary receives Git ref updates from Git. A repository-owned wrapper parses the
-fixed four-field lines, ignores delete updates, and requires every remaining local object to equal
-the checked-out `HEAD`. It also requires a clean working tree before running fixed `just ci`.
-Malformed input, a non-HEAD object, multiple pushed trees, or dirty state fails with an actionable
-diagnostic instead of testing different content. Hook installation crosses the existing
-local-tool boundary governed by ADR 0036: setup invokes the repository recipe only after tool
-checks succeed. No credentials, network destinations, privileges, authorization, or tenant data
-are added.
+fixed four-field lines and selects only remote `refs/heads/*` updates. Branch deletions are ignored;
+each remaining branch local object must equal the checked-out `HEAD`. When at least one branch is
+updated, the wrapper requires a clean working tree before running fixed `just ci`. Malformed input,
+a non-HEAD branch object, multiple branch trees, or dirty state fails with an actionable diagnostic
+instead of testing different content. Non-branch remote refs pass through without invoking `ci`.
+Hook installation crosses the existing local-tool boundary governed by ADR 0036: setup invokes
+the repository recipe only after tool checks succeed. No credentials, network destinations,
+privileges, authorization, or tenant data are added.
 
 Out of scope are a compromised Git, Just, prek, or shell binary; deliberate use of Git's hook
 bypass flags; and denial of service from the already-authorized complete repository suite. GitHub
@@ -136,8 +138,9 @@ focused/global changes invoke `ci` exactly once. A crafted filename containing s
 metacharacters, and terminal-control text must neither execute nor appear in output.
 
 The push-wrapper fixture supplies Git-shaped ref lines and fake repository state. It proves a
-clean checked-out `HEAD` runs `ci` once, deletion-only updates remain well-formed, and malformed,
-dirty, non-HEAD, or multiple-tree pushes fail before `ci` with the relevant diagnostic.
+clean checked-out branch `HEAD` runs `ci` once; branch deletions and non-branch refs do not invoke
+or block it; and malformed, dirty, non-HEAD, or multiple-tree branch pushes fail before `ci` with
+the relevant diagnostic.
 
 The test also proves an empty staged set is a no-op, a focused failure is propagated, and later
 recipes stop. Configuration checks prove pre-commit always runs `commit-check` without filenames,
