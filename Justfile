@@ -48,6 +48,8 @@ lint:
     content/skills/subagent-driven-development/scripts/task-brief \
     content/skills/subagent-driven-development/scripts/review-package \
     content/skills/subagent-driven-development/scripts/testdata/*.sh
+  shellcheck agents/claude/shared/statusline.sh \
+    content/skills/systematic-debugging/find-polluter.sh
 
 # The brainstorming scripts and the suite that exercises them take `-i 2`. The
 # scripts are vendored two-space-indented (ADR 0005, under which an upstream
@@ -70,6 +72,10 @@ format-check:
     content/skills/subagent-driven-development/scripts/task-brief \
     content/skills/subagent-driven-development/scripts/review-package \
     content/skills/subagent-driven-development/scripts/testdata/*.sh
+  # These existing first-party sources use two-space indentation; keeping that
+  # style avoids an unrelated full-file reformat while bringing them under the gate.
+  shfmt -i 2 -d agents/claude/shared/statusline.sh \
+    content/skills/systematic-debugging/find-polluter.sh
 
 format:
   shfmt -w install.sh install-tools.sh install-test.sh install-tools-test.sh scripts/*.sh
@@ -85,6 +91,8 @@ format:
     content/skills/subagent-driven-development/scripts/task-brief \
     content/skills/subagent-driven-development/scripts/review-package \
     content/skills/subagent-driven-development/scripts/testdata/*.sh
+  shfmt -i 2 -w agents/claude/shared/statusline.sh \
+    content/skills/systematic-debugging/find-polluter.sh
 
 test:
   ./install-test.sh
