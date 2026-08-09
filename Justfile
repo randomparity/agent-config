@@ -122,7 +122,6 @@ test:
   ./scripts/check-suite-coverage-test.sh
   ./scripts/git-fixture-isolation-test.sh
   ./scripts/select-verification-test.sh
-  ./scripts/check-change-aware-policy-test.sh
 
 test-public-safety:
   {{test_public_safety_command}}

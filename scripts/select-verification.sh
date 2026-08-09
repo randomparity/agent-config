@@ -20,13 +20,6 @@ if ! git diff --cached --name-only -z --no-renames >"$PATHS_FILE"; then
 	exit 1
 fi
 
-is_direct_markdown_child() {
-	local path=$1 prefix=$2 suffix
-	[[ $path == "$prefix"* ]] || return 1
-	suffix=${path#"$prefix"}
-	[[ -n $suffix && $suffix != */* && $suffix == *.md ]]
-}
-
 add_recipe() {
 	local candidate=$1 recipe
 	for recipe in "${recipes[@]:-}"; do
@@ -38,44 +31,19 @@ add_recipe() {
 select_for_path() {
 	local path=$1
 	case $path in
-	Justfile | .pre-commit-config.yaml | scripts/select-verification.sh | \
-		scripts/select-verification-test.sh | scripts/check-change-aware-policy.sh | \
-		scripts/check-change-aware-policy-test.sh | scripts/change-aware-observers.tsv)
-		full_verification=1
+	docs/adr/*.md)
+		add_recipe records
+		add_recipe public-safety
+		add_recipe references-check
 		;;
-	docs/superpowers/specs/*)
-		if is_direct_markdown_child "$path" 'docs/superpowers/specs/'; then
-			add_recipe public-safety
-			add_recipe references-check
-		else
-			full_verification=1
-		fi
+	docs/debt/*.md)
+		add_recipe records
+		add_recipe public-safety
+		add_recipe references-check
 		;;
-	docs/superpowers/plans/*)
-		if is_direct_markdown_child "$path" 'docs/superpowers/plans/'; then
-			add_recipe public-safety
-			add_recipe references-check
-		else
-			full_verification=1
-		fi
-		;;
-	docs/adr/*)
-		if is_direct_markdown_child "$path" 'docs/adr/'; then
-			add_recipe records
-			add_recipe public-safety
-			add_recipe references-check
-		else
-			full_verification=1
-		fi
-		;;
-	docs/debt/*)
-		if is_direct_markdown_child "$path" 'docs/debt/'; then
-			add_recipe records
-			add_recipe public-safety
-			add_recipe references-check
-		else
-			full_verification=1
-		fi
+	docs/*.md)
+		add_recipe public-safety
+		add_recipe references-check
 		;;
 	scripts/check-public-safety.sh)
 		add_recipe lint
@@ -90,7 +58,7 @@ select_for_path() {
 		add_recipe test-public-safety
 		add_recipe suites-check
 		;;
-	*) full_verification=1 ;;
+	*) deferred_paths=1 ;;
 	esac
 }
 
@@ -101,21 +69,17 @@ run_recipe() {
 }
 
 recipes=()
-full_verification=0
+deferred_paths=0
 while IFS= read -r -d '' path; do
-	if git ls-files --error-unmatch -- "$path" >/dev/null 2>&1; then
-		select_for_path "$path"
-	else
-		full_verification=1
-	fi
+	select_for_path "$path"
 done <"$PATHS_FILE"
 
-if ((full_verification)); then
-	recipes=(ci)
-fi
-
 if ((${#recipes[@]} == 0)); then
-	printf 'verification selection: no staged paths\n'
+	if ((deferred_paths)); then
+		printf 'verification deferred: unclassified paths will run on push/CI\n'
+	else
+		printf 'verification selection: no staged paths\n'
+	fi
 	exit 0
 fi
 
@@ -125,3 +89,6 @@ printf '\n'
 for recipe in "${recipes[@]}"; do
 	run_recipe "$recipe"
 done
+if ((deferred_paths)); then
+	printf 'verification deferred: unclassified paths will run on push/CI\n'
+fi

@@ -116,6 +116,16 @@ assert_output() {
 	fi
 }
 
+assert_deferred() {
+	local name=$1 expected=${2:-}
+	assert_recipes "$name" "$expected"
+	if ! rg -qx 'verification deferred: unclassified paths will run on push/CI' "$OUTPUT"; then
+		printf 'not ok - %s should report deferred paths\n' "$name" >&2
+		cat "$OUTPUT" >&2
+		exit 1
+	fi
+}
+
 assert_selects() {
 	local name=$1 expected=$2
 	run_selector
@@ -129,7 +139,8 @@ assert_selects 'direct spec file' $'public-safety\nreferences-check\n'
 
 new_repo
 stage_file Justfile
-assert_selects 'Justfile is global' $'ci\n'
+run_selector
+assert_deferred 'Justfile is deferred'
 
 new_repo
 stage_file docs/superpowers/plans/example.md
@@ -154,19 +165,39 @@ assert_selects 'public-safety checker test' $'lint\nformat-check\ntest-public-sa
 
 new_repo
 stage_file docs/superpowers/specs/nested/example.md
-assert_selects 'nested spec is global' $'ci\n'
+assert_selects 'nested spec file' $'public-safety\nreferences-check\n'
+
+new_repo
+stage_file docs/guides/nested/example.md
+assert_selects 'nested prose file' $'public-safety\nreferences-check\n'
 
 new_repo
 stage_file docs/superpowers/specs/example.txt
-assert_selects 'non-Markdown spec child is global' $'ci\n'
+run_selector
+assert_deferred 'non-Markdown spec child is deferred'
 
 new_repo
 stage_file docs/adr/nested/example.md
-assert_selects 'nested ADR is global' $'ci\n'
+assert_selects 'nested ADR file' $'records\npublic-safety\nreferences-check\n'
+
+new_repo
+stage_file docs/debt/nested/example.md
+assert_selects 'nested debt file' $'records\npublic-safety\nreferences-check\n'
 
 new_repo
 stage_file unknown.txt
-assert_selects 'unknown path is global' $'ci\n'
+run_selector
+assert_deferred 'unknown path is deferred'
+
+new_repo
+stage_file .github/workflows/verify.yml
+run_selector
+assert_deferred 'workflow is deferred'
+
+new_repo
+stage_file content/instructions/global-development-standards.md
+run_selector
+assert_deferred 'shared contract is deferred'
 
 new_repo
 stage_file docs/superpowers/specs/first.md
@@ -176,26 +207,32 @@ assert_selects 'duplicate recipes run once' $'public-safety\nreferences-check\n'
 new_repo
 stage_file docs/superpowers/specs/focused.md
 stage_file Justfile
-assert_selects 'mixed focused and global paths are global' $'ci\n'
+run_selector
+assert_recipes 'mixed focused and deferred paths' $'public-safety\nreferences-check\n'
+assert_output 'mixed focused and deferred paths'
+assert_deferred 'mixed focused and deferred paths' $'public-safety\nreferences-check\n'
 
 new_repo
-stage_file docs/superpowers/specs/deleted.md
+stage_file deleted-unknown.txt
 git -C "$REPO" commit --quiet -m tracked
-git -C "$REPO" rm --quiet docs/superpowers/specs/deleted.md
-assert_selects 'deletion is global' $'ci\n'
+git -C "$REPO" rm --quiet deleted-unknown.txt
+run_selector
+assert_deferred 'deleted unknown path is deferred'
 
 new_repo
 stage_file docs/superpowers/specs/renamed.md
 git -C "$REPO" commit --quiet -m tracked
 git -C "$REPO" mv docs/superpowers/specs/renamed.md renamed.txt
-assert_selects 'rename old focused endpoint is global' $'ci\n'
+run_selector
+assert_recipes 'rename old focused endpoint' $'public-safety\nreferences-check\n'
+assert_deferred 'rename old focused endpoint' $'public-safety\nreferences-check\n'
 
 new_repo
 stage_file renamed.txt
 git -C "$REPO" commit --quiet -m tracked
 mkdir -p "$REPO/docs/superpowers/specs"
 git -C "$REPO" mv renamed.txt docs/superpowers/specs/renamed.md
-assert_selects 'rename new focused endpoint is global' $'ci\n'
+assert_selects 'rename new focused endpoint' $'public-safety\nreferences-check\n'
 
 new_repo
 for number in $(seq 1 150); do
@@ -208,7 +245,8 @@ sentinel="$REPO/not-executed"
 # shellcheck disable=SC2016 # Literal Git pathname must contain unexpanded shell syntax.
 metachar_path='odd $(touch not-executed); $HOME; [x].md'
 stage_file "$metachar_path"
-assert_selects 'metacharacter path is global' $'ci\n'
+run_selector
+assert_deferred 'metacharacter path is deferred'
 if [[ -e "$sentinel" ]] || rg -Fq "$metachar_path" "$OUTPUT"; then
 	printf 'not ok - metacharacter path must not execute or enter output\n' >&2
 	exit 1
