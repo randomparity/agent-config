@@ -72,12 +72,13 @@ disappear from the shell inventory; enumeration reports the read failure.
 The fixture gains an ordinary non-suite `*.sh` file, an extensionless Bash-shebang file, and a
 byte-identical decision-record-style shell copy governed through a reached twin. A duplicate outside
 that mapped asset path must fail. Table-driven extensionless fixtures cover direct Bash, `env bash`,
-and `env -S bash` shebangs, an extensionless hidden Bash file, and near misses for another
-interpreter, `not-bash`, a later Bash argument, and a hidden basename with a later extension dot.
-Each positive form must fail coverage when removed from a scanned recipe. The initial fixture must
-pass. Mutations remove each shell file from lint, format-check, and format in turn and assert the
-gate fails with the path and dimension. Existing suite execution, copy, pathname, dependency, and
-empty-enumeration cases continue to pass.
+and `env -S bash` shebangs, an extensionless hidden Bash file, optional whitespace after `#!` on a
+direct Bash shebang, and trailing Bash arguments on both direct and `env bash` shebangs. Near misses
+cover another interpreter, `not-bash`, a later Bash argument, and a hidden basename with a later
+extension dot. Each positive form must fail coverage when removed from a scanned recipe. The initial
+fixture must pass. Mutations remove each shell file from lint, format-check, and format in turn and
+assert the gate fails with the path and dimension. Existing suite execution, copy, pathname,
+dependency, and empty-enumeration cases continue to pass.
 
 The implementation follows test-first development: add the new fixture and red mutations, prove the
 current checker misses them, then implement the inventory split and recipe wiring. `just verify` is
