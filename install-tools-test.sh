@@ -300,6 +300,9 @@ assert_contains "$(cat "$github_path")" "$path_home/.cargo/bin"
 hook_bin="$tmpdir/hook-bin"
 hook_home="$tmpdir/hook-home"
 mkdir -p "$hook_bin"
+for utility in bash mkdir chmod cat; do
+	ln -s "$(command -v "$utility")" "$hook_bin/$utility"
+done
 for command_name in jq rg shellcheck shfmt gh actionlint zizmor; do
 	cat >"$hook_bin/$command_name" <<'EOF'
 #!/usr/bin/env bash
@@ -334,7 +337,7 @@ chmod +x "$hook_bin/cargo"
 
 set +e
 hook_setup_output="$(
-	PATH="$hook_bin:/usr/bin:/bin" \
+	PATH="$hook_bin" \
 		HOME="$hook_home" \
 		AGENT_CONFIG_SKIP_PACKAGE_MANAGER=1 \
 		AGENT_CONFIG_SETUP_HOOKS=1 \
