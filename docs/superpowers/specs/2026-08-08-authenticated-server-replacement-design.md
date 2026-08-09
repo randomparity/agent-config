@@ -28,9 +28,15 @@ sessions and null for ephemeral sessions. Metadata is at most 16 KiB. It accepts
 absolute UTF-8 session path of at most 4096 bytes, PID 1..2147483647, port 1024..65535, an ASCII
 server ID of 32..64 characters, and an exact 64-character lowercase hexadecimal credential.
 Malformed input produces a JSON `stale` result and never throws raw output at shell callers.
+Stable reads require `project_key` to match the requested filename key. Session reads require
+`session_dir` to match the canonical input directory, and ephemeral records require a null key.
+Mismatch sends no request and is recoverable stale state.
 
 For persistent starts, the authoritative path is
 `$HOME/.local/state/superpowers/brainstorm/<sha256>.json`, regardless of `XDG_STATE_HOME`.
+`HOME` must be non-empty, absolute, and invariant across the lifecycle. `HOME`, `.local`, and
+`state` must be effective-user-owned non-symlink directories without group/world write;
+`superpowers` and `brainstorm` must additionally be exactly mode 0700.
 `<sha256>` is the lowercase SHA-256 digest of the canonical project's UTF-8 path bytes. The shell
 pipes the canonical path as raw stdin bytes to the helper; a fatal UTF-8 decoder validates them
 before hashing, state lookup, or publication. Rejection returns one parseable JSON error. The helper creates `superpowers`

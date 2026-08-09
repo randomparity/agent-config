@@ -19,11 +19,16 @@ listener have bound, but before it emits readiness, it atomically installs owner
 metadata. A publication failure closes both listeners and exits without reporting startup success.
 The authoritative record lives at
 `$HOME/.local/state/superpowers/brainstorm/<project-key>.json`, independent of XDG environment.
+`HOME` must be non-empty and absolute and remain invariant across a persistent lifecycle; otherwise
+the helper fails with parseable JSON before state access. Existing `HOME`, `.local`, and `state`
+ancestry must be effective-user-owned, non-symlink directories without group/world write. The
+application-owned `superpowers` and `brainstorm` directories must be effective-user-owned,
+non-symlink directories at exactly `0700`, creating them at that mode when absent.
 `<project-key>` is the lowercase SHA-256 digest of the canonical project's UTF-8 path bytes.
 Persistent mode rejects a canonical path that is not valid UTF-8 before reading or writing state,
-returning parseable JSON. The helper rejects symlink/non-directory,
-wrong-owner, or group/world-writable application-owned state components and fails closed on unsafe
-state ancestry. It creates missing application directories as `0700` and pairs the PID,
+returning parseable JSON. The shell sends the bounded canonical path as raw stdin bytes; the helper
+applies a fatal UTF-8 decode before creating a string, rejects framing or trailing-byte violations,
+then hashes. The record pairs the PID,
 per-start server identifier, session directory, control port, and a separate random control
 credential. It is installed before a session-local recovery copy so an interrupted publication
 still leaves the live server discoverable. Ephemeral `/tmp` sessions retain only session-local
@@ -36,6 +41,9 @@ session directory returned by start remains the stop command's input.
 Both record copies use the same versioned schema and carry `project_key`; it is null for ephemeral
 sessions. `stop-server.sh` uses a non-null key to address stable state and removes that record only
 when its PID and server identifier still match the session copy.
+Stable reads also require the record key to equal the requested filename key. Session reads require
+`session_dir` to equal the canonical supplied session directory; ephemeral session records require
+a null key. Any mismatch is stale recovery and sends no stop request.
 
 One shipped Node helper owns metadata validation and the stop request for both
 `start-server.sh` and `stop-server.sh`. It sends a bounded authenticated request containing the
