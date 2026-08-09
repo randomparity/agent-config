@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if ! command -v uname >/dev/null 2>&1; then
+	printf 'detection-failed\tuname-missing\n'
+	printf '%s\n' \
+		'detect-host-architecture: uname is required; install or expose uname in PATH' >&2
+	exit 3
+fi
+
+if machine_output="$(uname -m 2>/dev/null)"; then
+	:
+else
+	uname_status=$?
+	printf 'detection-failed\tuname-exit-%s\n' "$uname_status"
+	printf 'detect-host-architecture: uname -m failed with exit %s; ' "$uname_status" >&2
+	printf '%s\n' 'retry after fixing uname' >&2
+	exit 3
+fi
+
+case "$machine_output" in
+x86_64 | amd64) normalized_architecture=x86_64 ;;
+arm64 | aarch64) normalized_architecture=arm64 ;;
+ppc64le | s390x) normalized_architecture="$machine_output" ;;
+*)
+	raw_architecture="${machine_output:-<empty>}"
+	printf 'unsupported\t%s\n' "$raw_architecture"
+	printf "detect-host-architecture: unsupported machine '%s'; supported: " \
+		"$raw_architecture" >&2
+	printf '%s\n' 'x86_64, arm64, ppc64le, s390x' >&2
+	exit 2
+	;;
+esac
+
+printf 'ok\t%s\n' "$normalized_architecture"

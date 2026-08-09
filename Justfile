@@ -50,6 +50,8 @@ lint:
     content/skills/subagent-driven-development/scripts/testdata/*.sh
   shellcheck agents/claude/shared/statusline.sh \
     content/skills/systematic-debugging/find-polluter.sh
+  shellcheck content/skills/preflight/scripts/detect-host-architecture \
+    content/skills/preflight/scripts/testdata/*.sh
 
 # The brainstorming scripts and the suite that exercises them take `-i 2`. The
 # scripts are vendored two-space-indented (ADR 0005, under which an upstream
@@ -76,6 +78,8 @@ format-check:
   # style avoids an unrelated full-file reformat while bringing them under the gate.
   shfmt -i 2 -d agents/claude/shared/statusline.sh \
     content/skills/systematic-debugging/find-polluter.sh
+  shfmt -d content/skills/preflight/scripts/detect-host-architecture \
+    content/skills/preflight/scripts/testdata/*.sh
 
 format:
   shfmt -w install.sh install-tools.sh install-test.sh install-tools-test.sh scripts/*.sh
@@ -93,6 +97,8 @@ format:
     content/skills/subagent-driven-development/scripts/testdata/*.sh
   shfmt -i 2 -w agents/claude/shared/statusline.sh \
     content/skills/systematic-debugging/find-polluter.sh
+  shfmt -w content/skills/preflight/scripts/detect-host-architecture \
+    content/skills/preflight/scripts/testdata/*.sh
 
 test:
   ./install-test.sh
@@ -101,6 +107,7 @@ test:
   ./content/skills/brainstorming/scripts/testdata/start-server-test.sh
   ./content/skills/brainstorming/scripts/testdata/stop-server-test.sh
   ./content/skills/subagent-driven-development/scripts/testdata/sdd-workspace-test.sh
+  ./content/skills/preflight/scripts/testdata/architecture-awareness-test.sh
   ./content/skills/github-tracking/assets/testdata/tracker-test.sh
   ./scripts/check-public-safety-test.sh
   ./scripts/check-deployed-references-test.sh
