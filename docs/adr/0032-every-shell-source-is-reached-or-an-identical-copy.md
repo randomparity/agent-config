@@ -19,9 +19,10 @@ shebangs. Five decision-record asset copies are intentionally not named directly
 
 Extend the existing suite-coverage checker into a two-inventory recipe-coverage gate. Suites retain
 the execution dimension. Every tracked `*.sh` file and every extensionless file whose indexed first
-line selects Bash must be reached by lint, format-check, and format. An extensionless basename
-contains no dot. Bash selection means a direct interpreter token with basename `bash`, `env`
-followed immediately by `bash`, or `env -S` followed by `bash`; arguments after Bash are allowed.
+line selects Bash must be reached by lint, format-check, and format. An extensionless basename,
+after one leading dot for a hidden filename is removed, contains no dot. Bash selection means a
+direct interpreter token with basename `bash`, `env` followed immediately by `bash`, or `env -S`
+followed by `bash`; arguments after Bash are allowed.
 
 Keep ADR 0026's general recomputed byte-identity clearance for suite coverage. For the broader
 shell-source inventory, permit only these asset/root pairs to use recomputed byte-identity

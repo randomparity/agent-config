@@ -33,9 +33,11 @@ identity. Both alternatives are rejected in ADR 0032.
 ## Design
 
 The checker builds two NUL-safe arrays from tracked paths. The suite array keeps the existing
-`*-test.sh` enumeration. A basename is extensionless when it contains no dot. The shell array
-includes every `*.sh` path and every extensionless path whose indexed first line matches one of
-these Bash shebang forms after optional whitespace following `#!`:
+`*-test.sh` enumeration. A basename is extensionless when, after removing one leading dot used for
+a hidden filename, it contains no dot. Thus `tool` and `.hook` are extensionless, while `tool.py`
+and `.hook.local` are not. The shell array includes every `*.sh` path and every extensionless path
+whose indexed first line matches one of these Bash shebang forms after optional whitespace
+following `#!`:
 
 - a direct interpreter token whose basename is `bash`, such as `#!/bin/bash`;
 - an `env` interpreter followed immediately by `bash`, such as `#!/usr/bin/env bash`; or
@@ -70,11 +72,12 @@ disappear from the shell inventory; enumeration reports the read failure.
 The fixture gains an ordinary non-suite `*.sh` file, an extensionless Bash-shebang file, and a
 byte-identical decision-record-style shell copy governed through a reached twin. A duplicate outside
 that mapped asset path must fail. Table-driven extensionless fixtures cover direct Bash, `env bash`,
-and `env -S bash` shebangs plus near misses for another interpreter, `not-bash`, and a later Bash
-argument. Each positive form must fail coverage when removed from a scanned recipe. The initial
-fixture must pass. Mutations remove each shell file from lint, format-check, and format in turn and
-assert the gate fails with the path and dimension. Existing suite execution, copy, pathname,
-dependency, and empty-enumeration cases continue to pass.
+and `env -S bash` shebangs, an extensionless hidden Bash file, and near misses for another
+interpreter, `not-bash`, a later Bash argument, and a hidden basename with a later extension dot.
+Each positive form must fail coverage when removed from a scanned recipe. The initial fixture must
+pass. Mutations remove each shell file from lint, format-check, and format in turn and assert the
+gate fails with the path and dimension. Existing suite execution, copy, pathname, dependency, and
+empty-enumeration cases continue to pass.
 
 The implementation follows test-first development: add the new fixture and red mutations, prove the
 current checker misses them, then implement the inventory split and recipe wiring. `just verify` is
