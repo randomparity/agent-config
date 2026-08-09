@@ -2,6 +2,7 @@
 
 const crypto = require('crypto');
 const fs = require('fs');
+const http = require('http');
 const path = require('path');
 const { TextDecoder } = require('util');
 
@@ -262,19 +263,212 @@ function removeMatchingRecord(recordPath, identity) {
   }
 }
 
+function secureEqual(left, right) {
+  const leftBytes = Buffer.from(String(left));
+  const rightBytes = Buffer.from(String(right));
+  return leftBytes.length === rightBytes.length && crypto.timingSafeEqual(leftBytes, rightBytes);
+}
+
+function sendJson(response, statusCode, body) {
+  const bytes = Buffer.from(`${JSON.stringify(body)}\n`);
+  response.writeHead(statusCode, {
+    'content-type': 'application/json',
+    'content-length': bytes.length,
+    'cache-control': 'no-store'
+  });
+  response.end(bytes);
+}
+
+function parseControlBody(bytes) {
+  try {
+    const value = JSON.parse(decodeUtf8(bytes, 'Control request'));
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+    return value;
+  } catch (_error) {
+    return null;
+  }
+}
+
+function isLoopbackRequest(request) {
+  return request.socket.remoteAddress === '127.0.0.1';
+}
+
+function createControlServer({ token, pid, serverId, closeUserListener }) {
+  let lifecycle = 'running';
+  const server = http.createServer((request, response) => {
+    if (!isLoopbackRequest(request) || request.method !== 'POST' || request.url !== '/stop') {
+      sendJson(response, 404, { status: 'failed', reason: 'not_found' });
+      return;
+    }
+
+    let size = 0;
+    const chunks = [];
+    const receiveTimer = setTimeout(() => request.destroy(), CONTROL_LIMITS.receiveTimeoutMs);
+    request.on('data', (chunk) => {
+      size += chunk.length;
+      if (size > CONTROL_LIMITS.requestBytes) {
+        clearTimeout(receiveTimer);
+        request.destroy();
+        return;
+      }
+      chunks.push(chunk);
+    });
+    request.on('end', async () => {
+      clearTimeout(receiveTimer);
+      if (size > CONTROL_LIMITS.requestBytes) return;
+      const body = parseControlBody(Buffer.concat(chunks));
+      const authorization = request.headers.authorization || '';
+      const suppliedToken = authorization.startsWith('Bearer ')
+        ? authorization.slice('Bearer '.length)
+        : '';
+      if (!body || !secureEqual(suppliedToken, token) || body.pid !== pid ||
+          body.server_id !== serverId) {
+        sendJson(response, 403, { status: 'failed', reason: 'identity_mismatch' });
+        return;
+      }
+      if (lifecycle === 'stopping') {
+        sendJson(response, 202, { status: 'stopping' });
+        return;
+      }
+      lifecycle = 'stopping';
+      try {
+        await closeUserListener();
+        sendJson(response, 200, { status: 'stopped' });
+        response.once('finish', () => server.emit('terminal', { status: 'stopped' }));
+      } catch (error) {
+        sendJson(response, 500, { status: 'failed', reason: 'shutdown_cleanup' });
+        response.once('finish', () => server.emit('terminal', {
+          status: 'failed',
+          error
+        }));
+      }
+    });
+    request.on('error', () => clearTimeout(receiveTimer));
+  });
+  return server;
+}
+
+function requestAuthenticatedStop(record) {
+  return new Promise((resolve) => {
+    let settled = false;
+    let request;
+    const finish = (outcome) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(connectTimer);
+      clearTimeout(deadlineTimer);
+      if (request) request.destroy();
+      resolve(outcome);
+    };
+    const deadlineTimer = setTimeout(
+      () => finish({ status: 'failed', reason: 'deadline' }),
+      CONTROL_LIMITS.requestDeadlineMs
+    );
+    const connectTimer = setTimeout(
+      () => finish({ status: 'failed', reason: 'connect_timeout' }),
+      CONTROL_LIMITS.connectTimeoutMs
+    );
+    const body = Buffer.from(JSON.stringify({ pid: record.pid, server_id: record.server_id }));
+    request = http.request({
+      host: '127.0.0.1',
+      port: record.control_port,
+      method: 'POST',
+      path: '/stop',
+      headers: {
+        authorization: `Bearer ${record.control_token}`,
+        'content-type': 'application/json',
+        'content-length': body.length
+      }
+    }, (response) => {
+      const chunks = [];
+      let size = 0;
+      response.on('data', (chunk) => {
+        size += chunk.length;
+        if (size > CONTROL_LIMITS.responseBytes) {
+          finish({ status: 'failed', reason: 'oversized_response' });
+          return;
+        }
+        chunks.push(chunk);
+      });
+      response.on('end', () => {
+        if (settled) return;
+        try {
+          const parsed = JSON.parse(decodeUtf8(Buffer.concat(chunks), 'Control response'));
+          if (parsed && ['stopped', 'stopping'].includes(parsed.status)) {
+            finish({ status: parsed.status });
+          } else {
+            finish({ status: 'failed', reason: parsed.reason || 'rejected' });
+          }
+        } catch (_error) {
+          finish({ status: 'failed', reason: 'malformed_response' });
+        }
+      });
+    });
+    request.on('socket', (socket) => {
+      const connected = () => clearTimeout(connectTimer);
+      if (socket.connecting) socket.once('connect', connected);
+      else connected();
+    });
+    request.on('error', (error) => finish({
+      status: 'failed',
+      reason: error.code === 'ECONNREFUSED' ? 'connection_refused' : 'connection_failed'
+    }));
+    request.end(body);
+  });
+}
+
+function activeRecordPath(sessionDir) {
+  return path.join(sessionDir, 'state', 'server-control.json');
+}
+
+function publishActiveRecords({
+  projectDir,
+  sessionDir,
+  pid,
+  serverId,
+  controlPort,
+  controlToken
+}) {
+  let projectKey = null;
+  let stableRecordPath = null;
+  if (projectDir !== null) {
+    const identity = readProjectIdentity(Buffer.from(projectDir, 'utf8'));
+    const state = projectStateFromEnvironment(identity);
+    projectKey = state.projectKey;
+    stableRecordPath = state.recordPath;
+  }
+  const sessionRecordPath = activeRecordPath(sessionDir);
+  const record = {
+    version: 1,
+    pid,
+    server_id: serverId,
+    session_dir: sessionDir,
+    project_key: projectKey,
+    control_port: controlPort,
+    control_token: controlToken
+  };
+  if (stableRecordPath) atomicInstallMetadata(stableRecordPath, record);
+  atomicInstallMetadata(sessionRecordPath, record);
+  return { projectKey, stableRecordPath, sessionRecordPath };
+}
+
 module.exports = {
   CONTROL_LIMITS,
   MAX_IDENTITY_BYTES,
   MAX_METADATA_BYTES,
   ControlError,
   atomicInstallMetadata,
+  activeRecordPath,
+  createControlServer,
   createControlToken,
   ensurePrivateStateRoot,
   projectStateFor,
   projectStateFromEnvironment,
+  publishActiveRecords,
   readMetadata,
   readProjectIdentity,
   readStdinIdentity,
   removeMatchingRecord,
+  requestAuthenticatedStop,
   validateRecord
 };
