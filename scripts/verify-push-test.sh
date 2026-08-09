@@ -95,6 +95,19 @@ run_verifier_with_git() {
 	)
 }
 
+run_verifier_with_hook_env() {
+	local input=$1 git_dir index config
+	git_dir=$(git -C "$REPO" rev-parse --absolute-git-dir)
+	index="$git_dir/index"
+	config=$(git -C "$REPO" rev-parse --git-path config)
+	printf '%b' "$input" | (
+		cd "$REPO"
+		GIT_DIR="$git_dir" GIT_COMMON_DIR="$git_dir" GIT_WORK_TREE="$REPO" \
+			GIT_INDEX_FILE="$index" GIT_CONFIG="$config" PATH="$BIN:$PATH" \
+			JUST_LOG="$LOG" SOURCE_REPO="$REPO" "$VERIFIER"
+	)
+}
+
 assert_no_ci() {
 	[[ ! -s $LOG ]] || fail "$1 invoked ci"
 }
@@ -128,12 +141,41 @@ SOURCE_ROOT=$(cd "$REPO" && pwd -P)
 [[ $(cat "$REPO/marker") == 'source mutation' ]] || fail 'fake ci should mutate source worktree'
 
 new_repo
+printf 'source head\n' >"$REPO/marker"
+git -C "$REPO" add marker
+git -C "$REPO" commit --quiet -m source-head
+run_verifier_with_hook_env \
+	"refs/heads/main $OBJECT refs/heads/main 0000000000000000000000000000000000000000\n"
+IFS=$'\t' read -r ci_root ci_object ci_marker <"$LOG"
+[[ $ci_object == "$OBJECT" && $ci_marker == immutable ]] ||
+	fail 'hook-local Git selectors should not escape the detached worktree'
+
+new_repo
 run_verifier "refs/heads/main $OBJECT refs/heads/one 0000000000000000000000000000000000000000\nrefs/heads/main $OBJECT refs/heads/two 0000000000000000000000000000000000000000\n"
 [[ $(wc -l <"$LOG" | tr -d ' ') == 1 ]] || fail 'same object refs should invoke ci once'
 
 new_repo
 run_verifier "(delete) 0000000000000000000000000000000000000000 refs/heads/main $OBJECT\n"
 assert_no_ci 'branch deletion'
+
+SHA256_REPO="$SCRATCH/sha256"
+if git init --quiet --object-format=sha256 "$SHA256_REPO" 2>/dev/null; then
+	git -C "$SHA256_REPO" config user.email push@example.test
+	git -C "$SHA256_REPO" config user.name Push
+	printf 'sha256\n' >"$SHA256_REPO/marker"
+	git -C "$SHA256_REPO" add marker
+	git -C "$SHA256_REPO" commit --quiet -m sha256
+	SHA256_OBJECT=$(git -C "$SHA256_REPO" rev-parse HEAD)
+	SHA256_ZERO=$(printf '%064d' 0)
+	: >"$LOG"
+	printf '(delete) %s refs/heads/main %s\n' "$SHA256_ZERO" "$SHA256_OBJECT" | (
+		cd "$SHA256_REPO"
+		PATH="$BIN:$PATH" JUST_LOG="$LOG" SOURCE_REPO="$SHA256_REPO" "$VERIFIER"
+	)
+	assert_no_ci 'SHA-256 branch deletion'
+else
+	printf 'note: Git lacks SHA-256 repository support; skipped deletion regression\n'
+fi
 
 new_repo
 run_verifier "refs/tags/v1 $OBJECT refs/tags/v1 0000000000000000000000000000000000000000\n"
@@ -254,14 +296,14 @@ run_hooks
 cmp -s "$ROOT/scripts/pre-push-hook" "$HOOK_PATH" || fail 'owned hook was not replaced'
 
 printf 'foreign hook\n' >"$HOOK_PATH"
-foreign_before=$(cat "$HOOK_PATH")
+cp "$HOOK_PATH" "$SCRATCH/foreign-hook-before"
 set +e
 foreign_output=$(run_hooks 2>&1)
 foreign_status=$?
 set -e
 [[ $foreign_status -ne 0 && $foreign_output == *'foreign pre-push hook'* ]] ||
 	fail 'foreign hook should block installation'
-[[ $(cat "$HOOK_PATH") == "$foreign_before" ]] || fail 'foreign hook changed'
+cmp -s "$SCRATCH/foreign-hook-before" "$HOOK_PATH" || fail 'foreign hook changed'
 
 rm -f "$HOOK_PATH"
 ln -s target "$HOOK_PATH"

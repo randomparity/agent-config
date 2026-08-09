@@ -1,11 +1,18 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ZERO_OID=0000000000000000000000000000000000000000
 ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || {
 	printf 'verify-push: must run inside a Git worktree\n' >&2
 	exit 2
 }
+
+# Hooks export selectors for their source worktree. Root discovery above needs
+# those values; every later command must resolve inside the detached worktree.
+while IFS= read -r variable; do
+	[[ -n $variable ]] && unset "$variable"
+done < <(git -C "$ROOT" rev-parse --local-env-vars)
+ZERO_OID=$(git -C "$ROOT" hash-object --stdin </dev/null)
+ZERO_OID=${ZERO_OID//[0123456789abcdef]/0}
 
 die() {
 	printf 'verify-push: %s\n' "$1" >&2
@@ -27,7 +34,10 @@ while IFS=' ' read -r local_ref local_oid remote_ref remote_oid extra; do
 	[[ -n ${local_ref:-} && -n ${local_oid:-} && -n ${remote_ref:-} && -n ${remote_oid:-} ]] ||
 		die 'malformed ref update'
 	[[ $remote_ref == refs/heads/* ]] || continue
-	[[ $local_oid == "$ZERO_OID" ]] && continue
+	if [[ $local_ref == '(delete)' ]]; then
+		[[ $local_oid == "$ZERO_OID" ]] || die 'invalid branch deletion object'
+		continue
+	fi
 	git cat-file -e "$local_oid^{commit}" 2>/dev/null || die 'invalid branch object'
 	add_object "$local_oid"
 done
