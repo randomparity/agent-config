@@ -14,6 +14,10 @@ After ensuring the project directory exists, `start-server.sh` canonicalizes it 
 absolute-path semantics. That path is the project identity used for the session tree and stable
 metadata. `stop-server.sh` receives the canonical session directory returned by start and derives
 the same project tree from it; aliases and symlinks therefore converge before metadata is written.
+Both scripts preserve every path byte through shell canonicalization. They enter the directory with
+`cd -P`, print `$PWD` followed by a fixed non-newline sentinel inside command substitution, and
+remove exactly that final sentinel afterward. The sentinel prevents command substitution from
+stripping trailing newline bytes that belong to the path.
 
 The change is limited to the brainstorm server lifecycle scripts, their Node server/control
 implementation, lifecycle tests, and ADR 0034. It does not alter issue #77's worktree and does
@@ -204,8 +208,10 @@ XDG-independence, deterministic SHA-256 keys, invalid UTF-8 path rejection, syml
 wrong ownership where the host permits it, and group/world-writable modes; each fails before
 credential publication.
 Cover empty/relative HOME, missing `.local` and `state` bootstrap at 0700, changed-HOME
-undiscoverability as a documented prerequisite, embedded-newline identity, and rejection at NUL,
-invalid UTF-8, and 4097 bytes.
+undiscoverability as a documented prerequisite, newline-bearing identity components, and rejection
+at NUL, invalid UTF-8, and 4097 bytes. Create real directories whose names differ only by a trailing
+newline and prove lossless physical canonicalization gives them distinct project keys and stable
+records. Round-trip a trailing-newline canonical identity through the 4096-byte EOF input boundary.
 Simulate permission denial at each state-root component and assert nonzero exit plus one parseable
 JSON error containing the fixed directory and write-enable action, with no state or server created.
 Inject a crash after stable installation but before session-copy installation and prove the next
