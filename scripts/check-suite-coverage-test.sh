@@ -168,7 +168,7 @@ done
 # A non-suite *.sh path is checked independently in every static-analysis
 # dimension. Keep beta-test.sh named so each mutation isolates helper.sh.
 new_fixture
-sed_i 's|^  shellcheck alpha-test.sh scripts/\*.sh|  shellcheck alpha-test.sh scripts/beta-test.sh|' \
+sed_i '/^  shellcheck alpha-test.sh /s|scripts/\*.sh|scripts/beta-test.sh|' \
 	"$fixture/Justfile"
 expect_red "$fixture" 'shell file dropped from lint' 'scripts/helper.sh' 'linted'
 
