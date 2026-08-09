@@ -70,7 +70,10 @@ with quoted `case` patterns, accumulates fixed Just recipe names, deduplicates t
 then invokes and times each recipe. It never evaluates a path or constructs a recipe name from
 path text. Selection output names recipes, not contributor-controlled paths.
 
-The first policy version deliberately maps only these exact surfaces:
+The first policy version deliberately maps only these exact, direct-child surfaces. For each
+directory pattern below, the selector removes the literal directory prefix and accepts the suffix
+only when it is non-empty, contains no `/`, and ends in `.md`; Bash `case` globbing alone is not a
+one-path-segment proof.
 
 | Staged path pattern | Complete focused recipe set | Evidence |
 |---|---|---|
@@ -105,7 +108,8 @@ Zero paths is a successful no-op because no staged content exists to verify. Del
 in the staged set, and both endpoints of a rename are classified. Duplicate paths and overlapping
 categories run each recipe once. A focused recipe failure stops the hook immediately and
 preserves its exit status. Elapsed seconds are printed after each successful recipe; timing is
-never asserted numerically by tests.
+never asserted numerically by tests. Nested markdown paths beneath each mapped directory are
+near-miss fixtures and must select `just ci`.
 
 ## Failure handling
 
