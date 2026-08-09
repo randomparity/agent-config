@@ -96,12 +96,18 @@ explicitly supplied; the successor then starts normally.
 request in session-stop mode. A missing session record maps to the existing
 `{"status":"not_running"}` success. An authenticated acknowledgement maps to
 `{"status":"stopped"}` success. If a request cannot complete and the PID is confirmed absent,
-the helper removes the session record and maps to `{"status":"stale_pid"}` success. A present but
-empty, malformed, unreadable, mismatched, or otherwise unauthenticated record maps to the existing
-`{"status":"failed","error":"..."}` shape and a nonzero exit whenever its PID is live or
-liveness cannot be established. That error names the metadata path and PID when available, says
-identity could not be verified, and says state was preserved. It preserves the session record and
-any addressed stable record and sends no request when parsing or validation failed.
+the helper removes the session record and maps to `{"status":"stale_pid"}` success. It uses Linux
+`/proc/<pid>/cmdline` as a boundary-preserving sequence of NUL-delimited arguments when available.
+If a live PID's exact arguments contain no `--brainstorm-server-id=<recorded-id>` value, it is
+proven unrelated: the helper preserves the process, removes the session record and a matching
+stable record under the single-writer prerequisite, and returns `stale_pid`. It never treats flat
+`ps` text, a timeout or refusal, or an unauthenticated or mismatched control response as proof.
+
+A present but empty, malformed, unreadable, mismatched, or otherwise unauthenticated record maps
+to the existing `{"status":"failed","error":"..."}` shape and a nonzero exit whenever its PID is
+live or liveness cannot be established. That error names the metadata path and PID when available,
+says identity could not be verified, and says state was preserved. It preserves the session record
+and any addressed stable record and sends no request when parsing or validation failed.
 
 After a successful stop, persistent cleanup conditionally removes the stable record addressed by
 `project_key` only when its PID and server ID match the stopped session. This is stale-state
@@ -129,6 +135,8 @@ on stdout for every outcome. `start-server.sh` consumes predecessor outcomes int
 stdout remains exactly the new server's connection JSON. `stop-server.sh` forwards the mapped
 public result and preserves its existing status vocabulary. No stale or failure path invokes a
 signal; the helper uses PID liveness only to distinguish confirmed absence from unverifiable state.
+On Linux it may additionally classify an exact NUL-delimited argument mismatch as proven unrelated;
+other platforms do not fall back to flattened process text.
 The client permits 500 ms to connect and one non-resetting 3000 ms wall-clock deadline for the
 whole request and response; response JSON is capped at 4096 bytes. The endpoint caps request bodies
 at 1024 bytes and the full receive interval at 1000 ms. Crossing a bound closes the socket and
@@ -144,6 +152,8 @@ returns categorized JSON without echoing input.
   scripts and read owner files.
 - New boundary: HTTP reaches the control listener. Browser pages, remote network peers, and other
   local accounts are untrusted.
+- Existing OS boundary: Linux `/proc` supplies NUL-delimited process arguments. Missing,
+  unavailable, changing, or flattened process evidence is indeterminate, never proof of identity.
 - Existing widened boundary: lifecycle values enter `server.cjs` through environment/arguments.
   The launching script is trusted; malformed values must fail closed.
 
@@ -209,6 +219,12 @@ RNG boundary, server-side identity validation, or predecessor stop makes the tes
 
 Exercise ephemeral mode through a physical `/tmp` alias and prove no stable record is written;
 persistence is determined by option state, never by a path-prefix check.
+
+On Linux, use real processes to prove exact NUL-delimited argv without the recorded identifier is
+`stale_pid`, preserves the unrelated process, and removes only matching stale records. Prove an
+exact identifier retains the metadata when authenticated shutdown cannot complete. On macOS, and
+when `/proc` is absent or unreadable, prove whitespace-shaped flat command text never establishes
+unrelatedness and the same failure remains nonzero with identity metadata preserved.
 
 Send two valid authenticated stop requests before user-listener closure completes and prove only
 one lifecycle transition occurs; the retry receives deterministic `stopping` JSON without a raw

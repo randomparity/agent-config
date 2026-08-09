@@ -70,10 +70,14 @@ The helper shares parsing, validation, liveness probing, and the authenticated r
 shell callers, but applies their distinct lifecycle dispositions. Persistent start removes the
 stable path it supplied after missing, malformed, stale, unreachable, or unresponsive predecessor
 state and continues without force-killing. Session stop maps a missing record to `not_running`, a
-successful authenticated acknowledgement to `stopped`, and a confirmed-absent PID to `stale_pid`.
-If a present record cannot be parsed, validated, read, or authenticated while its PID is live or
+successful authenticated acknowledgement to `stopped`, and a confirmed-absent or proven-unrelated
+PID to `stale_pid`. A live PID is proven unrelated only when a boundary-preserving source such as
+Linux `/proc/<pid>/cmdline` shows that no exact server-identifier argument is present. Flat `ps`
+text, timeout, refusal, or an unauthenticated or mismatched control response is not proof. If a
+present record cannot be parsed, validated, read, or authenticated while its PID is live or
 liveness is indeterminate, stop preserves both records and returns an actionable nonzero JSON
-failure. Neither caller signals a PID.
+failure. Proven-unrelated cleanup preserves the process and removes only matching stale records
+under the single-writer prerequisite. Neither caller signals a PID.
 
 ## Consequences
 
