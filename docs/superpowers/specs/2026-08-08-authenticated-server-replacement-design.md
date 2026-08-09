@@ -34,12 +34,15 @@ Mismatch sends no request and is recoverable stale state.
 
 For persistent starts, the authoritative path is
 `$HOME/.local/state/superpowers/brainstorm/<sha256>.json`, regardless of `XDG_STATE_HOME`.
-`HOME` must be non-empty, absolute, and invariant across the lifecycle. `HOME`, `.local`, and
-`state` must be effective-user-owned non-symlink directories without group/world write;
+`HOME` must be non-empty and absolute. Invariance is a caller prerequisite: changing it makes prior
+records undiscoverable and cannot be diagnosed from the new root. `HOME`, `.local`, and
+`state` must be effective-user-owned non-symlink directories without group/world write. Missing
+`.local` and `state` components are created one at a time at 0700, then immediately validated;
 `superpowers` and `brainstorm` must additionally be exactly mode 0700.
 `<sha256>` is the lowercase SHA-256 digest of the canonical project's UTF-8 path bytes. The shell
-pipes the canonical path as raw stdin bytes to the helper; a fatal UTF-8 decoder validates them
-before hashing, state lookup, or publication. Rejection returns one parseable JSON error. The helper creates `superpowers`
+pipes one EOF-delimited raw value of at most 4096 bytes to the helper. Newlines are data; NUL,
+overflow, or fatal UTF-8 decoding fails before hashing or state access and returns parseable JSON.
+The helper creates `superpowers`
 and `brainstorm` at mode 0700, rejects
 symlinks, wrong ownership, or group/world write on those components, and installs records at 0600.
 Session-local recovery metadata stays under the project. Ephemeral mode never computes this path.
@@ -157,6 +160,9 @@ mismatched-session metadata. Test the non-resetting 3000 ms client and 1000 ms r
 with peers that drip bytes. Cover listener address and loopback validation. Add state-root cases for
 XDG-independence, deterministic SHA-256 keys, invalid UTF-8 path rejection, symlinked components, wrong ownership where the
 host permits it, and group/world-writable modes; each fails before credential publication.
+Cover empty/relative HOME, missing `.local` and `state` bootstrap at 0700, changed-HOME
+undiscoverability as a documented prerequisite, embedded-newline identity, and rejection at NUL,
+invalid UTF-8, and 4097 bytes.
 Inject a crash after stable installation but before session-copy installation and prove the next
 start discovers and stops that server. Fail each installation and assert the server closes both
 listeners, removes prepared files, and emits parseable JSON; where the stable record was installed,

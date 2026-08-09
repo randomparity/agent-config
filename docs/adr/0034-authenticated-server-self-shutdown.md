@@ -19,16 +19,18 @@ listener have bound, but before it emits readiness, it atomically installs owner
 metadata. A publication failure closes both listeners and exits without reporting startup success.
 The authoritative record lives at
 `$HOME/.local/state/superpowers/brainstorm/<project-key>.json`, independent of XDG environment.
-`HOME` must be non-empty and absolute and remain invariant across a persistent lifecycle; otherwise
-the helper fails with parseable JSON before state access. Existing `HOME`, `.local`, and `state`
-ancestry must be effective-user-owned, non-symlink directories without group/world write. The
+`HOME` must be non-empty and absolute; otherwise the helper fails with parseable JSON before state
+access. Keeping it invariant is a caller prerequisite: a changed value makes prior records
+undiscoverable and the helper cannot detect that history. Existing `HOME`, `.local`, and `state`
+ancestry must be effective-user-owned, non-symlink directories without group/world write. Missing
+`.local` or `state` components are created one at a time at `0700` and immediately validated. The
 application-owned `superpowers` and `brainstorm` directories must be effective-user-owned,
 non-symlink directories at exactly `0700`, creating them at that mode when absent.
 `<project-key>` is the lowercase SHA-256 digest of the canonical project's UTF-8 path bytes.
 Persistent mode rejects a canonical path that is not valid UTF-8 before reading or writing state,
-returning parseable JSON. The shell sends the bounded canonical path as raw stdin bytes; the helper
-applies a fatal UTF-8 decode before creating a string, rejects framing or trailing-byte violations,
-then hashes. The record pairs the PID,
+returning parseable JSON. The shell sends the canonical path as one EOF-delimited raw stdin value,
+capped at 4096 bytes. Embedded newlines are data; NUL, overflow, or fatal UTF-8 decoding fails
+before creating a string or touching state. The record pairs the PID,
 per-start server identifier, session directory, control port, and a separate random control
 credential. It is installed before a session-local recovery copy so an interrupted publication
 still leaves the live server discoverable. Ephemeral `/tmp` sessions retain only session-local
