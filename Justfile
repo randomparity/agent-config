@@ -9,7 +9,28 @@ setup:
   AGENT_CONFIG_SETUP_HOOKS=1 ./install-tools.sh
 
 hooks:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  marker='# agent-config: managed pre-push hook'
+  hook_dir="$(git rev-parse --git-path hooks)"
+  destination="$hook_dir/pre-push"
+  source='scripts/pre-push-hook'
   prek install
+  mkdir -p "$hook_dir"
+  if [[ -L $destination || ( -e $destination && ! -f $destination ) ]]; then
+    echo "hooks: refusing unsafe pre-push destination: $destination" >&2
+    exit 1
+  fi
+  if [[ -f $destination ]] && ! rg -qxF "$marker" "$destination"; then
+    echo "hooks: refusing foreign pre-push hook: $destination" >&2
+    exit 1
+  fi
+  temporary="$(mktemp "$hook_dir/.pre-push.XXXXXX")"
+  trap 'rm -f "$temporary"' EXIT
+  cp "$source" "$temporary"
+  chmod +x "$temporary"
+  mv -f "$temporary" "$destination"
+  trap - EXIT
 
 tools-check:
   ./install-tools.sh --check
@@ -35,6 +56,7 @@ records:
 # run from its new path (ADR 0025).
 lint:
   shellcheck install.sh install-tools.sh install-test.sh install-tools-test.sh scripts/*.sh \
+    scripts/pre-push-hook \
     .github/scripts/*.sh .github/scripts/profiles/*.sh \
     content/skills/issue/scripts/*.sh \
     content/skills/issue/scripts/testdata/*.sh \
@@ -62,7 +84,8 @@ lint:
 # adaptations), so reformatting them to the repository default would cost that
 # diff for nothing. ADR 0025 gave the suite `-i 2` for the same reason (#57).
 format-check:
-  shfmt -d install.sh install-tools.sh install-test.sh install-tools-test.sh scripts/*.sh
+  shfmt -d install.sh install-tools.sh install-test.sh install-tools-test.sh scripts/*.sh \
+    scripts/pre-push-hook
   shfmt -i 2 -d .github/scripts/*.sh .github/scripts/profiles/*.sh
   shfmt -d content/skills/issue/scripts/*.sh \
     content/skills/issue/scripts/testdata/*.sh
@@ -86,7 +109,8 @@ format-check:
     content/skills/preflight/scripts/testdata/*.sh
 
 format:
-  shfmt -w install.sh install-tools.sh install-test.sh install-tools-test.sh scripts/*.sh
+  shfmt -w install.sh install-tools.sh install-test.sh install-tools-test.sh scripts/*.sh \
+    scripts/pre-push-hook
   shfmt -i 2 -w .github/scripts/*.sh .github/scripts/profiles/*.sh
   shfmt -w content/skills/issue/scripts/*.sh \
     content/skills/issue/scripts/testdata/*.sh
@@ -122,6 +146,7 @@ test:
   ./scripts/check-suite-coverage-test.sh
   ./scripts/git-fixture-isolation-test.sh
   ./scripts/select-verification-test.sh
+  ./scripts/verify-push-test.sh
 
 test-public-safety:
   {{test_public_safety_command}}
@@ -137,6 +162,9 @@ public-safety:
 
 commit-check:
   ./scripts/select-verification.sh
+
+push-check:
+  ./scripts/verify-push.sh
 
 references-check:
   ./scripts/check-deployed-references.sh
