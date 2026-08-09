@@ -89,6 +89,12 @@ mv "$SCRATCH/Justfile" "$REPO/Justfile"
 assert_fails 'new verify dependency' 'verify dependency is unmanifested: new-observer'
 
 copy_fixture
+awk '{ sub(/ actions-check$/, ""); print }' "$REPO/Justfile" >"$SCRATCH/Justfile"
+mv "$SCRATCH/Justfile" "$REPO/Justfile"
+refresh_justfile_fingerprints
+assert_fails 'removed verify dependency' 'manifest names non-dependency recipe: actions-check'
+
+copy_fixture
 printf '#!/usr/bin/env bash\nexit 0\n' >"$REPO/scripts/unmanifested-dry-run.sh"
 awk '{ print; if ($0 == "public-safety:") print "  ./scripts/unmanifested-dry-run.sh" }' \
 	"$REPO/Justfile" >"$SCRATCH/Justfile"
