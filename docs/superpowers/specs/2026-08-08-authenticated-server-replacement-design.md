@@ -41,9 +41,10 @@ to the session state directory and, only with `--project-dir`, to
 happens before success JSON is returned but after startup is proven. A failed startup publishes
 neither stable nor replacement PID metadata and removes temporary artifacts. Publication is an
 ordered sequence of individually atomic writes, not a two-file transaction: session metadata is
-installed first, then the stable record. If either installation fails, start uses the
-session-local record to request self-shutdown, removes temporary files and records that still
-identify that new server, and returns one parseable error object.
+prepared in an owner-only temporary file, installed first, and then copied through another
+owner-only temporary file into the stable record. If either installation fails, start uses the
+still-present temporary or installed session record to request self-shutdown, removes temporary
+files and records that still identify that new server, and returns one parseable error object.
 
 Before starting a persistent successor, `start-server.sh` invokes the shared helper on the stable
 metadata. `stopped`, `not_running`, `stale`, malformed, empty, missing, timeout, and connection
@@ -112,6 +113,7 @@ active record in the supported serial path. Add focused cases for symlink, non-r
 unknown-version, type-invalid, and mismatched-session metadata; listener address inspection and
 loopback-address unit cases; oversized request bodies; and connection/response timeout bounds.
 Inject a failure after each metadata installation and assert the new server stops, its records are
-removed, and stdout remains parseable JSON. Mutation proof must demonstrate that bypassing
-server-side identity validation or skipping predecessor stop makes the lifecycle tests fail. Run
-`just verify` as the repository gate.
+removed, and stdout remains parseable JSON. Also fail the first installation itself and prove the
+prewritten temporary record remains sufficient to stop the unpublished server. Mutation proof
+must demonstrate that bypassing server-side identity validation or skipping predecessor stop
+makes the lifecycle tests fail. Run `just verify` as the repository gate.
