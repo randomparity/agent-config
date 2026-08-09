@@ -31,7 +31,9 @@ ppc64le | s390x) normalized_architecture="$machine_output" ;;
 	printf 'unsupported\t%s\n' "$raw_architecture"
 	printf 'detect-host-architecture: unsupported machine %s; supported: ' \
 		"$raw_architecture" >&2
-	printf '%s\n' 'x86_64, arm64, ppc64le, s390x' >&2
+	printf '%s' 'x86_64, arm64, ppc64le, s390x' >&2
+	printf '%s\n' \
+		'; update the detector mapping if this host should be supported, or use a supported host' >&2
 	exit 2
 	;;
 esac

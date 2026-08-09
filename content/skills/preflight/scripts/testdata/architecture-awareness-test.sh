@@ -89,6 +89,8 @@ run_case aarch64 output aarch64 0 0 $'ok\tarm64' ''
 run_case ppc64le output ppc64le 0 0 $'ok\tppc64le' ''
 run_case s390x output s390x 0 0 $'ok\ts390x' ''
 supported_suffix='; supported: x86_64, arm64, ppc64le, s390x'
+supported_suffix+='; update the detector mapping if this host should be supported'
+supported_suffix+=', or use a supported host'
 run_case unsupported output riscv64 0 2 $'unsupported\triscv64' \
 	"detect-host-architecture: unsupported machine riscv64$supported_suffix"
 run_case empty output '' 0 2 $'unsupported\t<empty>' \
