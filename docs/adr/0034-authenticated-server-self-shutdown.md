@@ -17,8 +17,8 @@ verify-then-signal sequence also races process exit and PID reuse.
 The server process owns publication. After both its user listener and dedicated loopback control
 listener have bound, but before it emits readiness, it atomically installs owner-only active-server
 metadata. A publication failure closes both listeners and exits without reporting startup success.
-The authoritative stable record
-pairs the PID,
+The authoritative stable record lives below the user's private state directory, keyed by the
+SHA-256 digest of the canonical project path, and pairs the PID,
 per-start server identifier, session directory, control port, and a separate random control
 credential. It is installed before a session-local recovery copy so an interrupted publication
 still leaves the live server discoverable. Ephemeral `/tmp` sessions retain only session-local
@@ -46,8 +46,9 @@ treated as recoverable. An unreachable or unresponsive predecessor is not force-
 
 Replacement is portable across macOS and Linux without parsing process command lines or risking
 a recycled PID. It also works when the user-facing server binds beyond loopback because control
-uses a separate loopback listener. The private metadata becomes a versioned local contract and
-must remain mode `0600`; the helper and server must bound parsing, request size, and timeouts.
+uses a separate loopback listener. The private metadata becomes a versioned local contract. Its
+directory remains mode `0700`, its record remains `0600`, and parsing and deadlines have fixed
+bounds.
 The control credential comes from 32 bytes of Node cryptographic randomness. Its generator is an
 injectable internal function boundary solely so deterministic tests can prove the exact RNG call;
 the CLI and metadata schema do not expose that seam.

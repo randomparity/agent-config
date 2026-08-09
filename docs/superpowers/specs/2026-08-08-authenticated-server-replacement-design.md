@@ -23,9 +23,17 @@ not authorize merge.
 
 `server-control.cjs` is the sole metadata parser and stop client used by both shell scripts. Its
 version-1 JSON metadata contains `version`, `pid`, `server_id`, `session_dir`, `control_port`, and
-`control_token`. It accepts only a regular owner-readable file, exact bounded scalar types, an
-absolute session directory, a positive PID, a loopback port, and hex identifiers/credentials.
+`control_token`. Metadata is at most 16 KiB. It accepts only a regular owner-readable file, an
+absolute UTF-8 session path of at most 4096 bytes, PID 1..2147483647, port 1024..65535, an ASCII
+server ID of 32..64 characters, and an exact 64-character lowercase hexadecimal credential.
 Malformed input produces a JSON `stale` result and never throws raw output at shell callers.
+
+For persistent starts, the authoritative path is
+`${XDG_STATE_HOME:-$HOME/.local/state}/superpowers/brainstorm/<sha256>.json`. Empty, relative, or
+unset `XDG_STATE_HOME` uses the default. `<sha256>` is the lowercase SHA-256 digest of the canonical
+project's UTF-8 path bytes. The helper creates `superpowers` and `brainstorm` at mode 0700, rejects
+symlinks, wrong ownership, or group/world write on those components, and installs records at 0600.
+Session-local recovery metadata stays under the project. Ephemeral mode never computes this path.
 
 Every server receives a fresh control credential and starts a second HTTP listener bound only to
 `127.0.0.1` on an ephemeral port. The credential is 32 bytes from Node's cryptographic random
@@ -45,7 +53,7 @@ repeat listener closure or exit scheduling.
 The server process owns publication. `start-server.sh` passes the canonical paths and prepared
 metadata inputs, but the server emits no `server-started` line until both listeners have bound and
 publication completes. With `--project-dir`, the server atomically installs the authoritative
-`.agent/brainstorm/active-server.json` first, then installs an identical session-local recovery
+user-state record first, then installs an identical session-local recovery
 copy. A crash between those renames leaves the live server discoverable by the next start.
 Ephemeral mode is selected solely by the absence of `--project-dir`; it installs only the
 session-local copy and never infers persistence from the canonical path. Failure before the stable
@@ -88,6 +96,10 @@ The helper has bounded connect, response, and body timeouts. It returns one pars
 on stdout for every outcome. `start-server.sh` consumes predecessor outcomes internally so its
 stdout remains exactly the new server's connection JSON. `stop-server.sh` forwards the helper's
 JSON result. No stale or failure path invokes `kill`.
+The client permits 500 ms to connect and one non-resetting 3000 ms wall-clock deadline for the
+whole request and response; response JSON is capped at 4096 bytes. The endpoint caps request bodies
+at 1024 bytes and the full receive interval at 1000 ms. Crossing a bound closes the socket and
+returns categorized JSON without echoing input.
 
 ## Threat model
 
@@ -103,12 +115,10 @@ JSON result. No stale or failure path invokes `kill`.
 
 ### Controls
 
-- The brainstorm directory remains owner-only and metadata is atomically installed at mode 0600.
-  Before publication, the Node helper walks the canonical project root, `.agent`, and `brainstorm`
-  components with `lstat`; it rejects symlinks, ownership other than the effective user, and
-  group/world-writable modes. It likewise rejects symlink or non-regular metadata files, oversized
-  files, unknown versions, malformed values, and mismatched session paths. Publication fails closed
-  rather than placing a credential below replaceable ancestry.
+- The credential-bearing record lives under the owner-private state root, not the project tree.
+  The helper validates its two application-owned directories without following symlinks, requires
+  effective-user ownership and mode 0700, and installs metadata at 0600. It rejects symlink or
+  non-regular records, oversized files, unknown versions, malformed values, and session mismatches.
 - The control listener binds `127.0.0.1` independently of the public bind host, rejects non-loopback
   peers, bounds body size and time, uses constant-time credential comparison, and validates the
   expected PID and server ID before shutdown.
@@ -132,11 +142,12 @@ unreachable, and mismatched metadata cases; every case must continue to parseabl
 
 Exercise `server-control.cjs` and `stop-server.sh` against a real control listener to prove valid
 identity stops it, mismatched PID/ID/token never does, and persistent cleanup cannot remove a newer
-active record in the supported serial path. Add focused cases for symlink, non-regular, oversized,
-unknown-version, type-invalid, and mismatched-session metadata; listener address inspection and
-loopback-address unit cases; oversized request bodies; and connection/response timeout bounds.
-Add project-root and metadata-directory cases for symlinked components, wrong ownership where the
-test host permits it, and group/world-writable modes; each must fail before credential publication.
+active record in the supported serial path. Add boundary cases at 16 KiB metadata, 4096-byte
+paths/responses, 1024-byte requests, PID/port/ID/token limits, unknown versions, type-invalid and
+mismatched-session metadata. Test the non-resetting 3000 ms client and 1000 ms receive deadlines
+with peers that drip bytes. Cover listener address and loopback validation. Add state-root cases for
+relative XDG fallback, deterministic SHA-256 keys, symlinked components, wrong ownership where the
+host permits it, and group/world-writable modes; each fails before credential publication.
 Inject a crash after stable installation but before session-copy installation and prove the next
 start discovers and stops that server. Fail each installation and assert the server closes both
 listeners, removes prepared files, and emits parseable JSON; where the stable record was installed,
