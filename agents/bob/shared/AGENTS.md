@@ -13,5 +13,9 @@ project context.
   when they remove more maintenance burden than they add.
 - Test behavior and handled error paths. Mock external boundaries, not the
   logic under test.
+- Host architecture and project target architectures are separate facts.
+  Applicable project-local instructions and policy are authoritative for target architectures.
+  Before architecture-sensitive generation, build, or verification, run `preflight` and
+  retain its host, effective targets, and relationship; never infer one from the other.
 - When editing this repository, run `./install-test.sh` and
   `./scripts/check-public-safety.sh` before reporting completion.

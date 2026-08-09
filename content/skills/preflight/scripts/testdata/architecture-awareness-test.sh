@@ -22,6 +22,11 @@ assert_file() {
 		fail "$label: expected '$expected', got '$actual'"
 }
 
+assert_contains() {
+	local file="$1" expected="$2"
+	rg -Fq -- "$expected" "$file" || fail "$file does not contain: $expected"
+}
+
 make_fake_uname() {
 	local bin_dir="$1"
 	mkdir -p "$bin_dir"
@@ -89,5 +94,43 @@ run_case empty output '' 0 2 $'unsupported\t<empty>' \
 run_case uname-failure fail '' 42 3 $'detection-failed\tuname-exit-42' \
 	'detect-host-architecture: uname -m failed with exit 42; retry after fixing uname'
 run_missing_uname
+
+preflight="$ROOT/content/skills/preflight/SKILL.md"
+# shellcheck disable=SC2016 # these backticks are literal Markdown code spans;
+# expanding them would execute the contract values instead of checking the skill text.
+for expected in \
+	'`HOST_ARCHITECTURE`' \
+	'`TARGET_ARCHITECTURES`' \
+	'`ARCHITECTURE_RELATIONSHIP`' \
+	'native applicable-instruction precedence' \
+	'every effective target declaration' \
+	'`unresolved-target-conflict`' \
+	'`host-unresolved`' \
+	'`no-target-declared`' \
+	'`included`' \
+	'`different`' \
+	'| 1 | Effective target declarations contradict | `unresolved-target-conflict` |' \
+	'| 2 | Host is unsupported or detection failed | `host-unresolved` |' \
+	'| 3 | No effective target is declared | `no-target-declared` |' \
+	'| 4 | Host is in the effective target set | `included` |' \
+	'| 5 | Host is not in the effective target set | `different` |' \
+	'Architecture-insensitive work may continue' \
+	'Cross-compilation, emulation, and multi-architecture CI are outside'; do
+	assert_contains "$preflight" "$expected"
+done
+
+projection_files=(
+	"$ROOT/content/instructions/global-development-standards.md"
+	"$ROOT/agents/claude/shared/CLAUDE.md"
+	"$ROOT/agents/codex/shared/AGENTS.md"
+	"$ROOT/agents/bob/shared/AGENTS.md"
+	"$ROOT/agents/bob/shared/rules/global-development-standards.md"
+)
+for projection in "${projection_files[@]}"; do
+	assert_contains "$projection" \
+		'Host architecture and project target architectures are separate facts.'
+	assert_contains "$projection" \
+		'Applicable project-local instructions and policy are authoritative for target architectures.'
+done
 
 printf 'architecture-awareness-test: all assertions passed\n'
