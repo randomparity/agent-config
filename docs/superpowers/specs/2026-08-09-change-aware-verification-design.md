@@ -33,7 +33,7 @@ There are three event contracts:
 | Event | Repository entry point | Required behavior |
 |---|---|---|
 | Commit | `just commit-check` | Select focused recipes or fail closed to `just ci` |
-| Branch push | `just ci` | Time and run `just verify` exactly once |
+| Branch push | `just push-check` | Validate pushed branch refs, then invoke `just ci` once |
 | GitHub CI leg | `just ci` | Use the identical thorough path as branch push |
 
 `just verify` remains the complete suite. `just ci` is a timed wrapper around one invocation of
@@ -43,10 +43,11 @@ therefore retain the existing portability coverage without recursively invoking 
 
 The prek configuration has separate stage-scoped hooks. Pre-commit uses `always_run`, passes no
 filenames, and invokes `just commit-check` once; pre-push also passes no filenames and invokes
-`just ci`. The repository `hooks` recipe installs both shims explicitly, and `install-tools.sh`
-delegates hook setup to that recipe after confirming Just is available. Full verification
-dry-runs both configured stages so malformed configuration or a missing stage fails without
-executing either hook.
+`just push-check`, the repository ref-validation wrapper. Only `push-check` invokes fixed
+`just ci`, after validation. The repository `hooks` recipe installs both shims explicitly, and
+`install-tools.sh` delegates hook setup to that recipe after confirming Just is available. Full
+verification dry-runs both configured stages so malformed configuration or a missing stage fails
+without executing either hook.
 
 ## Commit selector
 
@@ -54,24 +55,31 @@ executing either hook.
 `git diff --cached --name-only -z --no-renames`. Disabling rename detection makes a rename appear
 as its old deleted path and new added path, so either endpoint can trigger full fallback. NUL
 delimiters preserve every valid Git pathname without shell splitting or argument-size batching.
-The selector classifies each path with quoted `case` patterns, accumulates fixed Just recipe
-names, deduplicates them in stable order, then invokes and times each recipe. It never evaluates a
-path or constructs a recipe name from path text. Selection output names recipes, not
-contributor-controlled paths.
+The selector captures that stream in a temporary file, checks Git's exit status, and only then
+reads it. Enumeration failure removes the temporary file and stops with an actionable diagnostic;
+only a successful zero-record result is an empty-change no-op. The selector classifies each path
+with quoted `case` patterns, accumulates fixed Just recipe names, deduplicates them in stable order,
+then invokes and times each recipe. It never evaluates a path or constructs a recipe name from
+path text. Selection output names recipes, not contributor-controlled paths.
 
-The first policy version deliberately maps only surfaces with a clear owning gate:
+The first policy version deliberately maps only these exact surfaces:
 
-| Changed surface | Focused commit checks |
-|---|---|
-| Ordinary prose outside shared contracts | `public-safety`, `references-check` |
-| ADR or debt records | `records`, `public-safety`, `references-check` |
-| A known shell implementation/test family | `lint`, `format-check`, and that family's focused test recipe |
-| Agent projection content with a known installer boundary | relevant installer test plus public/reference checks |
+| Staged path pattern | Complete focused recipe set | Evidence |
+|---|---|---|
+| `docs/superpowers/specs/*.md` | `public-safety references-check` | Both scripts scan tracked prose; no other `verify` recipe consumes spec files |
+| `docs/superpowers/plans/*.md` | `public-safety references-check` | Both scripts scan tracked prose; no other `verify` recipe consumes plan files |
+| `docs/adr/*.md` | `records public-safety references-check` | `records` owns ADRs; both repository-wide prose checks also observe them |
+| `docs/debt/*.md` | `records public-safety references-check` | `records` owns debt; both repository-wide prose checks also observe it |
+| `scripts/check-public-safety.sh` | `lint format-check test-public-safety suites-check public-safety` | Shell recipes and suite reachability observe the source; its fixture and live gate prove behavior |
+| `scripts/check-public-safety-test.sh` | `lint format-check test-public-safety suites-check` | Shell recipes, the focused fixture, and suite reachability observe the test |
 
 A focused mapping is valid only when its policy row accounts for every complete-suite recipe that
-can observe or be affected by the path. The regression fixture asserts the entire selected recipe
-set for every focused row. If that observer set cannot be established from recipe inputs and
-guardrail contracts, the path remains unmapped and selects `just ci`.
+can observe or be affected by the path. An independent policy-coverage fixture records the
+normalized `just --dry-run` command inventory for every `verify` dependency and fails when a
+dependency is added or its command surface changes until the observer inventory is reviewed and
+updated. Selector tests separately assert every row's entire selected recipe set. If the observer
+set cannot be established from recipe inputs and guardrail contracts, the path remains unmapped
+and selects `just ci`.
 
 `Justfile` exposes focused recipes for existing individual suites so the selector never embeds
 raw test commands. Shared command strings are held once and expanded by both the focused recipe
@@ -94,6 +102,8 @@ never asserted numerically by tests.
 - An unavailable required tool fails through the selected recipe with its existing actionable
   diagnostic.
 - An unknown, global, or shared path reports the full-verification reason and runs `just ci`.
+- A staged-path enumeration failure reports that Git could not read the index and exits nonzero;
+  it never falls through to the successful empty-change path.
 - If one focused check fails, later checks do not run; the failing command's output remains intact.
 - Invalid prek configuration fails `just verify` during stage dry-runs without recursively running
   either hook.
@@ -142,12 +152,14 @@ clean checked-out branch `HEAD` runs `ci` once; branch deletions and non-branch 
 or block it; and malformed, dirty, non-HEAD, or multiple-tree branch pushes fail before `ci` with
 the relevant diagnostic.
 
-The test also proves an empty staged set is a no-op, a focused failure is propagated, and later
-recipes stop. Configuration checks prove pre-commit always runs `commit-check` without filenames,
-pre-push invokes `ci` without filenames, and hook setup installs both stages. A dry-run or
-fake-command integration case proves `just ci` invokes `just verify` once and never invokes a prek
-hook. Output assertions require selection and elapsed-time labels but do not compare duration
-values.
+The test also proves an empty staged set is a no-op, an enumerator failure is nonzero, a focused
+failure is propagated, and later recipes stop. Configuration checks prove pre-commit always runs
+`commit-check` without filenames, pre-push runs `push-check` without filenames, and hook setup
+installs both stages. A disposable repository installs the configured pre-push shim and invokes it
+with Git-shaped standard input, proving the real hook reaches the wrapper and `ci` exactly once.
+A fake-command integration case separately proves `just ci` invokes `just verify` once and never
+invokes a prek hook. Output assertions require selection and elapsed-time labels but do not compare
+duration values.
 
 Implementation follows TDD: first add red selector/configuration/CI-count cases, then implement
 the selector, recipes, stage configuration, setup wiring, and documentation. Focused tests and
