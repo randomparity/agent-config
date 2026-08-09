@@ -48,7 +48,9 @@ Interpreter tokens are separated by one or more ASCII space or tab bytes. Argume
 token do not change classification. A later `bash` argument to another interpreter, a command such
 as `not-bash`, or an extensionless file without a shebang does not enter the inventory. Each
 inventory fails closed when empty and rejects whitespace in paths because recipe output is
-intentionally tokenized by words.
+intentionally tokenized by words. Indexed first-line capture is limited to 4,096 characters while
+the producer is drained; a longer first line fails with actionable guidance instead of consuming
+memory proportional to a contributor-controlled blob or silently leaving the file out.
 
 Dimension metadata identifies both the inventory and the recipes to scan. The execution dimension
 checks suites only. Lint, format-check, and format check the broader shell inventory. For each
@@ -64,9 +66,29 @@ those exact commands.
 ## Failure Handling
 
 Missing tools, missing scanned recipes, recipe dependencies, empty inventories, unsupported
-whitespace paths, missing tracked files, and unreached sources remain fail-closed with a path and
-actionable recipe guidance. An indexed extensionless path that cannot be read cannot silently
-disappear from the shell inventory; enumeration reports the read failure.
+whitespace paths, overlong indexed first lines, missing tracked files, and unreached sources remain
+fail-closed with a path and actionable guidance. An indexed extensionless path that cannot be read
+cannot silently disappear from the shell inventory; enumeration reports the read failure.
+
+## Threat Model
+
+The widened boundary is repository-contributor-controlled Git index data: tracked pathnames and the
+first line of extensionless blobs enter a local developer/CI gate. Paths are NUL-enumerated, passed
+to Git as one quoted argument, and rejected when a classified shell path contains whitespace.
+First-line input is captured up to 4,096 characters with an anchored allowlist of Bash interpreter
+forms; the remainder is drained so producer failures remain visible without unbounded Bash memory.
+
+Existing boundaries are Justfile dry-run text and byte comparison. The checker never evaluates
+dry-run text as shell code; ADR 0026 governs its word-tokenization constraint. Non-suite copy
+clearance maps five literal asset paths to five literal root twins, then requires both current recipe
+reachability and `cmp` equality. The actors are repository contributors who control proposed tracked
+content and the local or CI job running `just verify`; no network, credential, privilege, or tenant
+boundary is present.
+
+Out of scope are a compromised Git/Just/ShellCheck/shfmt toolchain and the pre-existing glob behavior
+of dry-run word collection documented by ADR 0026. A contributor can propose changes to the checker
+or Justfile itself, but ordinary repository review and the mutation suite govern that code-change
+boundary rather than runtime authorization.
 
 ## Testing
 
@@ -79,8 +101,9 @@ Near misses cover another interpreter, `not-bash`, a later Bash argument, and a 
 a later extension dot. Each positive fixture has its own removal mutation proving the gate reports
 that fixture as uncovered. The initial fixture must pass. Mutations also remove each ordinary shell
 file from lint, format-check, and format in turn and assert the gate fails with the path and
-dimension. Existing suite execution, copy, pathname, dependency, and empty-enumeration cases
-continue to pass.
+dimension. Empty and large non-Bash indexed files prove bounded reads do not create false failures;
+a fixture whose first line exceeds 4,096 characters must fail with its path and the limit. Existing
+suite execution, copy, pathname, dependency, and empty-enumeration cases continue to pass.
 
 The implementation follows test-first development: add the new fixture and red mutations, prove the
 current checker misses them, then implement the inventory split and recipe wiring. `just verify` is
