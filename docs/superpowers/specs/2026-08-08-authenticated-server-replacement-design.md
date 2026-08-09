@@ -10,6 +10,11 @@ successor. The replacement path must never signal a PID it cannot prove belongs 
 Ephemeral `/tmp` sessions remain independent. The human-approved failure contract treats an
 unreachable or unresponsive predecessor as stale and continues without force-killing it.
 
+After ensuring the project directory exists, `start-server.sh` canonicalizes it with physical
+absolute-path semantics. That path is the project identity used for the session tree and stable
+metadata. `stop-server.sh` receives the canonical session directory returned by start and derives
+the same project tree from it; aliases and symlinks therefore converge before metadata is written.
+
 The change is limited to the brainstorm server lifecycle scripts, their Node server/control
 implementation, lifecycle tests, and ADR 0034. It does not alter issue #77's worktree and does
 not authorize merge.
