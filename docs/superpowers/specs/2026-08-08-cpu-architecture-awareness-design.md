@@ -31,7 +31,7 @@ stdout. Its complete result contract is:
 | Recognized machine | 0 | `ok<TAB><normalized>` | empty |
 | Unknown machine | 2 | `unsupported<TAB><raw>` | supported values and update action |
 | Empty machine | 2 | `unsupported<TAB><empty>` | supported values and update action |
-| Machine with controls | 2 | `unsupported<TAB><escaped-raw>` | escaped value and update action |
+| Unsafe machine bytes | 2 | `unsupported<TAB><shell-safe-raw>` | safe value and update action |
 | `uname` missing | 3 | `detection-failed<TAB>uname-missing` | install or expose `uname` |
 | `uname -m` exits N | 3 | `detection-failed<TAB>uname-exit-N` | command failure and retry action |
 
@@ -80,9 +80,10 @@ After extracting the effective declarations, preflight invokes
 `scripts/resolve-architecture-context <host-status> <host-value>
 <conflict|none|declared> [targets...]`, passing every declaration as a separate argument.
 The resolver emits exactly `HOST_ARCHITECTURE<TAB><rendering>` and
-`ARCHITECTURE_RELATIONSHIP<TAB><value>` records. Invalid states, missing required target
-arguments, inconsistent target arguments, or an unescaped control character in the host
-field exit 64 with no stdout and an owned diagnostic on stderr.
+one `TARGET_ARCHITECTURES<TAB><declaration>` record per effective declaration (or `none
+declared`), and `ARCHITECTURE_RELATIONSHIP<TAB><value>` as one context result. Invalid
+states, missing or inconsistent target arguments, or a control character in an input field
+exit 64 with no stdout and an owned diagnostic on stderr.
 
 For membership only, recognized target aliases use the same canonical mapping as host
 aliases. Original effective declarations remain unchanged in `TARGET_ARCHITECTURES`.
@@ -109,8 +110,9 @@ configuration.
   host claim.
 - An empty or unknown machine value records an unsupported/raw host and produces a
   diagnostic containing that value and the supported normalized values before sensitive
-  work. Backslashes and control characters are escaped so stdout remains exactly one
-  tab-delimited record while retaining the observation.
+  work. Bash's `%q` representation makes every unsafe byte printable so stdout remains
+  exactly one tab-delimited record while retaining the observation; consumers never
+  evaluate this representation as shell code.
 - Missing project target declarations are recorded as missing, not inferred.
 - Conflicting effective target declarations are surfaced for project-owner clarification
   before target-sensitive work; native instruction precedence resolves applicability,
@@ -122,11 +124,13 @@ configuration.
 
 A shell suite replaces `uname` at the process boundary and verifies exit status, exact
 stdout, and stderr for every supported raw name, both x86 and ARM aliases, unknown and
-empty output, escaped tab/newline output, a missing command, and every representative
+empty output, safely encoded tab/newline/ESC/BEL output, a missing command, and every representative
 non-zero command exit. The same suite executes the installed context resolver and asserts
 `HOST_ARCHITECTURE` rendering for every result class. Contract cases exercise
 all five relationship states, including host membership in a multi-target set and combined
-failure conditions that prove first-match precedence. They also assert that the canonical
+failure conditions that prove first-match precedence. Exact context outputs and a later
+consumer fixture prove that the same target records survive a mismatch. They also assert
+that the canonical
 preflight package records all three architecture fields and that the Claude, Codex, and Bob
 projections preserve the separation and project-policy authority.
 
