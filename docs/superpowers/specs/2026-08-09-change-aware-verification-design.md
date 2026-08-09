@@ -123,9 +123,10 @@ near-miss fixtures and must select `just ci`.
   installation or forwarding failures are covered by the hook integration fixture.
 - A foreign or unsafe existing pre-push destination blocks setup without modifying that path; only
   the repository ownership marker authorizes atomic replacement.
-- For remote branch updates, a non-delete pushed object that is not the checked-out `HEAD`,
-  multiple pushed trees, or any dirty working-tree state fails before verification with an
+- Malformed input or multiple distinct non-delete branch objects fail before verification with an
   actionable diagnostic. Non-branch ref updates do not trigger or block verification.
+- Failure to create, verify in, or remove the isolated worktree fails the push and names the
+  retained cleanup path when automatic cleanup cannot complete.
 - A pre-push failure blocks the push. A contributor who bypasses it receives the same failure from
   GitHub CI.
 
@@ -141,14 +142,16 @@ terminal-control text in a filename from entering output.
 
 The native pre-push shim receives Git ref updates and preserves them on standard input to
 `push-check`; prek never handles that stage. The repository-owned validator parses the fixed
-four-field lines and selects only remote `refs/heads/*` updates. Branch deletions are ignored; each
-remaining branch local object must equal the checked-out `HEAD`. When at least one branch is
-updated, the wrapper requires a clean working tree before running fixed `just ci`. Malformed input,
-a non-HEAD branch object, multiple branch trees, or dirty state fails with an actionable diagnostic
-instead of testing different content. Non-branch remote refs pass through without invoking `ci`.
-Hook installation crosses the existing local-tool boundary governed by ADR 0036: setup invokes
-the repository recipe only after tool checks succeed. No credentials, network destinations,
-privileges, authorization, or tenant data are added.
+four-field lines and selects only remote `refs/heads/*` updates. Branch deletions are ignored, and
+all remaining branch updates must name one distinct local object. The wrapper creates a disposable
+directory, adds a detached Git worktree at that immutable object, and runs fixed `just ci` from the
+isolated root. Source-worktree HEAD, index, and file mutations during the run cannot change the
+verified tree. A trap removes the worktree through Git and then its temporary directory; cleanup
+failure blocks the push and reports the retained path. Malformed input or multiple branch objects
+fails before setup. Non-branch remote refs pass through without invoking `ci`. Hook installation
+crosses the existing local-tool boundary governed by ADR 0036: setup invokes the repository recipe
+only after tool checks succeed. No credentials, network destinations, privileges, authorization,
+or tenant data are added.
 
 Out of scope are a compromised Git, Just, prek, or shell binary; deliberate use of Git's hook
 bypass flags; and denial of service from the already-authorized complete repository suite. GitHub
@@ -164,10 +167,11 @@ unknown paths, deletions, either endpoint of a rename, a large staged set, and m
 focused/global changes invoke `ci` exactly once. A crafted filename containing spaces, shell
 metacharacters, and terminal-control text must neither execute nor appear in output.
 
-The push-wrapper fixture supplies Git-shaped ref lines and fake repository state. It proves a
-clean checked-out branch `HEAD` runs `ci` once; branch deletions and non-branch refs do not invoke
-or block it; and malformed, dirty, non-HEAD, or multiple-tree branch pushes fail before `ci` with
-the relevant diagnostic.
+The push-wrapper fixture supplies Git-shaped ref lines and a disposable source repository. It
+proves one branch object runs `ci` once in a detached worktree at that object even when fake `ci`
+mutates the source worktree; branch deletions and non-branch refs do not invoke or block it; and
+malformed or multiple-tree branch pushes fail before `ci` with the relevant diagnostic. It also
+forces setup and cleanup failures and asserts their actionable paths.
 
 The test also proves an empty staged set is a no-op, an enumerator failure is nonzero, a focused
 failure is propagated, and later recipes stop. Configuration checks prove pre-commit always runs

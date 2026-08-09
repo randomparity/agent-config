@@ -34,11 +34,12 @@ command according to the Git event.
   fixed recipe names. An empty change does no work. Any global, shared-contract,
   hook-configuration, mixed-risk, or unknown path selects `just ci` instead.
 - The pre-push hook validates Git's ref-update input before invoking `just ci` with no path
-  filtering. For remote branch updates, every non-delete local object must equal the clean
-  checked-out `HEAD`; unsupported non-HEAD, multi-tree, or dirty-worktree branch pushes fail with
-  an actionable message. Non-branch ref updates are outside this verification boundary and do not
-  trigger or block it. GitHub Actions invokes the same `just ci` recipe. That recipe times one
-  invocation of `just verify`; it never recursively executes the pre-commit hook.
+  filtering. It collects non-delete remote branch objects and requires one distinct commit per
+  push. It checks that immutable object in an isolated disposable worktree, so concurrent source
+  worktree changes cannot alter the verified content. Malformed or multi-tree branch pushes fail
+  with an actionable message. Non-branch ref updates are outside this verification boundary and
+  do not trigger or block it. GitHub Actions invokes the same `just ci` recipe. That recipe times
+  one invocation of `just verify`; it never recursively executes the pre-commit hook.
 - `just setup` installs both pre-commit and pre-push shims through the repository `hooks`
   recipe. Full verification validates that both configured stages parse without executing
   either hook.
@@ -55,9 +56,10 @@ command according to the Git event.
 - A commit is not the final coverage boundary. Every normal branch push and every GitHub CI
   leg still runs the complete suite through the same recipe.
 - Contributors who bypass or lack the pre-push hook still encounter the complete suite in CI.
-- A local pre-push proof supports clean checked-out branch updates. It rejects branch pushes from
-  another local ref, pushes containing different branch trees, and pushes made with dirty state;
-  non-branch ref updates remain unaffected.
+- A local pre-push proof accepts one branch tree regardless of the source worktree's checked-out
+  ref or dirty state. It rejects pushes containing different branch trees; non-branch ref updates
+  remain unaffected. Creating and removing the isolated worktree adds bounded setup cost around
+  the already-required complete suite.
 - New or moved paths initially cost a full verification until the tested selector policy is
   deliberately extended.
 - The selector and its path map become part of the repository verification contract and must
