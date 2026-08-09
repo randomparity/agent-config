@@ -385,8 +385,10 @@ function requestAuthenticatedStop(record) {
       const chunks = [];
       let size = 0;
       response.on('data', (chunk) => {
+        if (settled) return;
         size += chunk.length;
         if (size > CONTROL_LIMITS.responseBytes) {
+          response.destroy();
           finish({ status: 'failed', reason: 'oversized_response' });
           return;
         }
@@ -396,10 +398,16 @@ function requestAuthenticatedStop(record) {
         if (settled) return;
         try {
           const parsed = JSON.parse(decodeUtf8(Buffer.concat(chunks), 'Control response'));
-          if (parsed && ['stopped', 'stopping'].includes(parsed.status)) {
+          const accepted = parsed &&
+            ((response.statusCode === 200 && parsed.status === 'stopped') ||
+              (response.statusCode === 202 && parsed.status === 'stopping'));
+          if (parsed && accepted) {
             finish({ status: parsed.status });
           } else {
-            finish({ status: 'failed', reason: parsed.reason || 'rejected' });
+            const reason = response.statusCode >= 300
+              ? `http_${response.statusCode}`
+              : parsed.reason || 'rejected';
+            finish({ status: 'failed', reason });
           }
         } catch (_error) {
           finish({ status: 'failed', reason: 'malformed_response' });

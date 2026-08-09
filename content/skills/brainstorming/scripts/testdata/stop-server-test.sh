@@ -35,6 +35,17 @@ fail() {
   printf '  FAIL %s (%s)\n' "$1" "$2"
 }
 
+write_record() {
+  local record=$1 session=$2 pid=$3 server_id=$4 port=${5:-49152}
+  {
+    printf '{"version":1,"pid":%s,"server_id":"%s","session_dir":"%s",' \
+      "$pid" "$server_id" "$session"
+    printf '"project_key":null,"control_port":%s,"control_token":"%s"}\n' \
+      "$port" "$(printf 'b%.0s' {1..64})"
+  } >"$record"
+  chmod 600 "$record"
+}
+
 run_authenticated_stop() {
   local name='authenticated metadata stops the server'
   local home output second session got=0
@@ -107,7 +118,7 @@ run_malformed_preserved() {
 
 run_marker_failure_exits_and_preserves() {
   local name='stopped-marker failure exits and preserves metadata for stale cleanup'
-  local home output record second session state got=0 second_got=0
+  local home output record record_exists second session state got=0 second_got=0
   fixture="$(mktemp -d "${TMPDIR:-/tmp}/brainstorm-stop-test.XXXXXX")"
   home="$fixture/home"
   mkdir -p "$home"
@@ -125,7 +136,7 @@ run_marker_failure_exits_and_preserves() {
     process.stdout.write(String(JSON.parse(fs.readFileSync(process.argv[1], "utf8")).pid));
   ' "$record")"
 
-  chmod 500 "$state"
+  mkdir "$state/server-stopped"
   output="$(HOME="$home" "$SCRIPT" "$session")" || got=$?
   for _ in {1..30}; do
     if ! kill -0 "$server_pid" 2>/dev/null; then
@@ -133,7 +144,7 @@ run_marker_failure_exits_and_preserves() {
     fi
     sleep 0.1
   done
-  chmod 700 "$state"
+  rmdir "$state/server-stopped"
   if [ "$got" -ne 0 ] && [[ "$output" == *'"status":"failed"'* ]] &&
     ! kill -0 "$server_pid" 2>/dev/null && [ -f "$record" ]; then
     second="$(HOME="$home" "$SCRIPT" "$session")" || second_got=$?
@@ -141,13 +152,84 @@ run_marker_failure_exits_and_preserves() {
       [ ! -e "$record" ]; then
       pass "$name"
     else
-      fail "$name" "second_exit=$second_got second=$second record_exists=$([ -f "$record" ] && echo yes || echo no)"
+      record_exists=$([ -f "$record" ] && echo yes || echo no)
+      fail "$name" \
+        "second_exit=$second_got second=$second record_exists=$record_exists"
     fi
   else
-    fail "$name" "exit=$got output=$output pid=$server_pid record_exists=$([ -f "$record" ] && echo yes || echo no)"
+    record_exists=$([ -f "$record" ] && echo yes || echo no)
+    fail "$name" \
+      "exit=$got output=$output pid=$server_pid record_exists=$record_exists"
   fi
   server_pid=""
   cleanup
+}
+
+run_confirmed_dead_cleanup() {
+  local name='confirmed-dead metadata is cleaned as stale_pid'
+  local session record output got=0
+  fixture="$(mktemp -d "${TMPDIR:-/tmp}/brainstorm-stop-test.XXXXXX")"
+  session="$fixture/session"
+  record="$session/state/server-control.json"
+  mkdir -p "$session/state"
+  write_record "$record" "$session" 2147483647 "$(printf 'a%.0s' {1..32})"
+  output="$("$SCRIPT" "$session")" || got=$?
+  if [ "$got" -eq 0 ] && [[ "$output" == *'"status":"stale_pid"'* ]] &&
+    [ ! -e "$record" ]; then
+    pass "$name"
+  else
+    fail "$name" "exit=$got output=$output record_exists=$([ -e "$record" ] && echo yes || echo no)"
+  fi
+  cleanup
+}
+
+run_indeterminate_live_preserved() {
+  local name='live refused metadata without boundary proof fails closed'
+  local session record output got=0
+  if [ -r /proc/self/cmdline ]; then
+    printf '  skip %s: Linux provides exact unrelated-process proof\n' "$name"
+    return
+  fi
+  fixture="$(mktemp -d "${TMPDIR:-/tmp}/brainstorm-stop-test.XXXXXX")"
+  session="$fixture/session"
+  record="$session/state/server-control.json"
+  mkdir -p "$session/state"
+  write_record "$record" "$session" $$ "$(printf 'c%.0s' {1..32})"
+  output="$("$SCRIPT" "$session")" || got=$?
+  if [ "$got" -ne 0 ] && [[ "$output" == *'"status":"failed"'* ]] &&
+    [ -f "$record" ] && kill -0 $$ 2>/dev/null; then
+    pass "$name"
+  else
+    fail "$name" "exit=$got output=$output record_exists=$([ -f "$record" ] && echo yes || echo no)"
+  fi
+  cleanup
+}
+
+run_loose_mode_preserved() {
+  local name='group-readable recovery metadata fails closed and survives'
+  local session record output got=0
+  fixture="$(mktemp -d "${TMPDIR:-/tmp}/brainstorm-stop-test.XXXXXX")"
+  session="$fixture/session"
+  record="$session/state/server-control.json"
+  mkdir -p "$session/state"
+  write_record "$record" "$session" $$ "$(printf 'd%.0s' {1..32})"
+  chmod 640 "$record"
+  output="$("$SCRIPT" "$session")" || got=$?
+  if [ "$got" -ne 0 ] && [[ "$output" == *'"status":"failed"'* ]] && [ -f "$record" ]; then
+    pass "$name"
+  else
+    fail "$name" "exit=$got output=$output"
+  fi
+  cleanup
+}
+
+run_no_stop_signal_path() {
+  local name='explicit stop contains no PID signalling or flat argv path'
+  if rg -n '(^|[;&|[:space:]])(kill|ps)([[:space:]]|$)' "$SCRIPT"; then
+    fail "$name" 'found a shell process signalling or inspection command'
+  else
+    pass "$name"
+  fi
 }
 
 run_proven_unrelated() {
@@ -163,9 +245,7 @@ run_proven_unrelated() {
   mkdir -p "$session/state"
   sleep 300 &
   server_pid=$!
-  printf '{"version":1,"pid":%s,"server_id":"%s","session_dir":"%s","project_key":null,"control_port":49152,"control_token":"%s"}\n' \
-    "$server_pid" "$(printf 'a%.0s' {1..32})" "$session" "$(printf 'b%.0s' {1..64})" >"$record"
-  chmod 600 "$record"
+  write_record "$record" "$session" "$server_pid" "$(printf 'a%.0s' {1..32})"
   output="$("$SCRIPT" "$session")" || got=$?
   if [ "$got" -eq 0 ] && [[ "$output" == *'"status":"stale_pid"'* ]] &&
     kill -0 "$server_pid" 2>/dev/null && [ ! -e "$record" ]; then
@@ -182,7 +262,11 @@ main() {
   run_missing_twice
   run_malformed_preserved
   run_marker_failure_exits_and_preserves
+  run_confirmed_dead_cleanup
+  run_indeterminate_live_preserved
+  run_loose_mode_preserved
   run_proven_unrelated
+  run_no_stop_signal_path
   printf '\n%d passed, %d failed\n' "$passed" "$failed"
   [ "$failed" -eq 0 ]
 }

@@ -26,9 +26,7 @@ json_error() {
 }
 
 canonicalize_directory() {
-  local marked
-  marked="$(cd -P -- "$1" && printf '%s_' "$PWD")"
-  printf '%s' "${marked%_}"
+  cd -P -- "$1" && printf '%s_' "$PWD"
 }
 
 require_value() {
@@ -150,6 +148,7 @@ SESSION_ID="$$-$(date +%s)"
 if [[ -n "$PROJECT_DIR" ]]; then
   mkdir -p "$PROJECT_DIR"
   PROJECT_DIR="$(canonicalize_directory "$PROJECT_DIR")"
+  PROJECT_DIR=${PROJECT_DIR%_}
 
   replacement_result=""
   if ! replacement_result="$(printf '%s' "$PROJECT_DIR" |
@@ -221,6 +220,7 @@ fi
 # after creation so /tmp aliases converge without losing newline bytes.
 mkdir -p "$SESSION_DIR"
 SESSION_DIR="$(canonicalize_directory "$SESSION_DIR")"
+SESSION_DIR=${SESSION_DIR%_}
 STATE_DIR="${SESSION_DIR}/state"
 LOG_FILE="${STATE_DIR}/server.log"
 

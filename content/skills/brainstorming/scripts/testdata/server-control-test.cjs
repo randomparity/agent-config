@@ -58,6 +58,13 @@ function close(server) {
   return new Promise((resolve) => server.close(resolve));
 }
 
+function trackedServer(server) {
+  cleanups.push(async () => {
+    if (server.listening) await close(server);
+  });
+  return server;
+}
+
 function post(port, token, body) {
   return new Promise((resolve, reject) => {
     const bytes = Buffer.from(JSON.stringify(body));
@@ -202,34 +209,45 @@ async function main() {
   });
 
   await test('control listener validates identity and transitions only once', async () => {
+    let wrongCloseCalls = 0;
+    const wrongToken = 'c'.repeat(64);
+    const wrongServer = trackedServer(control.createControlServer({
+      token: wrongToken,
+      pid: process.pid,
+      serverId: 'd'.repeat(32),
+      closeUserListener: async () => { wrongCloseCalls += 1; }
+    }));
+    const wrongPort = await listen(wrongServer);
+    const wrong = await post(wrongPort, wrongToken, {
+      pid: process.pid + 1,
+      server_id: 'd'.repeat(32)
+    });
+    await close(wrongServer);
+    assert.equal(wrong.statusCode, 403);
+    assert.equal(wrongCloseCalls, 0);
+
     let releaseClose;
     let closeCalls = 0;
     const closeGate = new Promise((resolve) => { releaseClose = resolve; });
-    const token = 'c'.repeat(64);
-    const server = control.createControlServer({
+    const token = 'e'.repeat(64);
+    const server = trackedServer(control.createControlServer({
       token,
       pid: process.pid,
-      serverId: 'd'.repeat(32),
+      serverId: 'f'.repeat(32),
       closeUserListener: async () => {
         closeCalls += 1;
         await closeGate;
       }
-    });
+    }));
     const port = await listen(server);
-    const wrong = await post(port, token, {
-      pid: process.pid + 1,
-      server_id: 'd'.repeat(32)
-    });
-    assert.equal(wrong.statusCode, 403);
-    assert.equal(closeCalls, 0);
     const firstPromise = post(port, token, {
       pid: process.pid,
-      server_id: 'd'.repeat(32)
+      server_id: 'f'.repeat(32)
     });
     await new Promise((resolve) => setTimeout(resolve, 20));
     const retry = await post(port, token, {
       pid: process.pid,
-      server_id: 'd'.repeat(32)
+      server_id: 'f'.repeat(32)
     });
     assert.equal(retry.body.status, 'stopping');
     assert.equal(closeCalls, 1);
@@ -241,12 +259,12 @@ async function main() {
 
   await test('bounded client authenticates against a real control listener', async () => {
     const token = 'e'.repeat(64);
-    const server = control.createControlServer({
+    const server = trackedServer(control.createControlServer({
       token,
       pid: process.pid,
       serverId: 'f'.repeat(32),
       closeUserListener: async () => {}
-    });
+    }));
     const port = await listen(server);
     const outcome = await control.requestAuthenticatedStop(validRecord({
       pid: process.pid,
@@ -258,10 +276,40 @@ async function main() {
     await close(server);
   });
 
+  await test('client rejects non-success and oversized control responses', async () => {
+    assert.equal(Object.isFrozen(control.CONTROL_LIMITS), true);
+    assert.equal(control.CONTROL_LIMITS.connectTimeoutMs, 500);
+
+    const rejectedServer = trackedServer(http.createServer((_request, response) => {
+      response.writeHead(500, { 'content-type': 'application/json' });
+      response.end('{"status":"stopped"}\n');
+    }));
+    const rejectedPort = await listen(rejectedServer);
+    const rejected = await control.requestAuthenticatedStop(validRecord({
+      control_port: rejectedPort
+    }));
+    await close(rejectedServer);
+    assert.deepEqual(rejected, { status: 'failed', reason: 'http_500' });
+
+    const oversizedServer = trackedServer(http.createServer((_request, response) => {
+      response.writeHead(200, { 'content-type': 'application/json' });
+      response.end(Buffer.alloc(control.CONTROL_LIMITS.responseBytes + 1, 0x61));
+    }));
+    const oversizedPort = await listen(oversizedServer);
+    const oversized = await control.requestAuthenticatedStop(validRecord({
+      control_port: oversizedPort
+    }));
+    await close(oversizedServer);
+    assert.deepEqual(oversized, { status: 'failed', reason: 'oversized_response' });
+  });
+
   await test('Linux argv matching preserves NUL boundaries with or without a final NUL', () => {
     const serverId = 'a'.repeat(32);
     const expected = `--brainstorm-server-id=${serverId}`;
-    assert.equal(control.hasExactServerArgument(Buffer.from(`node\0${expected}\0`), serverId), true);
+    assert.equal(
+      control.hasExactServerArgument(Buffer.from(`node\0${expected}\0`), serverId),
+      true
+    );
     assert.equal(control.hasExactServerArgument(Buffer.from(`node\0${expected}`), serverId), true);
     assert.equal(
       control.hasExactServerArgument(Buffer.from(`node\0prefix-${expected}-suffix\0`), serverId),
@@ -300,12 +348,48 @@ async function main() {
     }
   });
 
+  await test('publisher preserves stable metadata when session publication fails', () => {
+    const home = temporaryDirectory();
+    const project = temporaryDirectory();
+    const missingSession = path.join(project, '.agent', 'brainstorm', 'missing');
+    const previousHome = process.env.HOME;
+    process.env.HOME = home;
+    try {
+      assert.throws(() => control.publishActiveRecords({
+        projectDir: project,
+        sessionDir: missingSession,
+        pid: process.pid,
+        serverId: '3'.repeat(32),
+        controlPort: 49154,
+        controlToken: '4'.repeat(64)
+      }), /ENOENT/);
+      const stable = control.projectStateFor(project, home).recordPath;
+      assert.equal(control.readMetadata(stable).kind, 'valid');
+      assert.deepEqual(
+        fs.readdirSync(path.dirname(stable)).filter((name) => name.includes('.tmp-')),
+        []
+      );
+    } finally {
+      if (previousHome === undefined) delete process.env.HOME;
+      else process.env.HOME = previousHome;
+    }
+  });
+
+  await test('metadata rejects a symlink recovery copy without following it', () => {
+    const directory = temporaryDirectory();
+    const target = path.join(directory, 'target.json');
+    const link = path.join(directory, 'server-control.json');
+    fs.writeFileSync(target, JSON.stringify(validRecord()), { mode: 0o600 });
+    fs.symlinkSync(target, link);
+    assert.equal(control.readMetadata(link).kind, 'invalid');
+  });
+
   process.stdout.write(`\n${passed} passed, 0 failed\n`);
 }
 
 main()
-  .finally(() => {
-    for (const cleanup of cleanups.reverse()) cleanup();
+  .finally(async () => {
+    for (const cleanup of cleanups.reverse()) await cleanup();
   })
   .catch((error) => {
     process.stderr.write(`${error.stack}\n`);

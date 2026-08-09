@@ -303,7 +303,8 @@ run_malformed_stable_case() {
     const path = require("path");
     const identity = fs.realpathSync(process.argv[1]);
     const key = crypto.createHash("sha256").update(identity).digest("hex");
-    process.stdout.write(path.join(process.env.HOME, ".local/state/superpowers/brainstorm", `${key}.json`));
+    const root = path.join(process.env.HOME, ".local/state/superpowers/brainstorm");
+    process.stdout.write(path.join(root, `${key}.json`));
   ' "$project")"
   printf '{broken\n' >"$record"
   chmod 600 "$record"
@@ -317,7 +318,8 @@ run_malformed_stable_case() {
       process.stdout.write(value.state_dir.replace(/\/state$/, ""));
     ' "$dir/start.json")"
   fi
-  if [ "$got" -eq 0 ] && node -e 'JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"))' "$record"; then
+  if [ "$got" -eq 0 ] &&
+    node -e 'JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"))' "$record"; then
     passed=$((passed + 1))
     printf '  ok   %s\n' "$name"
   else
@@ -361,6 +363,93 @@ run_ephemeral_exclusion_case() {
   cleanup_server_id_dir
 }
 
+run_home_failure_case() {
+  local name='invalid HOME fails once with parseable JSON before project state'
+  local dir project got=0
+  server_id_dir="$(mktemp -d "${TMPDIR:-/tmp}/brainstorm-lifecycle-test.XXXXXX")"
+  dir="$server_id_dir"
+  project="$dir/project"
+  mkdir -p "$project"
+  HOME=relative "$SCRIPT" --project-dir "$project" --background >"$dir/out" || got=$?
+  if [ "$got" -ne 0 ] && node -e '
+    const fs = require("fs");
+    const lines = fs.readFileSync(process.argv[1], "utf8").trimEnd().split("\n");
+    if (lines.length !== 1 || JSON.parse(lines[0]).status !== "failed") process.exit(1);
+  ' "$dir/out" && [ ! -e "$project/.agent" ]; then
+    passed=$((passed + 1))
+    printf '  ok   %s\n' "$name"
+  else
+    failed=$((failed + 1))
+    printf '  FAIL %s (exit=%s output=%s)\n' "$name" "$got" "$(cat "$dir/out")"
+  fi
+  cleanup_server_id_dir
+}
+
+run_state_permission_failure_case() {
+  local name='unsafe fixed state root fails with write-enable guidance'
+  local dir home project got=0
+  server_id_dir="$(mktemp -d "${TMPDIR:-/tmp}/brainstorm-lifecycle-test.XXXXXX")"
+  dir="$server_id_dir"
+  home="$dir/home"
+  project="$dir/project"
+  mkdir -p "$home/.local" "$project"
+  chmod 777 "$home/.local"
+  HOME="$home" "$SCRIPT" --project-dir "$project" --background >"$dir/out" || got=$?
+  if [ "$got" -ne 0 ] && node -e '
+    const fs = require("fs");
+    const value = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+    if (!value.error.includes("/.local/state/superpowers/brainstorm") ||
+        !/(authorize|write-enable)/.test(value.error)) process.exit(1);
+  ' "$dir/out"; then
+    passed=$((passed + 1))
+    printf '  ok   %s\n' "$name"
+  else
+    failed=$((failed + 1))
+    printf '  FAIL %s (exit=%s output=%s)\n' "$name" "$got" "$(cat "$dir/out")"
+  fi
+  cleanup_server_id_dir
+}
+
+run_newline_identity_case() {
+  local name='project identities differing by trailing newline keep distinct stable records'
+  local dir home plain newline root first_session second_session got=0
+  server_id_dir="$(mktemp -d "${TMPDIR:-/tmp}/brainstorm-lifecycle-test.XXXXXX")"
+  dir="$server_id_dir"
+  home="$dir/home"
+  plain="$dir/project"
+  newline="$dir/"$'project\n'
+  mkdir -p "$home" "$plain" "$newline"
+  HOME="$home" "$SCRIPT" --project-dir "$plain" --background >"$dir/first.json" || got=$?
+  HOME="$home" "$SCRIPT" --project-dir "$newline" --background >"$dir/second.json" || got=$?
+  root="$home/.local/state/superpowers/brainstorm"
+  first_session=""
+  second_session=""
+  if [ "$got" -eq 0 ]; then
+    first_session="$(node -e '
+      const v = JSON.parse(require("fs").readFileSync(process.argv[1]));
+      process.stdout.write(v.state_dir.replace(/\/state$/, ""));
+    ' "$dir/first.json")"
+    second_session="$(node -e '
+      const v = JSON.parse(require("fs").readFileSync(process.argv[1]));
+      process.stdout.write(v.state_dir.replace(/\/state$/, ""));
+    ' "$dir/second.json")"
+    set -- "$root"/*.json
+    if [ "$#" -eq 2 ]; then
+      passed=$((passed + 1))
+      printf '  ok   %s\n' "$name"
+    else
+      failed=$((failed + 1))
+      printf '  FAIL %s (stable record count=%s)\n' "$name" "$#"
+    fi
+  else
+    failed=$((failed + 1))
+    printf '  FAIL %s (start exit=%s)\n' "$name" "$got"
+  fi
+  [ -z "$first_session" ] || HOME="$home" "$STOP_SCRIPT" "$first_session" >/dev/null 2>&1 || true
+  [ -z "$second_session" ] || HOME="$home" "$STOP_SCRIPT" "$second_session" >/dev/null 2>&1 || true
+  cleanup_server_id_dir
+}
+
 main() {
   printf 'start-server.sh\n\n'
   run_case "missing --host value" 1 "--host requires a value" --host
@@ -392,6 +481,9 @@ main() {
   run_replacement_lifecycle_case
   run_malformed_stable_case
   run_ephemeral_exclusion_case
+  run_home_failure_case
+  run_state_permission_failure_case
+  run_newline_identity_case
 
   printf '\n%d passed, %d failed\n' "$passed" "$failed"
   [ "$failed" -eq 0 ]
