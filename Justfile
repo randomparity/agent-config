@@ -18,7 +18,7 @@ records:
   ./.github/scripts/check-records-test.sh
   RECORD_PROFILES="adr debt" ./.github/scripts/check-records.sh
   shared_assets="check-records.sh check-records-test.sh migrate-records.sh"
-  shared_assets="$shared_assets profiles/adr.sh profiles/debt.sh"
+  shared_assets="$shared_assets profiles/adr.sh profiles/debt.sh records.yml"
   for asset in $shared_assets; do
     root_asset=".github/scripts/$asset"
     skill_asset="content/skills/decision-records/assets/$asset"
