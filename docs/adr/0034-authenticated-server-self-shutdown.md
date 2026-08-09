@@ -60,11 +60,11 @@ successor's record, so later project starts cannot retry that predecessor; only 
 recovery copy remains usable when its session directory is known. This loss is the explicit cost
 of the human-approved continue-without-force-kill policy.
 
-The supported start path has a single-writer prerequisite: callers do not start the same project
-concurrently. The protocol keeps every stop identity-safe under a race, but two concurrent starts
-can both succeed and the last metadata publication can hide the other server. Serializing the
-whole stop/start/publish transaction would require a separate stale-lock recovery policy not
-authorized by this decision.
+Stable-record mutation has a single-writer prerequisite: callers do not overlap start, stop, or
+delayed cleanup for the same project. The protocol keeps every stop identity-safe under a race,
+but concurrent lifecycle writers can hide a server or remove a successor's record because the
+filesystem offers no portable compare-and-delete primitive. Serializing the whole lifecycle
+transaction would require a separate stale-lock recovery policy not authorized by this decision.
 
 ## Considered & rejected
 

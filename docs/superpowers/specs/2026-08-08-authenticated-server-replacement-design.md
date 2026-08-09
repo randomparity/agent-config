@@ -64,7 +64,7 @@ the successor then starts normally. `stop-server.sh <session_dir>` invokes the s
 session-local metadata. When stopping a persistent session, it conditionally removes the stable
 record only when its server ID matches the stopped session. This is stale-state hygiene, not an
 atomic compare-and-delete guarantee: stable-record mutations have the same single-writer
-prerequisite as starts, so callers do not overlap stop and start for one project.
+prerequisite, so callers do not overlap start, stop, or delayed cleanup for one project.
 
 For ambiguous predecessor timeout, refusal, or lost acknowledgement, the approved policy still
 continues startup without force-kill. Publishing the successor overwrites the stable retry handle;
