@@ -234,8 +234,10 @@ Run the full local guardrail suite:
 just verify
 ```
 
-Run `just format` to apply shell formatting. CI runs `just ci`, which runs
-`just verify` and then `prek run --all-files` to prove the hook configuration.
+Run `just format` to apply shell formatting. Commits run the repository-owned
+best-effort `just commit-check`: unclassified paths are reported as deferred to
+branch push and CI. Native pre-push verification and GitHub CI both run `just ci`,
+which selects and times one complete `just verify` run.
 
 `./install-test.sh` installs every agent into temporary directories, applies
 private overlay fixtures, verifies every installed skill tree against

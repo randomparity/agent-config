@@ -13,6 +13,7 @@ BIN="$SCRATCH/bin"
 LOG="$SCRATCH/just.log"
 OUTPUT="$SCRATCH/output"
 GIT_BINARY="$(command -v git)"
+JUST_BINARY="$(command -v just)"
 
 cleanup() {
 	case "$SCRATCH" in
@@ -27,6 +28,13 @@ if [[ ! -x "$SELECTOR" ]]; then
 	exit 127
 fi
 
+expected_hook_config=$'repos:\n  - repo: local\n    hooks:\n      - id: commit-check\n        name: just commit-check\n        entry: just commit-check\n        language: system\n        always_run: true\n        pass_filenames: false\n        stages: [pre-commit]'
+actual_hook_config=$(cat "$ROOT/.pre-commit-config.yaml")
+[[ $actual_hook_config == "$expected_hook_config" ]] || {
+	printf 'not ok - pre-commit configuration must be the exact commit-check hook\n' >&2
+	exit 1
+}
+
 mkdir -p "$BIN"
 cat >"$BIN/just" <<'EOF'
 #!/usr/bin/env bash
@@ -37,6 +45,24 @@ if [[ ${1:-} == "${FAIL_RECIPE:-}" ]]; then
 fi
 EOF
 chmod +x "$BIN/just"
+
+CI_BIN="$SCRATCH/ci-bin"
+CI_LOG="$SCRATCH/ci.log"
+mkdir -p "$CI_BIN"
+cat >"$CI_BIN/just" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"$CI_LOG"
+[[ ${1:-} == verify ]]
+EOF
+chmod +x "$CI_BIN/just"
+: >"$CI_LOG"
+ci_output=$(PATH="$CI_BIN:$PATH" CI_LOG="$CI_LOG" "$JUST_BINARY" \
+	--working-directory "$ROOT" --justfile "$ROOT/Justfile" ci)
+[[ $(cat "$CI_LOG") == verify && $ci_output == *'verification selection: full ci'* &&
+$ci_output == *'verification total elapsed seconds:'* ]] || {
+	printf 'not ok - ci must invoke verify once and report timing\n' >&2
+	exit 1
+}
 
 assert_hook_env_isolation() {
 	local hook_repo hook_index child_status

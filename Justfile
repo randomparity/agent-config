@@ -175,6 +175,12 @@ actions-check:
 
 verify: tools-check records lint format-check skills-check suites-check test \
         public-safety references-check actions-check
+  prek run --all-files --stage pre-commit --dry-run
 
-ci: verify
-  prek run --all-files
+ci:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  started=$SECONDS
+  echo 'verification selection: full ci'
+  just verify
+  echo "verification total elapsed seconds: $((SECONDS - started))"

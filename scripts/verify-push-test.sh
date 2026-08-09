@@ -257,7 +257,12 @@ new_hook_repo() {
 	rm -R "$HOOK_REPO" 2>/dev/null || :
 	mkdir -p "$HOOK_REPO/scripts"
 	cp "$ROOT/scripts/pre-push-hook" "$HOOK_REPO/scripts/pre-push-hook"
+	cp "$ROOT/scripts/verify-push.sh" "$HOOK_REPO/scripts/verify-push.sh"
 	git -C "$HOOK_REPO" init --quiet -b main
+	git -C "$HOOK_REPO" config user.email push@example.test
+	git -C "$HOOK_REPO" config user.name Push
+	git -C "$HOOK_REPO" add scripts
+	git -C "$HOOK_REPO" commit --quiet -m hook
 }
 
 run_hooks() {
@@ -290,6 +295,30 @@ printf 'local object refs/heads/main remote object\n' | (
 [[ $(cat "$SCRATCH/hook-args") == push-check ]] || fail 'hook should invoke push-check'
 [[ $(cat "$HOOK_INPUT") == 'local object refs/heads/main remote object' ]] ||
 	fail 'hook should preserve standard input'
+
+HOOK_OBJECT=$(git -C "$HOOK_REPO" rev-parse HEAD)
+cat >"$HOOK_BIN/just" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+case ${1:-} in
+push-check) exec "$PWD/scripts/verify-push.sh" ;;
+ci) printf '%s\t%s\n' "$PWD" "$(git rev-parse HEAD)" >>"$HOOK_CI_LOG" ;;
+*) exit 91 ;;
+esac
+EOF
+chmod +x "$HOOK_BIN/just"
+: >"$SCRATCH/hook-ci.log"
+printf 'refs/heads/main %s refs/heads/one %s\nrefs/heads/main %s refs/heads/two %s\n' \
+	"$HOOK_OBJECT" "$HOOK_OBJECT" "$HOOK_OBJECT" "$HOOK_OBJECT" | (
+	cd "$HOOK_REPO"
+	PATH="$HOOK_BIN:$PATH" HOOK_CI_LOG="$SCRATCH/hook-ci.log" "$HOOK_PATH"
+)
+[[ $(wc -l <"$SCRATCH/hook-ci.log" | tr -d ' ') == 1 ]] ||
+	fail 'native pre-push should reach ci once for one object'
+IFS=$'\t' read -r hook_ci_root hook_ci_object <"$SCRATCH/hook-ci.log"
+HOOK_SOURCE_ROOT=$(cd "$HOOK_REPO" && pwd -P)
+[[ $hook_ci_root != "$HOOK_SOURCE_ROOT" && $hook_ci_object == "$HOOK_OBJECT" ]] ||
+	fail 'native pre-push should verify the isolated pushed object'
 
 printf '%s\nold\n' '# agent-config: managed pre-push hook' >"$HOOK_PATH"
 run_hooks
