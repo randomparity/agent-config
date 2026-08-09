@@ -14,8 +14,10 @@ verify-then-signal sequence also races process exit and PID reuse.
 
 ## Decision
 
-Each persistent project records owner-only active-server metadata only after both the user
-server and a dedicated loopback control listener have started. The authoritative stable record
+The server process owns publication. After both its user listener and dedicated loopback control
+listener have bound, but before it emits readiness, it atomically installs owner-only active-server
+metadata. A publication failure closes both listeners and exits without reporting startup success.
+The authoritative stable record
 pairs the PID,
 per-start server identifier, session directory, control port, and a separate random control
 credential. It is installed before a session-local recovery copy so an interrupted publication
@@ -50,7 +52,10 @@ the CLI and metadata schema do not expose that seam.
 An unresponsive predecessor can remain alive and force its successor onto a fallback port. This
 is safer than signalling an identity the operating system cannot prove, and startup still
 returns its normal parseable JSON. The added listener consumes one ephemeral loopback port per
-running server.
+running server. Continuing also replaces the ambiguous predecessor's stable record with the
+successor's record, so later project starts cannot retry that predecessor; only its session-local
+recovery copy remains usable when its session directory is known. This loss is the explicit cost
+of the human-approved continue-without-force-kill policy.
 
 The supported start path has a single-writer prerequisite: callers do not start the same project
 concurrently. The protocol keeps every stop identity-safe under a race, but two concurrent starts

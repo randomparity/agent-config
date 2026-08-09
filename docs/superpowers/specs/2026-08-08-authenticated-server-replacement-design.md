@@ -39,12 +39,14 @@ state. On a match it closes the user listener and WebSocket clients, responds on
 listener has released its port, then closes the control listener and exits. This identity check
 and self-termination are one server-side operation, so there is no verify-to-signal PID race.
 
-After both listeners are ready, `start-server.sh` prepares mode-0600 metadata in each destination
-directory. With `--project-dir`, it atomically installs the authoritative
+The server process owns publication. `start-server.sh` passes the canonical paths and prepared
+metadata inputs, but the server emits no `server-started` line until both listeners have bound and
+publication completes. With `--project-dir`, the server atomically installs the authoritative
 `.agent/brainstorm/active-server.json` first, then installs an identical session-local recovery
-copy. A crash between those renames still leaves the live server discoverable by the next start.
-Ephemeral sessions install only the session-local copy. Publication happens before success JSON
-is returned but after listener startup is proven.
+copy. A crash between those renames leaves the live server discoverable by the next start.
+Ephemeral sessions install only the session-local copy. Failure before the stable commit or during
+the ephemeral copy closes both listeners and exits without readiness; persistent failure after the
+stable commit preserves that authoritative recovery record unless authenticated rollback succeeds.
 
 Each rename is atomic; the pair is deliberately not described as a transaction. If an install
 fails, start uses whichever prepared or installed record exists to request self-shutdown and
@@ -61,6 +63,12 @@ session-local metadata. When stopping a persistent session, it conditionally rem
 record only when its server ID matches the stopped session. This is stale-state hygiene, not an
 atomic compare-and-delete guarantee: stable-record mutations have the same single-writer
 prerequisite as starts, so callers do not overlap stop and start for one project.
+
+For ambiguous predecessor timeout, refusal, or lost acknowledgement, the approved policy still
+continues startup without force-kill. Publishing the successor overwrites the stable retry handle;
+the predecessor's session-local copy is the only remaining control record and is usable only when
+that session directory is known. This is an accepted recovery limitation, not proof the predecessor
+exited.
 
 ## Failure and concurrency behavior
 
