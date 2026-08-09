@@ -22,10 +22,22 @@ the execution dimension. Every tracked `*.sh` file and every extensionless file 
 line is a Bash shebang must be reached by lint, format-check, and format.
 
 Keep ADR 0026's general recomputed byte-identity clearance for suite coverage. For the broader
-shell-source inventory, bound clearance to paths under
-`content/skills/decision-records/assets/` whose corresponding `.github/scripts/` path is reached
-and byte-identical. The gate reports each clearance. Every other tracked shell source must be named
-directly by each recipe.
+shell-source inventory, permit only these asset/root pairs to use recomputed byte-identity
+clearance:
+
+- `content/skills/decision-records/assets/check-records.sh` and
+  `.github/scripts/check-records.sh`
+- `content/skills/decision-records/assets/check-records-test.sh` and
+  `.github/scripts/check-records-test.sh`
+- `content/skills/decision-records/assets/migrate-records.sh` and
+  `.github/scripts/migrate-records.sh`
+- `content/skills/decision-records/assets/profiles/adr.sh` and
+  `.github/scripts/profiles/adr.sh`
+- `content/skills/decision-records/assets/profiles/debt.sh` and
+  `.github/scripts/profiles/debt.sh`
+
+The gate reports each clearance. Every other tracked shell source must be named directly by each
+recipe, including any future copy added beside these five without a separate decision.
 
 Keep the inventory and recipe mapping explicit. A tracked shell source with whitespace in its path,
 an empty inventory, a missing scanned recipe, or a dependency on a scanned recipe fails closed.
@@ -48,9 +60,9 @@ receives no exemption merely because its content happens to match a reached file
 recipe-independence checks, copy clearance, and diagnostics. The inventories differ, but the
 reachability mechanism does not.
 
-**Hardcode the five decision-record asset exclusions.** Rejected because an allowlist can outlive
-the identity check that justifies it. Byte comparison makes the exception conditional on current
-content and reports the reached twin.
+**Exclude the five decision-record paths unconditionally.** Rejected because a path allowlist can
+outlive the identity check that justifies it. The chosen fixed pair list bounds the exception, while
+byte comparison still makes each clearance conditional on current content and reports the twin.
 
 **Require every shell source to be named directly.** Rejected because it repeats work for files that
 `just records` proves are exact copies. Running the same content under the same static-analysis rule

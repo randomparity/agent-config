@@ -20,9 +20,10 @@ byte identity with linted and formatted root copies.
 The chosen approach extends `scripts/check-suite-coverage.sh` with a shell-source inventory and
 reuses its dry-run path collection. Suites use the existing four dimensions and retain their
 general byte-identity clearance. Shell sources use lint, format-check, and format; their copy
-clearance is limited to decision-record assets with reached, byte-identical `.github/scripts/`
-twins. This keeps one implementation of the fragile `just --dry-run` interpretation without
-creating a repository-wide duplicate-content exemption.
+clearance is limited to the five explicit decision-record asset/root pairs named in ADR 0032 and
+requires reached, byte-identical `.github/scripts/` twins. This keeps one implementation of the
+fragile `just --dry-run` interpretation without creating a directory-wide duplicate-content
+exemption.
 
 A sibling shell-only checker would isolate the new policy, but it would duplicate dry-run parsing,
 standalone-recipe checks, diagnostics, and byte-copy handling. Hardcoded exclusions for the five
@@ -39,9 +40,9 @@ rejects whitespace in paths because recipe output is intentionally tokenized by 
 Dimension metadata identifies both the inventory and the recipes to scan. The execution dimension
 checks suites only. Lint, format-check, and format check the broader shell inventory. For each
 dimension, an unreached suite may be cleared by any identical reached suite as ADR 0026 specifies.
-An unreached shell source is cleared only when it is a decision-record asset and its corresponding
-`.github/scripts/` twin is reached and byte-identical. Diagnostics say `suite` for execution
-failures and `shell file` for the three source dimensions.
+An unreached shell source is cleared only when it is one of ADR 0032's five named decision-record
+asset paths and its named `.github/scripts/` twin is reached and byte-identical. Diagnostics say
+`suite` for execution failures and `shell file` for the three source dimensions.
 
 The `Justfile` adds the two remaining files to `lint` and to a documented `shfmt -i 2` group in
 `format-check` and `format`. No shell source content changes are expected because both already pass
