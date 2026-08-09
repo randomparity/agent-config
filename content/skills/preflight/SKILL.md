@@ -34,9 +34,10 @@ and do not evaluate the payload as shell code. Accept only these status/payload 
 - exit 2 with `unsupported<TAB><raw-or-empty>`; or
 - exit 3 with `detection-failed<TAB><reason>`.
 
-Unsupported raw values use Bash's shell-safe `%q` representation so every byte remains
-observable without adding fields, records, or terminal control sequences. Never evaluate
-that representation as shell code. Anything else is a
+Unsupported Bash-representable text uses `%q` so it remains observable without adding
+fields, records, or terminal control sequences. Never evaluate that representation as
+shell code. The detector assumes the resolved `uname` is the operating system tool and its
+output is text; shell variables cannot retain binary NUL bytes. Anything else is a
 malformed detector result and stops preflight with the observed status
 and a request to repair the installed preflight package. Render `HOST_ARCHITECTURE` as the
 normalized value, `unsupported (<raw-or-empty>)`, or `detection failed (<reason>)`.

@@ -44,6 +44,11 @@ work. Before architecture-sensitive work, preflight reports the captured diagnos
 asks the operator to update detection or restore `uname`. The helper has no target input:
 this keeps observation structurally separate from intent.
 
+The detector assumes the `uname` resolved from the operator's environment is the operating
+system text-producing tool. Bash command substitution cannot retain binary NUL bytes, so
+the unsupported-value guarantee covers Bash-representable text rather than arbitrary byte
+streams.
+
 Preflight runs the detector during environment discovery. Each agent applies its native
 applicable-instruction precedence to determine which project-local instruction and policy
 files are effective. Those effective files are authoritative for declared targets.
@@ -82,8 +87,9 @@ After extracting the effective declarations, preflight invokes
 The resolver emits exactly `HOST_ARCHITECTURE<TAB><rendering>` and
 one `TARGET_ARCHITECTURES<TAB><declaration>` record per effective declaration (or `none
 declared`), and `ARCHITECTURE_RELATIONSHIP<TAB><value>` as one context result. Invalid
-states, missing or inconsistent target arguments, or a control character in an input field
-exit 64 with no stdout and an owned diagnostic on stderr.
+states, a successful host outside the four normalized values, missing/inconsistent/blank
+target arguments, or a control character in an input field exit 64 with no stdout and an
+owned diagnostic on stderr.
 
 For membership only, recognized target aliases use the same canonical mapping as host
 aliases. Original effective declarations remain unchanged in `TARGET_ARCHITECTURES`.
@@ -110,9 +116,9 @@ configuration.
   host claim.
 - An empty or unknown machine value records an unsupported/raw host and produces a
   diagnostic containing that value and the supported normalized values before sensitive
-  work. Bash's `%q` representation makes every unsafe byte printable so stdout remains
-  exactly one tab-delimited record while retaining the observation; consumers never
-  evaluate this representation as shell code.
+  work. Bash's `%q` representation makes unsafe characters in Bash-representable text
+  printable, so stdout remains exactly one tab-delimited record while retaining the
+  observation; consumers never evaluate this representation as shell code.
 - Missing project target declarations are recorded as missing, not inferred.
 - Conflicting effective target declarations are surfaced for project-owner clarification
   before target-sensitive work; native instruction precedence resolves applicability,
@@ -133,6 +139,8 @@ consumer fixture prove that the same target records survive a mismatch. They als
 that the canonical
 preflight package records all three architecture fields and that the Claude, Codex, and Bob
 projections preserve the separation and project-policy authority.
+Malformed resolver cases cover blank declarations and successful hosts outside the four
+normalized values.
 
 The suite is wired into execution, lint, format-check, and format recipes. The install
 test continues to prove that both preflight helpers reach every agent's installed skill

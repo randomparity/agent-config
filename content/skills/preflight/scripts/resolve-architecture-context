@@ -30,10 +30,19 @@ for target in "$@"; do
 	if [[ "$target" =~ [[:cntrl:]] ]]; then
 		fail 'target declarations must be printable record fields'
 	fi
+	if [[ -z "${target//[[:space:]]/}" ]]; then
+		fail 'target declarations must not be blank'
+	fi
 done
 
 case "$host_status" in
-ok) host_rendering="$host_value" ;;
+ok)
+	case "$host_value" in
+	x86_64 | arm64 | ppc64le | s390x) ;;
+	*) fail 'ok host must be normalized' ;;
+	esac
+	host_rendering="$host_value"
+	;;
 unsupported) host_rendering="unsupported ($host_value)" ;;
 detection-failed) host_rendering="detection failed ($host_value)" ;;
 *) fail "unknown host status: $host_status" ;;

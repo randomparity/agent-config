@@ -114,6 +114,18 @@ assert_context() {
 		fail "context $*: expected '$expected', got '$actual'"
 }
 
+resolver_error_count=0
+assert_resolver_error() {
+	local label="$1" expected="$2" status=0 prefix
+	shift 2
+	((++resolver_error_count))
+	prefix="$FIXTURE/resolver-error-$resolver_error_count"
+	"$RESOLVER" "$@" >"$prefix.stdout" 2>"$prefix.stderr" || status=$?
+	[[ "$status" -eq 64 ]] || fail "$label: expected exit 64, got $status"
+	assert_file '' "$prefix.stdout" "$label stdout"
+	assert_file "resolve-architecture-context: $expected" "$prefix.stderr" "$label stderr"
+}
+
 [[ -x "$RESOLVER" ]] || fail "missing executable resolver: $RESOLVER"
 assert_context "$(printf '%s\n' $'HOST_ARCHITECTURE\tx86_64' \
 	$'TARGET_ARCHITECTURES\tamd64' $'TARGET_ARCHITECTURES\tarm64' \
@@ -158,14 +170,14 @@ done <"$later_context"
 [[ "$later_relationship" == different ]] ||
 	fail "later context lost relationship: $later_relationship"
 
-resolver_error="$FIXTURE/resolver-error"
-resolver_status=0
-"$RESOLVER" ok $'x86_64\nspoofed' declared x86_64 \
-	>"$resolver_error.stdout" 2>"$resolver_error.stderr" || resolver_status=$?
-[[ "$resolver_status" -eq 64 ]] || fail "resolver malformed input: got exit $resolver_status"
-assert_file '' "$resolver_error.stdout" 'resolver malformed input stdout'
-assert_file 'resolve-architecture-context: host value must be one escaped record field' \
-	"$resolver_error.stderr" 'resolver malformed input stderr'
+assert_resolver_error 'host control' 'host value must be one escaped record field' \
+	ok $'x86_64\nspoofed' declared x86_64
+assert_resolver_error 'invalid normalized host' 'ok host must be normalized' \
+	ok riscv64 declared x86_64
+assert_resolver_error 'empty target' 'target declarations must not be blank' \
+	ok x86_64 declared ''
+assert_resolver_error 'whitespace target' 'target declarations must not be blank' \
+	ok x86_64 conflict x86_64 '   '
 
 mutated_resolver="$FIXTURE/mutated-resolver"
 cp "$RESOLVER" "$mutated_resolver"

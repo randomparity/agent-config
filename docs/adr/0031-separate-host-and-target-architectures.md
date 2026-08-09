@@ -61,6 +61,8 @@ projections carry the rule.
   policy; no new configuration format is introduced.
 - An unrecognized host remains visible without blocking unrelated work, while
   architecture-sensitive work stops instead of silently assuming compatibility.
+- Detection assumes the resolved `uname` is the operating system text-producing tool;
+  Bash command substitution cannot retain binary NUL bytes.
 - This decision provides awareness only. Cross-compilation, emulation, and
   multi-architecture CI remain outside its scope.
 
