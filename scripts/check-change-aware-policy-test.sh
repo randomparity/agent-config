@@ -95,6 +95,16 @@ refresh_justfile_fingerprints
 assert_fails 'removed verify dependency' 'manifest names non-dependency recipe: actions-check'
 
 copy_fixture
+printf '\n# stale runtime profile\n' >>"$REPO/.github/scripts/profiles/adr.sh"
+assert_fails 'runtime-sourced records profile' \
+	'stale implementation fingerprint: .github/scripts/profiles/adr.sh'
+
+copy_fixture
+printf '\n# stale mirrored asset\n' >>"$REPO/content/skills/decision-records/assets/migrate-records.sh"
+assert_fails 'dynamically compared records asset' \
+	'stale implementation fingerprint: content/skills/decision-records/assets/migrate-records.sh'
+
+copy_fixture
 printf '#!/usr/bin/env bash\nexit 0\n' >"$REPO/scripts/unmanifested-dry-run.sh"
 awk '{ print; if ($0 == "public-safety:") print "  ./scripts/unmanifested-dry-run.sh" }' \
 	"$REPO/Justfile" >"$SCRATCH/Justfile"

@@ -51,6 +51,28 @@ has_manifest_path() {
 	return 1
 }
 
+assert_records_transitive_inventory() {
+	local path
+	local -a paths=(
+		.github/scripts/check-records.sh
+		.github/scripts/check-records-test.sh
+		.github/scripts/migrate-records.sh
+		.github/scripts/profiles/adr.sh
+		.github/scripts/profiles/debt.sh
+		.github/scripts/records.yml
+		content/skills/decision-records/assets/check-records.sh
+		content/skills/decision-records/assets/check-records-test.sh
+		content/skills/decision-records/assets/migrate-records.sh
+		content/skills/decision-records/assets/profiles/adr.sh
+		content/skills/decision-records/assets/profiles/debt.sh
+		content/skills/decision-records/assets/records.yml
+	)
+	for path in "${paths[@]}"; do
+		has_manifest_path records "$path" ||
+			die "records transitive path is unmanifested: $path"
+	done
+}
+
 manifest_entries=()
 manifest_recipes=
 while IFS=$'\t' read -r recipe dry_run_hash path object_hash extra; do
@@ -78,6 +100,8 @@ while IFS= read -r recipe; do
 		die "manifest names non-dependency recipe: $recipe"
 	fi
 done <<<"$manifest_recipes"
+
+assert_records_transitive_inventory
 
 for entry in "${manifest_entries[@]}"; do
 	IFS=$'\t' read -r recipe dry_run_hash path object_hash <<<"$entry"
