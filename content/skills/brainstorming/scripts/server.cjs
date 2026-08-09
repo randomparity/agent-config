@@ -2,6 +2,7 @@ const crypto = require('crypto');
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const serverControl = require('./server-control.cjs');
 
 // ========== WebSocket Protocol (RFC 6455) ==========
 
@@ -100,6 +101,11 @@ let PORT = preferredPort();
 const HOST = process.env.BRAINSTORM_HOST || '127.0.0.1';
 const URL_HOST = process.env.BRAINSTORM_URL_HOST || (HOST === '127.0.0.1' ? 'localhost' : HOST);
 const SESSION_DIR = process.env.BRAINSTORM_DIR || '/tmp/brainstorm';
+const PROJECT_DIR = Object.prototype.hasOwnProperty.call(process.env, 'BRAINSTORM_PROJECT_DIR')
+  ? process.env.BRAINSTORM_PROJECT_DIR
+  : null;
+const SERVER_ID_ARG = process.argv.find(value => value.startsWith('--brainstorm-server-id='));
+const SERVER_ID = SERVER_ID_ARG ? SERVER_ID_ARG.slice('--brainstorm-server-id='.length) : '';
 const CONTENT_DIR = path.join(SESSION_DIR, 'content');
 const STATE_DIR = path.join(SESSION_DIR, 'state');
 const SUPERPOWERS_VERSION = readSuperpowersVersion();
@@ -440,6 +446,7 @@ function handleRequest(req, res) {
 // ========== WebSocket Connection Handling ==========
 
 const clients = new Set();
+const userSockets = new Set();
 
 function handleUpgrade(req, socket) {
   if (!isAuthorized(req) || !isAllowedWebSocketOrigin(req)) { socket.destroy(); return; }
@@ -586,6 +593,10 @@ function startServer() {
 
   const server = http.createServer(handleRequest);
   server.on('upgrade', handleUpgrade);
+  server.on('connection', (socket) => {
+    userSockets.add(socket);
+    socket.once('close', () => userSockets.delete(socket));
+  });
 
   const watcher = fs.watch(CONTENT_DIR, (eventType, filename) => {
     if (!filename || filename.startsWith('.') || !filename.endsWith('.html')) return;
@@ -613,22 +624,35 @@ function startServer() {
   });
   watcher.on('error', (err) => console.error('fs.watch error:', err.message));
 
-  function shutdown(reason) {
-    console.log(JSON.stringify({ type: 'server-stopped', reason }));
+  let controlServer = null;
+
+  function closeUserSockets() {
+    for (const socket of userSockets) {
+      try { socket.destroy(); } catch (e) { /* already gone */ }
+    }
+  }
+
+  function writeStoppedMarker(reason) {
     const infoFile = path.join(STATE_DIR, 'server-info');
     if (fs.existsSync(infoFile)) fs.unlinkSync(infoFile);
     fs.writeFileSync(
       path.join(STATE_DIR, 'server-stopped'),
       JSON.stringify({ reason, timestamp: Date.now() }) + '\n'
     );
+  }
+
+  function shutdown(reason) {
+    console.log(JSON.stringify({ type: 'server-stopped', reason }));
+    try { writeStoppedMarker(reason); } catch (error) {
+      console.error('Failed to write stopped marker:', error.message);
+    }
     watcher.close();
     clearInterval(lifecycleCheck);
-    // Close any upgraded WebSocket sockets so server.close() can complete and
-    // the process actually exits instead of lingering on an open connection.
-    for (const socket of clients) {
-      try { socket.destroy(); } catch (e) { /* already gone */ }
-    }
-    server.close(() => process.exit(0));
+    closeUserSockets();
+    server.close(() => {
+      if (controlServer) controlServer.close(() => process.exit(0));
+      else process.exit(0);
+    });
   }
 
   function ownerAlive() {
@@ -660,7 +684,21 @@ function startServer() {
   // alive), fall back to a random port once instead of failing.
   let triedFallback = false;
 
-  function onListen() {
+  function failStartup(error) {
+    watcher.close();
+    clearInterval(lifecycleCheck);
+    closeUserSockets();
+    const finish = () => {
+      console.log(JSON.stringify({ type: 'server-start-failed', error: error.message }));
+      process.exit(1);
+    };
+    server.close(() => {
+      if (controlServer && controlServer.listening) controlServer.close(finish);
+      else finish();
+    });
+  }
+
+  function publishAndAnnounce(controlPort, controlToken) {
     // Cookie name keys on the ACTUAL bound port (may differ from the preferred
     // one after an EADDRINUSE fallback) so it can't collide with another server's
     // cookie in the shared localhost jar.
@@ -678,6 +716,14 @@ function startServer() {
         } catch (e) { /* best effort */ }
       }
     }
+    serverControl.publishActiveRecords({
+      projectDir: PROJECT_DIR,
+      sessionDir: SESSION_DIR,
+      pid: process.pid,
+      serverId: SERVER_ID,
+      controlPort,
+      controlToken
+    });
     const info = JSON.stringify({
       type: 'server-started', port: Number(PORT), host: HOST,
       url_host: URL_HOST, url: companionUrl(),
@@ -686,6 +732,41 @@ function startServer() {
     console.log(info);
     // server-info embeds the key — keep it owner-only.
     fs.writeFileSync(path.join(STATE_DIR, 'server-info'), info + '\n', { mode: 0o600 });
+  }
+
+  function onListen() {
+    const controlToken = serverControl.createControlToken();
+    const closeUserListener = () => new Promise((resolve, reject) => {
+      watcher.close();
+      clearInterval(lifecycleCheck);
+      closeUserSockets();
+      server.close(() => {
+        try {
+          writeStoppedMarker('stop-server.sh');
+          resolve();
+        } catch (error) {
+          reject(error);
+        }
+      });
+    });
+    controlServer = serverControl.createControlServer({
+      token: controlToken,
+      pid: process.pid,
+      serverId: SERVER_ID,
+      closeUserListener
+    });
+    controlServer.on('terminal', (outcome) => {
+      controlServer.close(() => process.exit(outcome.status === 'stopped' ? 0 : 1));
+    });
+    controlServer.once('error', failStartup);
+    controlServer.listen(0, '127.0.0.1', () => {
+      controlServer.removeListener('error', failStartup);
+      try {
+        publishAndAnnounce(controlServer.address().port, controlToken);
+      } catch (error) {
+        failStartup(error);
+      }
+    });
   }
 
   server.on('error', (err) => {

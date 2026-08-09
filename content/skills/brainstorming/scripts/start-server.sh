@@ -25,6 +25,12 @@ json_error() {
   printf '{"error": "%s"}\n' "$1"
 }
 
+canonicalize_directory() {
+  local marked
+  marked="$(cd -P -- "$1" && printf '%s_' "$PWD")"
+  printf '%s' "${marked%_}"
+}
+
 require_value() {
   local flag=$1 value=${2-}
   if [[ -z "$value" || "$value" == --* ]]; then
@@ -100,7 +106,7 @@ if [[ -n "$IDLE_TIMEOUT_MINUTES" ]]; then
 fi
 
 # server.cjs is the whole companion; without node the script would otherwise create a
-# session directory, kill any running server, and only then fail with a bare
+# session directory, stop any predecessor, and only then fail with a bare
 # "node: command not found" on a backgrounded process whose output goes to the log.
 if ! command -v node >/dev/null 2>&1; then
   echo "{\"error\": \"node not found on PATH; the brainstorm visual companion needs Node.js to run server.cjs\"}"
@@ -142,6 +148,16 @@ umask 077
 SESSION_ID="$$-$(date +%s)"
 
 if [[ -n "$PROJECT_DIR" ]]; then
+  mkdir -p "$PROJECT_DIR"
+  PROJECT_DIR="$(canonicalize_directory "$PROJECT_DIR")"
+
+  replacement_result=""
+  if ! replacement_result="$(printf '%s' "$PROJECT_DIR" |
+    node "$SCRIPT_DIR/server-control.cjs" replace-project)"; then
+    printf '%s\n' "$replacement_result"
+    exit 1
+  fi
+
   mkdir -p "${PROJECT_DIR}/.agent"
   # umask 077 above is for session files that embed the session key. .agent/ is a
   # directory two skills share, so pin its mode here instead of letting whichever
@@ -201,10 +217,12 @@ else
   SESSION_DIR="/tmp/brainstorm-${SESSION_ID}"
 fi
 
+# The returned session path is stop-server.sh's identity input. Canonicalize it
+# after creation so /tmp aliases converge without losing newline bytes.
+mkdir -p "$SESSION_DIR"
+SESSION_DIR="$(canonicalize_directory "$SESSION_DIR")"
 STATE_DIR="${SESSION_DIR}/state"
-PID_FILE="${STATE_DIR}/server.pid"
 LOG_FILE="${STATE_DIR}/server.log"
-SERVER_ID_FILE="${STATE_DIR}/server-instance-id"
 
 # Create fresh session directory with content and state peers
 mkdir -p "${SESSION_DIR}/content" "$STATE_DIR"
@@ -227,16 +245,6 @@ fi
 if ! [[ "$SERVER_ID" =~ ^[$SERVER_ID_CHARS]{32,64}$ ]]; then
   SERVER_ID="$(printf '%08x%08x%08x%08x' "$$" "$(date +%s)" "${RANDOM:-0}" "${RANDOM:-0}")"
 fi
-printf '%s\n' "$SERVER_ID" >"$SERVER_ID_FILE"
-chmod 600 "$SERVER_ID_FILE" 2>/dev/null || true
-
-# Kill any existing server
-if [[ -f "$PID_FILE" ]]; then
-  old_pid=$(cat "$PID_FILE")
-  kill "$old_pid" 2>/dev/null
-  rm -f "$PID_FILE"
-fi
-
 cd "$SCRIPT_DIR" || exit 1
 
 # Resolve the harness PID (grandparent of this script).
@@ -255,24 +263,36 @@ if is_windows_like_shell; then
   OWNER_PID=""
 fi
 
+SERVER_ENV=(
+  "BRAINSTORM_DIR=$SESSION_DIR"
+  "BRAINSTORM_HOST=$BIND_HOST"
+  "BRAINSTORM_URL_HOST=$URL_HOST"
+  "BRAINSTORM_OWNER_PID=$OWNER_PID"
+)
+if [[ -n "$PROJECT_DIR" ]]; then
+  SERVER_ENV+=("BRAINSTORM_PROJECT_DIR=$PROJECT_DIR")
+fi
+
 # Foreground mode for environments that reap detached/background processes.
 if [[ "$FOREGROUND" == "true" ]]; then
-  env BRAINSTORM_DIR="$SESSION_DIR" BRAINSTORM_HOST="$BIND_HOST" BRAINSTORM_URL_HOST="$URL_HOST" BRAINSTORM_OWNER_PID="$OWNER_PID" node server.cjs "--brainstorm-server-id=$SERVER_ID" &
+  env "${SERVER_ENV[@]}" node server.cjs "--brainstorm-server-id=$SERVER_ID" &
   SERVER_PID=$!
-  echo "$SERVER_PID" >"$PID_FILE"
   wait "$SERVER_PID"
   exit $?
 fi
 
 # Start server, capturing output to log file
 # Use nohup to survive shell exit; disown to remove from job table
-nohup env BRAINSTORM_DIR="$SESSION_DIR" BRAINSTORM_HOST="$BIND_HOST" BRAINSTORM_URL_HOST="$URL_HOST" BRAINSTORM_OWNER_PID="$OWNER_PID" node server.cjs "--brainstorm-server-id=$SERVER_ID" >"$LOG_FILE" 2>&1 &
+nohup env "${SERVER_ENV[@]}" node server.cjs "--brainstorm-server-id=$SERVER_ID" >"$LOG_FILE" 2>&1 &
 SERVER_PID=$!
 disown "$SERVER_PID" 2>/dev/null
-echo "$SERVER_PID" >"$PID_FILE"
 
 # Wait for server-started message (check log file)
 for _ in {1..50}; do
+  if grep -q '"type":"server-start-failed"' "$LOG_FILE" 2>/dev/null; then
+    grep '"type":"server-start-failed"' "$LOG_FILE" | head -1
+    exit 1
+  fi
   if grep -q "server-started" "$LOG_FILE" 2>/dev/null; then
     # Verify server is still alive after a short window (catches process reapers)
     alive="true"

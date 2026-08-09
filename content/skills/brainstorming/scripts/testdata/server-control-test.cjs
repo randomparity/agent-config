@@ -258,6 +258,17 @@ async function main() {
     await close(server);
   });
 
+  await test('Linux argv matching preserves NUL boundaries with or without a final NUL', () => {
+    const serverId = 'a'.repeat(32);
+    const expected = `--brainstorm-server-id=${serverId}`;
+    assert.equal(control.hasExactServerArgument(Buffer.from(`node\0${expected}\0`), serverId), true);
+    assert.equal(control.hasExactServerArgument(Buffer.from(`node\0${expected}`), serverId), true);
+    assert.equal(
+      control.hasExactServerArgument(Buffer.from(`node\0prefix-${expected}-suffix\0`), serverId),
+      false
+    );
+  });
+
   await test('publisher installs stable metadata before session recovery metadata', () => {
     const home = temporaryDirectory();
     const project = temporaryDirectory();

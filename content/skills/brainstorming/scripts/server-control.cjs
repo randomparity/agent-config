@@ -131,7 +131,9 @@ function ensurePrivateStateRoot(home) {
 
 function projectStateFor(identity, home) {
   const root = ensurePrivateStateRoot(home);
-  const projectKey = crypto.createHash('sha256').update(Buffer.from(identity, 'utf8')).digest('hex');
+  const projectKey = crypto.createHash('sha256')
+    .update(Buffer.from(identity, 'utf8'))
+    .digest('hex');
   return { projectKey, root, recordPath: path.join(root, `${projectKey}.json`) };
 }
 
@@ -452,6 +454,146 @@ function publishActiveRecords({
   return { projectKey, stableRecordPath, sessionRecordPath };
 }
 
+function safeUnlink(filePath) {
+  try {
+    fs.unlinkSync(filePath);
+    return true;
+  } catch (error) {
+    if (error.code === 'ENOENT') return false;
+    return false;
+  }
+}
+
+function hasExactServerArgument(argumentsBuffer, serverId) {
+  const expected = Buffer.from(`--brainstorm-server-id=${serverId}`);
+  let start = 0;
+  while (start < argumentsBuffer.length) {
+    const separator = argumentsBuffer.indexOf(0, start);
+    const end = separator === -1 ? argumentsBuffer.length : separator;
+    if (argumentsBuffer.subarray(start, end).equals(expected)) return true;
+    if (separator === -1) break;
+    start = separator + 1;
+  }
+  return false;
+}
+
+function pidEvidence(pid, serverId) {
+  try {
+    process.kill(pid, 0);
+  } catch (error) {
+    if (error.code === 'ESRCH') return 'absent';
+    if (error.code !== 'EPERM') return 'indeterminate';
+  }
+  if (process.platform !== 'linux') return 'live';
+  try {
+    const argumentsBuffer = fs.readFileSync(`/proc/${pid}/cmdline`);
+    return hasExactServerArgument(argumentsBuffer, serverId)
+      ? 'live'
+      : 'proven_unrelated';
+  } catch (_error) {
+    return 'live';
+  }
+}
+
+function stablePathFromKey(projectKey) {
+  if (!HEX_64_PATTERN.test(projectKey)) return null;
+  return path.join(ensurePrivateStateRoot(process.env.HOME || ''), `${projectKey}.json`);
+}
+
+function cleanupSessionRecords(recordPath, record) {
+  safeUnlink(recordPath);
+  if (record && record.project_key) {
+    const stablePath = stablePathFromKey(record.project_key);
+    removeMatchingRecord(stablePath, { pid: record.pid, serverId: record.server_id });
+  }
+}
+
+function isEphemeralSession(sessionDir) {
+  const temporaryRoot = fs.realpathSync('/tmp');
+  return sessionDir.startsWith(`${temporaryRoot}${path.sep}`) &&
+    path.basename(sessionDir).startsWith('brainstorm-');
+}
+
+function failureForStop(recordPath, pid) {
+  const suffix = pid ? `; PID ${pid} left running` : '';
+  return {
+    status: 'failed',
+    error: `cannot verify brainstorm server identity from ${recordPath}${suffix}; state preserved`
+  };
+}
+
+async function replaceProject(identity) {
+  const state = projectStateFromEnvironment(identity);
+  const metadata = readMetadata(state.recordPath, {
+    kind: 'stable',
+    projectKey: state.projectKey
+  });
+  if (metadata.kind === 'valid') await requestAuthenticatedStop(metadata.record);
+  safeUnlink(state.recordPath);
+  return { status: metadata.kind === 'missing' ? 'not_running' : 'handled' };
+}
+
+async function stopSession(sessionDir) {
+  const recordPath = activeRecordPath(sessionDir);
+  const metadata = readMetadata(recordPath, { kind: 'session', sessionDir });
+  if (metadata.kind === 'missing') return { exitCode: 0, body: { status: 'not_running' } };
+
+  if (metadata.kind !== 'valid') {
+    if (metadata.pid && pidEvidence(metadata.pid, '') === 'absent') {
+      safeUnlink(recordPath);
+      return { exitCode: 0, body: { status: 'stale_pid' } };
+    }
+    return { exitCode: 1, body: failureForStop(recordPath, metadata.pid) };
+  }
+
+  const outcome = await requestAuthenticatedStop(metadata.record);
+  if (outcome.status === 'stopped') {
+    cleanupSessionRecords(recordPath, metadata.record);
+    if (isEphemeralSession(sessionDir)) fs.rmSync(sessionDir, { recursive: true, force: true });
+    return { exitCode: 0, body: { status: 'stopped' } };
+  }
+  if (outcome.reason === 'shutdown_cleanup') {
+    return { exitCode: 1, body: failureForStop(recordPath, metadata.record.pid) };
+  }
+  const evidence = pidEvidence(metadata.record.pid, metadata.record.server_id);
+  if (evidence === 'absent' || evidence === 'proven_unrelated') {
+    cleanupSessionRecords(recordPath, metadata.record);
+    return { exitCode: 0, body: { status: 'stale_pid' } };
+  }
+  return { exitCode: 1, body: failureForStop(recordPath, metadata.record.pid) };
+}
+
+function printJson(value) {
+  process.stdout.write(`${JSON.stringify(value)}\n`);
+}
+
+async function runCli(command) {
+  try {
+    const identity = readProjectIdentity(readStdinIdentity());
+    if (command === 'replace-project') {
+      printJson(await replaceProject(identity));
+      return 0;
+    }
+    if (command === 'stop-session') {
+      const result = await stopSession(identity);
+      printJson(result.body);
+      return result.exitCode;
+    }
+    printJson({ status: 'failed', error: 'unknown internal server-control command' });
+    return 1;
+  } catch (error) {
+    printJson({
+      status: 'failed',
+      error: error && error.message ? error.message : 'server control failed'
+    });
+    return 1;
+  }
+}
+
+if (require.main === module) {
+  runCli(process.argv[2]).then((exitCode) => { process.exitCode = exitCode; });
+}
+
 module.exports = {
   CONTROL_LIMITS,
   MAX_IDENTITY_BYTES,
@@ -462,6 +604,7 @@ module.exports = {
   createControlServer,
   createControlToken,
   ensurePrivateStateRoot,
+  hasExactServerArgument,
   projectStateFor,
   projectStateFromEnvironment,
   publishActiveRecords,
@@ -470,5 +613,7 @@ module.exports = {
   readStdinIdentity,
   removeMatchingRecord,
   requestAuthenticatedStop,
+  runCli,
+  stopSession,
   validateRecord
 };

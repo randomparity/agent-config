@@ -14,6 +14,7 @@ SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 # The suite lives in `testdata/` so it is excluded from the installed payload
 # (ADR 0025); the script it exercises ships, and sits one level up.
 SCRIPT="$(dirname "$SCRIPT_DIR")/start-server.sh"
+STOP_SCRIPT="$(dirname "$SCRIPT_DIR")/stop-server.sh"
 
 passed=0
 failed=0
@@ -84,33 +85,35 @@ trap cleanup_server_id_dir EXIT
 # the wrong reason.
 run_server_id_case() {
   local name=$1 stub_id=$2 expect=$3
-  local dir stub project id_file id
+  local dir stub project node_args_file id
 
   server_id_dir="$(mktemp -d "${TMPDIR:-/tmp}/brainstorm-start-test.XXXXXX")"
   dir="$server_id_dir"
   stub="$dir/bin"
   project="$dir/project"
+  node_args_file="$dir/node-args"
   mkdir -p "$stub" "$project"
 
   printf '%s\n' '#!/usr/bin/env bash' "printf %s '$stub_id'" >"$stub/od"
-  # server.cjs is not under test. Announce the line start-server.sh waits for and
-  # exit, so its liveness window fails the run fast instead of holding this suite
-  # for the full startup timeout.
-  printf '%s\n' '#!/usr/bin/env bash' 'printf "server-started\n"' >"$stub/node"
+  # The first Node call is the internal predecessor helper; the second launches
+  # server.cjs. Capture only the latter's argv and announce readiness.
+  # shellcheck disable=SC2016 # Stub source must expand its own argv at runtime.
+  printf '%s\n' '#!/usr/bin/env bash' \
+    'case " $* " in' \
+    '*" server.cjs "*) printf "%s\n" "$*" >"$NODE_ARGS_FILE"; printf "server-started\n" ;;' \
+    '*) printf "{\"status\":\"not_running\"}\n" ;;' \
+    'esac' >"$stub/node"
   chmod +x "$stub/od" "$stub/node"
 
-  PATH="$stub:$PATH" LC_ALL="${utf8_locale:-C}" "$SCRIPT" --project-dir "$project" \
+  PATH="$stub:$PATH" NODE_ARGS_FILE="$node_args_file" LC_ALL="${utf8_locale:-C}" \
+    "$SCRIPT" --project-dir "$project" \
     >"$dir/out" 2>"$dir/err" || true
 
-  id_file="$(find "$project" -type f -name server-instance-id -print -quit)"
-  id=""
-  if [ -n "$id_file" ]; then
-    id="$(cat "$id_file")"
-  fi
+  id="$(sed -n 's/.*--brainstorm-server-id=\([^ ]*\).*/\1/p' "$node_args_file" 2>/dev/null)"
 
-  if [ -z "$id_file" ]; then
+  if [ -z "$id" ]; then
     failed=$((failed + 1))
-    printf '  FAIL %s (no server-instance-id was written)\n' "$name"
+    printf '  FAIL %s (server id was not passed to server.cjs)\n' "$name"
   elif [ "$expect" = accepted ] && [ "$id" = "$stub_id" ]; then
     passed=$((passed + 1))
     printf '  ok   %s\n' "$name"
@@ -222,6 +225,142 @@ run_unanswerable_case() {
   cleanup_server_id_dir
 }
 
+run_replacement_lifecycle_case() {
+  local name='a second persistent start stops its predecessor'
+  local dir home project first_session second_session first_pid got=0
+
+  server_id_dir="$(mktemp -d "${TMPDIR:-/tmp}/brainstorm-lifecycle-test.XXXXXX")"
+  dir="$server_id_dir"
+  home="$dir/home"
+  project="$dir/project"
+  mkdir -p "$home" "$project"
+
+  HOME="$home" "$SCRIPT" --project-dir "$project" --background >"$dir/first.json" || got=$?
+  if [ "$got" -eq 0 ]; then
+    first_session="$(node -e '
+      const fs = require("fs");
+      const value = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+      process.stdout.write(value.state_dir.replace(/\/state$/, ""));
+    ' "$dir/first.json")"
+    if [ -f "$first_session/state/server-control.json" ]; then
+      first_pid="$(node -e '
+        const fs = require("fs");
+        process.stdout.write(String(JSON.parse(fs.readFileSync(process.argv[1], "utf8")).pid));
+      ' "$first_session/state/server-control.json")"
+    else
+      first_pid="$(cat "$first_session/state/server.pid")"
+    fi
+
+    HOME="$home" "$SCRIPT" --project-dir "$project" --background >"$dir/second.json" || got=$?
+  fi
+
+  second_session=""
+  if [ "$got" -eq 0 ]; then
+    second_session="$(node -e '
+      const fs = require("fs");
+      const value = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+      process.stdout.write(value.state_dir.replace(/\/state$/, ""));
+    ' "$dir/second.json")"
+    for _ in {1..30}; do
+      if ! kill -0 "$first_pid" 2>/dev/null; then
+        break
+      fi
+      sleep 0.1
+    done
+  fi
+
+  if [ "$got" -eq 0 ] && ! kill -0 "$first_pid" 2>/dev/null; then
+    passed=$((passed + 1))
+    printf '  ok   %s\n' "$name"
+  else
+    failed=$((failed + 1))
+    printf '  FAIL %s (start exit=%s, predecessor pid=%s)\n' "$name" "$got" "${first_pid:-none}"
+  fi
+
+  if [ -n "$second_session" ]; then
+    HOME="$home" "$STOP_SCRIPT" "$second_session" >/dev/null 2>&1 || true
+  fi
+  if [ -n "${first_pid:-}" ]; then
+    kill "$first_pid" 2>/dev/null || true
+  fi
+  cleanup_server_id_dir
+}
+
+run_malformed_stable_case() {
+  local name='malformed stable metadata does not abort persistent startup'
+  local dir home project record session got=0
+  server_id_dir="$(mktemp -d "${TMPDIR:-/tmp}/brainstorm-lifecycle-test.XXXXXX")"
+  dir="$server_id_dir"
+  home="$dir/home"
+  project="$dir/project"
+  mkdir -p "$home/.local/state/superpowers/brainstorm" "$project"
+  chmod 700 "$home/.local" "$home/.local/state" "$home/.local/state/superpowers" \
+    "$home/.local/state/superpowers/brainstorm"
+  # shellcheck disable=SC2016 # JavaScript template expansion belongs to Node.
+  record="$(HOME="$home" node -e '
+    const crypto = require("crypto");
+    const fs = require("fs");
+    const path = require("path");
+    const identity = fs.realpathSync(process.argv[1]);
+    const key = crypto.createHash("sha256").update(identity).digest("hex");
+    process.stdout.write(path.join(process.env.HOME, ".local/state/superpowers/brainstorm", `${key}.json`));
+  ' "$project")"
+  printf '{broken\n' >"$record"
+  chmod 600 "$record"
+
+  HOME="$home" "$SCRIPT" --project-dir "$project" --background >"$dir/start.json" || got=$?
+  session=""
+  if [ "$got" -eq 0 ]; then
+    session="$(node -e '
+      const fs = require("fs");
+      const value = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+      process.stdout.write(value.state_dir.replace(/\/state$/, ""));
+    ' "$dir/start.json")"
+  fi
+  if [ "$got" -eq 0 ] && node -e 'JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"))' "$record"; then
+    passed=$((passed + 1))
+    printf '  ok   %s\n' "$name"
+  else
+    failed=$((failed + 1))
+    printf '  FAIL %s (exit=%s record=%s)\n' "$name" "$got" "$record"
+  fi
+  if [ -n "$session" ]; then
+    HOME="$home" "$STOP_SCRIPT" "$session" >/dev/null 2>&1 || true
+  fi
+  cleanup_server_id_dir
+}
+
+run_ephemeral_exclusion_case() {
+  local name='ephemeral startup creates no stable project metadata'
+  local dir home session got=0
+  server_id_dir="$(mktemp -d "${TMPDIR:-/tmp}/brainstorm-lifecycle-test.XXXXXX")"
+  dir="$server_id_dir"
+  home="$dir/home"
+  mkdir -p "$home"
+
+  HOME="$home" "$SCRIPT" --background >"$dir/start.json" || got=$?
+  session=""
+  if [ "$got" -eq 0 ]; then
+    session="$(node -e '
+      const fs = require("fs");
+      const value = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+      process.stdout.write(value.state_dir.replace(/\/state$/, ""));
+    ' "$dir/start.json")"
+  fi
+  if [ "$got" -eq 0 ] && [ ! -e "$home/.local/state/superpowers/brainstorm" ]; then
+    passed=$((passed + 1))
+    printf '  ok   %s\n' "$name"
+  else
+    failed=$((failed + 1))
+    printf '  FAIL %s (exit=%s stable_root_exists=%s)\n' "$name" "$got" \
+      "$([ -e "$home/.local/state/superpowers/brainstorm" ] && echo yes || echo no)"
+  fi
+  if [ -n "$session" ]; then
+    HOME="$home" "$STOP_SCRIPT" "$session" >/dev/null 2>&1 || true
+  fi
+  cleanup_server_id_dir
+}
+
 main() {
   printf 'start-server.sh\n\n'
   run_case "missing --host value" 1 "--host requires a value" --host
@@ -250,6 +389,9 @@ main() {
   else
     run_unanswerable_case
   fi
+  run_replacement_lifecycle_case
+  run_malformed_stable_case
+  run_ephemeral_exclusion_case
 
   printf '\n%d passed, %d failed\n' "$passed" "$failed"
   [ "$failed" -eq 0 ]

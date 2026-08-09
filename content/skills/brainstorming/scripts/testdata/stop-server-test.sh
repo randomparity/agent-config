@@ -1,94 +1,188 @@
 #!/usr/bin/env bash
-# Regression tests for stop-server.sh server-id validation.
+# Regression tests for authenticated brainstorm shutdown.
 
 set -euo pipefail
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-# The suite lives in `testdata/` so it is excluded from the installed payload
-# (ADR 0025); the script it exercises ships, and sits one level up.
 SCRIPT="$(dirname "$SCRIPT_DIR")/stop-server.sh"
+START_SCRIPT="$(dirname "$SCRIPT_DIR")/start-server.sh"
 
 passed=0
 failed=0
-
-# The server-id grammar is an ASCII bracket expression, and bash takes a bracket
-# range from the locale's collation -- so the property worth asserting is that it
-# bites under the locale a developer actually runs, not under whichever one this
-# suite inherits. Pin a territory UTF-8 locale where the host has one. `C.UTF-8`
-# is deliberately not accepted as a substitute: it does not reproduce the
-# collation behaviour, so a case that settled for it would pass while the defect
-# was live (ADR 0023). With no such locale the accented id is rejected whatever
-# the grammar, so the case still passes -- it just stops proving the property.
-utf8_locale=$(locale -a 2>/dev/null |
-  rg -N -m1 '^[a-z]{2}_[A-Z]{2}\.(utf8|UTF-8)$' || true)
-if [ -z "$utf8_locale" ]; then
-  printf 'note: no territory UTF-8 locale; the accented case proves nothing\n' >&2
-fi
-
-session=""
-fake_pid=""
+fixture=""
+server_pid=""
 
 cleanup() {
-  if [ -n "$fake_pid" ]; then
-    kill "$fake_pid" 2>/dev/null || true
-    wait "$fake_pid" 2>/dev/null || true
-    fake_pid=""
+  if [ -n "$server_pid" ]; then
+    kill "$server_pid" 2>/dev/null || true
+    wait "$server_pid" 2>/dev/null || true
+    server_pid=""
   fi
-  if [ -n "$session" ] && [ -d "$session" ]; then
-    rm -R "$session"
+  if [ -n "$fixture" ] && [ -d "$fixture" ]; then
+    rm -R "$fixture"
   fi
-  session=""
+  fixture=""
 }
 trap cleanup EXIT
 
-# stop-server.sh signals a pid only once it has matched this session's per-start
-# instance id against the process's own argv, so the id is the only thing left to
-# decide the verdict. `exec -a` puts the marker in that argv and leaves a single
-# process behind: a `bash -c 'sleep 300'` stand-in would orphan its sleep child
-# when stop-server.sh kills the shell. stop-server.sh compares every cmdline
-# entry, so argv[0] carries it.
-run_case() {
-  local name=$1 id=$2 want=$3
-  local state got
+pass() {
+  passed=$((passed + 1))
+  printf '  ok   %s\n' "$1"
+}
 
-  session="$(mktemp -d "${TMPDIR:-/tmp}/brainstorm-stop-test.XXXXXX")"
+fail() {
+  failed=$((failed + 1))
+  printf '  FAIL %s (%s)\n' "$1" "$2"
+}
+
+run_authenticated_stop() {
+  local name='authenticated metadata stops the server'
+  local home output second session got=0
+  fixture="$(mktemp -d "${TMPDIR:-/tmp}/brainstorm-stop-test.XXXXXX")"
+  home="$fixture/home"
+  mkdir -p "$home"
+
+  HOME="$home" "$START_SCRIPT" --background >"$fixture/start.json"
+  session="$(node -e '
+    const fs = require("fs");
+    const value = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+    process.stdout.write(value.state_dir.replace(/\/state$/, ""));
+  ' "$fixture/start.json")"
+  server_pid="$(node -e '
+    const fs = require("fs");
+    process.stdout.write(String(JSON.parse(fs.readFileSync(process.argv[1], "utf8")).pid));
+  ' "$session/state/server-control.json")"
+
+  output="$(HOME="$home" "$SCRIPT" "$session")" || got=$?
+  for _ in {1..30}; do
+    if ! kill -0 "$server_pid" 2>/dev/null; then
+      break
+    fi
+    sleep 0.1
+  done
+  second="$(HOME="$home" "$SCRIPT" "$session")"
+  if [ "$got" -eq 0 ] && [[ "$output" == *'"status":"stopped"'* ]] &&
+    ! kill -0 "$server_pid" 2>/dev/null && [ ! -e "$session" ] &&
+    [[ "$second" == *'"status":"not_running"'* ]]; then
+    pass "$name"
+  else
+    fail "$name" "exit=$got output=$output pid=$server_pid"
+  fi
+  server_pid=""
+  cleanup
+}
+
+run_missing_twice() {
+  local name='a missing session is idempotent not_running'
+  local session first second
+  fixture="$(mktemp -d "${TMPDIR:-/tmp}/brainstorm-stop-test.XXXXXX")"
+  session="$fixture/gone"
+  first="$("$SCRIPT" "$session")"
+  second="$("$SCRIPT" "$session")"
+  if [[ "$first" == *'"status":"not_running"'* ]] && [ "$first" = "$second" ]; then
+    pass "$name"
+  else
+    fail "$name" "first=$first second=$second"
+  fi
+  cleanup
+}
+
+run_malformed_preserved() {
+  local name='malformed present metadata fails closed and survives'
+  local session record output got=0
+  fixture="$(mktemp -d "${TMPDIR:-/tmp}/brainstorm-stop-test.XXXXXX")"
+  session="$fixture/session"
+  record="$session/state/server-control.json"
+  mkdir -p "$session/state"
+  printf '{broken\n' >"$record"
+  chmod 600 "$record"
+  output="$("$SCRIPT" "$session")" || got=$?
+  if [ "$got" -ne 0 ] && [[ "$output" == *'"status":"failed"'* ]] && [ -f "$record" ]; then
+    pass "$name"
+  else
+    fail "$name" "exit=$got output=$output record_exists=$([ -f "$record" ] && echo yes || echo no)"
+  fi
+  cleanup
+}
+
+run_marker_failure_exits_and_preserves() {
+  local name='stopped-marker failure exits and preserves metadata for stale cleanup'
+  local home output record second session state got=0 second_got=0
+  fixture="$(mktemp -d "${TMPDIR:-/tmp}/brainstorm-stop-test.XXXXXX")"
+  home="$fixture/home"
+  mkdir -p "$home"
+
+  HOME="$home" "$START_SCRIPT" --background >"$fixture/start.json"
+  session="$(node -e '
+    const fs = require("fs");
+    const value = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+    process.stdout.write(value.state_dir.replace(/\/state$/, ""));
+  ' "$fixture/start.json")"
   state="$session/state"
-  mkdir -p "$state"
-  printf '%s\n' "$id" >"$state/server-instance-id"
+  record="$state/server-control.json"
+  server_pid="$(node -e '
+    const fs = require("fs");
+    process.stdout.write(String(JSON.parse(fs.readFileSync(process.argv[1], "utf8")).pid));
+  ' "$record")"
 
-  bash -c 'exec -a "$0" sleep 300' "--brainstorm-server-id=$id" &
-  fake_pid=$!
-  printf '%s\n' "$fake_pid" >"$state/server.pid"
+  chmod 500 "$state"
+  output="$(HOME="$home" "$SCRIPT" "$session")" || got=$?
+  for _ in {1..30}; do
+    if ! kill -0 "$server_pid" 2>/dev/null; then
+      break
+    fi
+    sleep 0.1
+  done
+  chmod 700 "$state"
+  if [ "$got" -ne 0 ] && [[ "$output" == *'"status":"failed"'* ]] &&
+    ! kill -0 "$server_pid" 2>/dev/null && [ -f "$record" ]; then
+    second="$(HOME="$home" "$SCRIPT" "$session")" || second_got=$?
+    if [ "$second_got" -eq 0 ] && [[ "$second" == *'"status":"stale_pid"'* ]] &&
+      [ ! -e "$record" ]; then
+      pass "$name"
+    else
+      fail "$name" "second_exit=$second_got second=$second record_exists=$([ -f "$record" ] && echo yes || echo no)"
+    fi
+  else
+    fail "$name" "exit=$got output=$output pid=$server_pid record_exists=$([ -f "$record" ] && echo yes || echo no)"
+  fi
+  server_pid=""
+  cleanup
+}
 
-  got="$(LC_ALL="${utf8_locale:-C}" "$SCRIPT" "$session" 2>&1 || true)"
-
-  case "$got" in
-  *"\"status\": \"$want\""*)
-    passed=$((passed + 1))
-    printf '  ok   %s\n' "$name"
-    ;;
-  *)
-    failed=$((failed + 1))
-    printf '  FAIL %s (wanted status %s, got: %s)\n' "$name" "$want" "$got"
-    ;;
-  esac
-
+run_proven_unrelated() {
+  local name='exact Linux argv proof preserves an unrelated process'
+  local session record output got=0
+  if [ ! -r /proc/self/cmdline ]; then
+    printf '  skip %s: /proc argv boundaries unavailable\n' "$name"
+    return
+  fi
+  fixture="$(mktemp -d "${TMPDIR:-/tmp}/brainstorm-stop-test.XXXXXX")"
+  session="$fixture/session"
+  record="$session/state/server-control.json"
+  mkdir -p "$session/state"
+  sleep 300 &
+  server_pid=$!
+  printf '{"version":1,"pid":%s,"server_id":"%s","session_dir":"%s","project_key":null,"control_port":49152,"control_token":"%s"}\n' \
+    "$server_pid" "$(printf 'a%.0s' {1..32})" "$session" "$(printf 'b%.0s' {1..64})" >"$record"
+  chmod 600 "$record"
+  output="$("$SCRIPT" "$session")" || got=$?
+  if [ "$got" -eq 0 ] && [[ "$output" == *'"status":"stale_pid"'* ]] &&
+    kill -0 "$server_pid" 2>/dev/null && [ ! -e "$record" ]; then
+    pass "$name"
+  else
+    fail "$name" "exit=$got output=$output"
+  fi
   cleanup
 }
 
 main() {
   printf 'stop-server.sh\n\n'
-  # 32 characters each, so the {32,64} bound is satisfied and the character class
-  # is the only thing left to decide the outcome. The ASCII case is the control
-  # that proves this harness reaches the kill path at all -- without it a case
-  # that failed for any other reason would report stale_pid and look correct.
-  run_case "ASCII server id stops the server" \
-    "abcd0123456789012345678901234567" stopped
-  # Written as a range the guard admits the accented id under a territory UTF-8
-  # locale, and stop-server.sh signals a process it has not actually identified.
-  run_case "accented server id is not a match" \
-    "abéc0123456789012345678901234567" stale_pid
-
+  run_authenticated_stop
+  run_missing_twice
+  run_malformed_preserved
+  run_marker_failure_exits_and_preserves
+  run_proven_unrelated
   printf '\n%d passed, %d failed\n' "$passed" "$failed"
   [ "$failed" -eq 0 ]
 }
