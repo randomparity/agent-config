@@ -32,7 +32,7 @@ There are three event contracts:
 
 | Event | Repository entry point | Required behavior |
 |---|---|---|
-| Commit | `just commit-check -- <staged paths>` | Select focused recipes or fail closed to `just ci` |
+| Commit | `just commit-check` | Select focused recipes or fail closed to `just ci` |
 | Branch push | `just ci` | Time and run `just verify` exactly once |
 | GitHub CI leg | `just ci` | Use the identical thorough path as branch push |
 
@@ -41,18 +41,23 @@ There are three event contracts:
 verification was selected and the elapsed whole-suite time. GitHub's two operating-system legs
 therefore retain the existing portability coverage without recursively invoking the full suite.
 
-The prek configuration has separate stage-scoped hooks. Pre-commit passes filenames to
-`just commit-check --`; pre-push passes no filenames and invokes `just ci`. The repository
-`hooks` recipe installs both shims explicitly, and `install-tools.sh` delegates hook setup to
-that recipe after confirming Just is available. Full verification dry-runs both configured
-stages so malformed configuration or a missing stage fails without executing either hook.
+The prek configuration has separate stage-scoped hooks. Pre-commit uses `always_run`, passes no
+filenames, and invokes `just commit-check` once; pre-push also passes no filenames and invokes
+`just ci`. The repository `hooks` recipe installs both shims explicitly, and `install-tools.sh`
+delegates hook setup to that recipe after confirming Just is available. Full verification
+dry-runs both configured stages so malformed configuration or a missing stage fails without
+executing either hook.
 
 ## Commit selector
 
-`scripts/select-verification.sh` accepts staged paths as positional arguments. It classifies each
-path with quoted `case` patterns, accumulates fixed Just recipe names, deduplicates them in stable
-order, then invokes and times each recipe. It never evaluates a path or constructs a recipe name
-from path text. Selection output names recipes, not contributor-controlled paths.
+`scripts/select-verification.sh` derives the complete staged set in one process with
+`git diff --cached --name-only -z --no-renames`. Disabling rename detection makes a rename appear
+as its old deleted path and new added path, so either endpoint can trigger full fallback. NUL
+delimiters preserve every valid Git pathname without shell splitting or argument-size batching.
+The selector classifies each path with quoted `case` patterns, accumulates fixed Just recipe
+names, deduplicates them in stable order, then invokes and times each recipe. It never evaluates a
+path or constructs a recipe name from path text. Selection output names recipes, not
+contributor-controlled paths.
 
 The first policy version deliberately maps only surfaces with a clear owning gate:
 
@@ -73,9 +78,10 @@ suite-coverage gate machinery, a mixture containing both focused and full-risk p
 unmapped path. The fallback is intentionally broader than the initial focused map. New surfaces
 become cheap only with a regression case proving their owning checks.
 
-Zero paths is a successful no-op because no staged content exists to verify. Duplicate paths and
-overlapping categories run each recipe once. A focused recipe failure stops the hook immediately
-and preserves its exit status. Elapsed seconds are printed after each successful recipe; timing is
+Zero paths is a successful no-op because no staged content exists to verify. Deleted paths remain
+in the staged set, and both endpoints of a rename are classified. Duplicate paths and overlapping
+categories run each recipe once. A focused recipe failure stops the hook immediately and
+preserves its exit status. Elapsed seconds are printed after each successful recipe; timing is
 never asserted numerically by tests.
 
 ## Failure handling
@@ -93,10 +99,11 @@ never asserted numerically by tests.
 
 The added boundary is contributor-controlled staged pathname data entering a local pre-commit
 process. The actors are repository contributors who can propose unusual filenames and the local
-operator or CI job executing repository commands. Positional arguments remain quoted; matching is
-through literal shell patterns; selected recipe names come from a fixed allowlist; no `eval`, word
-re-parsing, pathname execution, or path-derived command construction is allowed. Logs report only
-fixed recipe names, preventing terminal-control text in a filename from entering output.
+operator or CI job executing repository commands. Git emits one NUL-delimited, no-rename staged
+set; each path remains quoted after reading; matching is through literal shell patterns; selected
+recipe names come from a fixed allowlist; no `eval`, word re-parsing, pathname execution, or
+path-derived command construction is allowed. Logs report only fixed recipe names, preventing
+terminal-control text in a filename from entering output.
 
 The pre-push boundary receives Git ref updates from Git but intentionally ignores them and runs a
 fixed `just ci` command. Hook installation crosses the existing local-tool boundary governed by
@@ -109,18 +116,20 @@ CI remains the independent full-verification backstop for hook bypass.
 
 ## Regression proof
 
-The selector test uses a fake `just` executable and disposable path arguments. It proves ordinary
-prose, record files, representative known shell families, projection content, duplicate paths,
-and multi-file focused changes select the intended recipes once and in stable order. It proves
-global recipes, shared contracts, hook configuration, selector policy, workflows, unknown paths,
-and mixed focused/global changes invoke `ci` exactly once. A crafted filename containing spaces,
-shell metacharacters, and terminal-control text must neither execute nor appear in output.
+The selector test uses a fake `just` executable and a disposable Git repository. It proves
+ordinary prose, record files, representative known shell families, projection content, duplicate
+categories, and multi-file focused changes select the intended recipes once and in stable order.
+It proves global recipes, shared contracts, hook configuration, selector policy, workflows,
+unknown paths, deletions, either endpoint of a rename, a large staged set, and mixed
+focused/global changes invoke `ci` exactly once. A crafted filename containing spaces, shell
+metacharacters, and terminal-control text must neither execute nor appear in output.
 
-The test also proves a focused failure is propagated and later recipes stop. Configuration checks
-prove pre-commit passes filenames to `commit-check`, pre-push invokes `ci` without filenames, and
-hook setup installs both stages. A dry-run or fake-command integration case proves `just ci`
-invokes `just verify` once and never invokes a prek hook. Output assertions require selection and
-elapsed-time labels but do not compare duration values.
+The test also proves an empty staged set is a no-op, a focused failure is propagated, and later
+recipes stop. Configuration checks prove pre-commit always runs `commit-check` without filenames,
+pre-push invokes `ci` without filenames, and hook setup installs both stages. A dry-run or
+fake-command integration case proves `just ci` invokes `just verify` once and never invokes a prek
+hook. Output assertions require selection and elapsed-time labels but do not compare duration
+values.
 
 Implementation follows TDD: first add red selector/configuration/CI-count cases, then implement
 the selector, recipes, stage configuration, setup wiring, and documentation. Focused tests and

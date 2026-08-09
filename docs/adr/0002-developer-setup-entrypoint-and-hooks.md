@@ -4,6 +4,8 @@
 
 Accepted (2026-07-31)
 
+> **Superseded by [0036](0036-stage-verification-by-git-event.md)** (2026-08-09)
+
 ## Context
 
 This public repo needs a repeatable path for contributors to install local

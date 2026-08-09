@@ -27,10 +27,12 @@ complete guardrail command.
 Keep `just verify` as the complete repository suite, but refine ADR 0002 by selecting the
 command according to the Git event.
 
-- The pre-commit hook passes staged paths to a repository-owned selector. The selector maps
-  known, isolated surfaces to focused Just recipes, reports the selected recipes and their
-  elapsed time, and invokes only fixed recipe names. An empty change does no work. Any global,
-  shared-contract, hook-configuration, mixed-risk, or unknown path selects `just ci` instead.
+- The pre-commit hook always runs one repository-owned selector without passing framework file
+  batches. The selector atomically derives the complete staged path set from Git with rename
+  detection disabled so both rename endpoints appear. It maps known, isolated surfaces to
+  focused Just recipes, reports the selected recipes and their elapsed time, and invokes only
+  fixed recipe names. An empty change does no work. Any global, shared-contract,
+  hook-configuration, mixed-risk, or unknown path selects `just ci` instead.
 - The pre-push hook invokes `just ci` with no path filtering. GitHub Actions invokes the same
   `just ci` recipe. That recipe times one invocation of `just verify`; it never recursively
   executes the pre-commit hook.
@@ -38,7 +40,8 @@ command according to the Git event.
   recipe. Full verification validates that both configured stages parse without executing
   either hook.
 - Focused recipe mapping is tested as policy. Timing values are evidence in output, never
-  pass/fail thresholds.
+  pass/fail thresholds. Tests cover deletions, both rename endpoints, empty input, changes large
+  enough that framework argument batching would be unsafe, and mixed focused/full-risk changes.
 
 ## Consequences
 
