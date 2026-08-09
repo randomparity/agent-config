@@ -51,7 +51,7 @@ Ephemeral mode is selected solely by the absence of `--project-dir`; it installs
 session-local copy and never infers persistence from the canonical path. Failure before the stable
 commit or during
 the ephemeral copy closes both listeners and exits without readiness; persistent failure after the
-stable commit preserves that authoritative recovery record unless authenticated rollback succeeds.
+stable commit preserves that authoritative recovery record for stale recovery on the next start.
 
 Each rename is atomic; the pair is deliberately not described as a transaction. If publication
 fails, the server removes its prepared files, closes both listeners, and exits after emitting one
@@ -104,8 +104,11 @@ JSON result. No stale or failure path invokes `kill`.
 ### Controls
 
 - The brainstorm directory remains owner-only and metadata is atomically installed at mode 0600.
-  The helper rejects symlinks, non-regular files, oversized files, unknown versions, malformed
-  values, and mismatched session paths.
+  Before publication, the Node helper walks the canonical project root, `.agent`, and `brainstorm`
+  components with `lstat`; it rejects symlinks, ownership other than the effective user, and
+  group/world-writable modes. It likewise rejects symlink or non-regular metadata files, oversized
+  files, unknown versions, malformed values, and mismatched session paths. Publication fails closed
+  rather than placing a credential below replaceable ancestry.
 - The control listener binds `127.0.0.1` independently of the public bind host, rejects non-loopback
   peers, bounds body size and time, uses constant-time credential comparison, and validates the
   expected PID and server ID before shutdown.
@@ -132,6 +135,8 @@ identity stops it, mismatched PID/ID/token never does, and persistent cleanup ca
 active record in the supported serial path. Add focused cases for symlink, non-regular, oversized,
 unknown-version, type-invalid, and mismatched-session metadata; listener address inspection and
 loopback-address unit cases; oversized request bodies; and connection/response timeout bounds.
+Add project-root and metadata-directory cases for symlinked components, wrong ownership where the
+test host permits it, and group/world-writable modes; each must fail before credential publication.
 Inject a crash after stable installation but before session-copy installation and prove the next
 start discovers and stops that server. Fail each installation and assert the server closes both
 listeners, removes prepared files, and emits parseable JSON; where the stable record was installed,
