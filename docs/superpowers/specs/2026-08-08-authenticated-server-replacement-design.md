@@ -22,8 +22,9 @@ not authorize merge.
 ## Components and contract
 
 `server-control.cjs` is the sole metadata parser and stop client used by both shell scripts. Its
-version-1 JSON metadata contains `version`, `pid`, `server_id`, `session_dir`, `control_port`, and
-`control_token`. Metadata is at most 16 KiB. It accepts only a regular owner-readable file, an
+version-1 JSON metadata contains `version`, `pid`, `server_id`, `session_dir`, `project_key`,
+`control_port`, and `control_token`. `project_key` is the 64-character digest for persistent
+sessions and null for ephemeral sessions. Metadata is at most 16 KiB. It accepts only a regular owner-readable file, an
 absolute UTF-8 session path of at most 4096 bytes, PID 1..2147483647, port 1024..65535, an ASCII
 server ID of 32..64 characters, and an exact 64-character lowercase hexadecimal credential.
 Malformed input produces a JSON `stale` result and never throws raw output at shell callers.
@@ -73,7 +74,7 @@ metadata. `stopped`, `not_running`, `stale`, malformed, empty, missing, timeout,
 failures are all recoverable. The helper removes only the metadata path it was explicitly given;
 the successor then starts normally. `stop-server.sh <session_dir>` invokes the same helper on the
 session-local metadata. When stopping a persistent session, it conditionally removes the stable
-record only when its server ID matches the stopped session. This is stale-state hygiene, not an
+record addressed by `project_key` only when its PID and server ID match the stopped session. This is stale-state hygiene, not an
 atomic compare-and-delete guarantee: stable-record mutations have the same single-writer
 prerequisite, so callers do not overlap start, stop, or delayed cleanup for one project.
 

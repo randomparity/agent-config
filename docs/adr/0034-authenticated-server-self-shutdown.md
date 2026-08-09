@@ -17,8 +17,12 @@ verify-then-signal sequence also races process exit and PID reuse.
 The server process owns publication. After both its user listener and dedicated loopback control
 listener have bound, but before it emits readiness, it atomically installs owner-only active-server
 metadata. A publication failure closes both listeners and exits without reporting startup success.
-The authoritative stable record lives below the user's private state directory, keyed by the
-SHA-256 digest of the canonical project path, and pairs the PID,
+The authoritative record lives at
+`${XDG_STATE_HOME:-$HOME/.local/state}/superpowers/brainstorm/<project-key>.json`; an empty,
+relative, or unset `XDG_STATE_HOME` uses the default. `<project-key>` is the lowercase SHA-256
+digest of the canonical project's UTF-8 path bytes. The helper rejects symlink/non-directory,
+wrong-owner, or group/world-writable application-owned state components and fails closed on unsafe
+state ancestry. It creates missing application directories as `0700` and pairs the PID,
 per-start server identifier, session directory, control port, and a separate random control
 credential. It is installed before a session-local recovery copy so an interrupted publication
 still leaves the live server discoverable. Ephemeral `/tmp` sessions retain only session-local
@@ -28,6 +32,9 @@ cannot turn an ephemeral invocation into a persistent one. `start-server.sh` can
 the project directory to its physical
 absolute path after creating it; both scripts derive the stable record from that identity and the
 session directory returned by start remains the stop command's input.
+Both record copies use the same versioned schema and carry `project_key`; it is null for ephemeral
+sessions. `stop-server.sh` uses a non-null key to address stable state and removes that record only
+when its PID and server identifier still match the session copy.
 
 One shipped Node helper owns metadata validation and the stop request for both
 `start-server.sh` and `stop-server.sh`. It sends a bounded authenticated request containing the
@@ -38,6 +45,10 @@ An authenticated acknowledgement is successful shutdown and permits normal same-
 A timeout, refusal, or lost acknowledgement is not successful shutdown, but under the approved
 recovery policy it still permits startup through the normal bind/fallback path after predecessor
 metadata is handled as described below. Shell scripts never signal a PID from this metadata.
+The complete stop attempt has one non-resetting monotonic deadline covering connect, request,
+response, user-listener closure, and acknowledgement. Metadata and both wire directions have byte
+caps enforced before parsing; the server bounds request receive time and destroys lingering user
+connections before acknowledging port release.
 
 Missing, malformed, stale, or unreachable metadata is removed when owned by the caller and is
 treated as recoverable. An unreachable or unresponsive predecessor is not force-killed.
@@ -84,3 +95,7 @@ control route beyond localhost. A separate loopback listener preserves all suppo
 
 **Do nothing.** The existing session-local PID cannot locate a predecessor, so persistent restarts
 continue leaking servers and do not meet the required replacement behavior.
+
+**Keep credential state project-local.** A shared or replaceable project ancestor can redirect a
+check-then-publish sequence after validation. A user-private state root supplies the required
+credential boundary without changing the public CLI.
