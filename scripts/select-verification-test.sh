@@ -48,6 +48,7 @@ chmod +x "$BIN/just"
 
 CI_BIN="$SCRATCH/ci-bin"
 CI_LOG="$SCRATCH/ci.log"
+PREK_LOG="$SCRATCH/prek.log"
 mkdir -p "$CI_BIN"
 cat >"$CI_BIN/just" <<'EOF'
 #!/usr/bin/env bash
@@ -55,12 +56,32 @@ printf '%s\n' "$*" >>"$CI_LOG"
 [[ ${1:-} == verify ]]
 EOF
 chmod +x "$CI_BIN/just"
+cat >"$CI_BIN/prek" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"$PREK_LOG"
+exit 92
+EOF
+chmod +x "$CI_BIN/prek"
 : >"$CI_LOG"
-ci_output=$(PATH="$CI_BIN:$PATH" CI_LOG="$CI_LOG" "$JUST_BINARY" \
+: >"$PREK_LOG"
+ci_output=$(PATH="$CI_BIN:$PATH" CI_LOG="$CI_LOG" PREK_LOG="$PREK_LOG" "$JUST_BINARY" \
 	--working-directory "$ROOT" --justfile "$ROOT/Justfile" ci)
 [[ $(cat "$CI_LOG") == verify && $ci_output == *'verification selection: full ci'* &&
-$ci_output == *'verification total elapsed seconds:'* ]] || {
-	printf 'not ok - ci must invoke verify once and report timing\n' >&2
+$ci_output == *'verification total elapsed seconds:'* && ! -s $PREK_LOG ]] || {
+	printf 'not ok - ci must invoke verify once without prek and report timing\n' >&2
+	exit 1
+}
+
+ci_mutant="$SCRATCH/Justfile"
+awk '{ print; if ($0 == "  just verify") print "  prek run --dry-run" }' \
+	"$ROOT/Justfile" >"$ci_mutant"
+set +e
+PATH="$CI_BIN:$PATH" CI_LOG="$CI_LOG" PREK_LOG="$PREK_LOG" "$JUST_BINARY" \
+	--working-directory "$ROOT" --justfile "$ci_mutant" ci >/dev/null 2>&1
+ci_mutant_status=$?
+set -e
+[[ $ci_mutant_status == 92 && -s $PREK_LOG ]] || {
+	printf 'not ok - ci prek mutant should fail through the fake prek\n' >&2
 	exit 1
 }
 
