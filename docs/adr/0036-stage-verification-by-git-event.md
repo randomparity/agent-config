@@ -14,8 +14,8 @@ commit-time evidence.
 
 Issue #93 requires cheap, focused commit checks without an inordinate loss of coverage. The
 operator additionally requires branch pushes to be thorough and to use the same command as
-GitHub CI. Global recipes, shared contracts, hook configuration, and unclassified paths must
-continue to fail closed to full verification.
+GitHub CI. Commit checks are an early-feedback optimization; branch push and CI are the proof
+boundary.
 
 ADR 0002 remains authoritative for tool bootstrap, platform detection, package-manager
 precedence, pinned fallbacks, and actionable setup failures. This record replaces only its
@@ -31,8 +31,9 @@ command according to the Git event.
   batches. The selector atomically derives the complete staged path set from Git with rename
   detection disabled so both rename endpoints appear. It maps known, isolated surfaces to
   focused Just recipes, reports the selected recipes and their elapsed time, and invokes only
-  fixed recipe names. An empty change does no work. Any global, shared-contract,
-  hook-configuration, mixed-risk, or unknown path selects `just ci` instead.
+  fixed recipe names. An empty change does no work. Unclassified paths are reported and deferred
+  to the mandatory full branch-push and CI checks instead of making a local commit run the full
+  suite.
 - The pre-push hook validates Git's ref-update input before invoking `just ci` with no path
   filtering. It collects non-delete remote branch objects and requires one distinct commit per
   push. It checks that immutable object in an isolated disposable worktree, so concurrent source
@@ -43,12 +44,12 @@ command according to the Git event.
 - `just setup` installs both pre-commit and pre-push shims through the repository `hooks`
   recipe. Full verification validates that both configured stages parse without executing
   either hook.
-- A path is eligible for focused verification only when the mapping includes every complete-suite
-  recipe whose result can observe or be affected by that path; an unproven mapping selects
-  `just ci`. Deterministic policy tests assert each focused mapping's entire selected recipe set.
-  Timing values are evidence in output, never pass/fail thresholds. Tests also cover deletions,
-  both rename endpoints, empty input, changes large enough that framework argument batching would
-  be unsafe, mixed focused/full-risk changes, dirty worktrees, and unsupported push ref shapes.
+- The commit selector owns a small explicit path-to-recipe policy, not a dependency-coverage
+  proof. Markdown receives prose checks, ADR/debt records additionally receive record checks, and
+  executable tooling receives only its declared focused checks. Deterministic selector tests
+  cover those mappings, near misses, deletions, both rename endpoints, empty input, large changes,
+  dirty worktrees, and unsupported push ref shapes. Timing values are evidence in output, never
+  pass/fail thresholds.
 
 ## Consequences
 
@@ -60,10 +61,12 @@ command according to the Git event.
   ref or dirty state. It rejects pushes containing different branch trees; non-branch ref updates
   remain unaffected. Creating and removing the isolated worktree adds bounded setup cost around
   the already-required complete suite.
-- New or moved paths initially cost a full verification until the tested selector policy is
-  deliberately extended.
+- New or moved paths receive no speculative focused check until the tested selector policy is
+  deliberately extended; the next push and CI still run full verification.
 - The selector and its path map become part of the repository verification contract and must
   run in the repository's supported local-hook environments.
+- Commit checks may miss cross-cutting effects by design. They are useful feedback, not evidence
+  that a branch is ready to push or merge.
 
 ## Considered & rejected
 

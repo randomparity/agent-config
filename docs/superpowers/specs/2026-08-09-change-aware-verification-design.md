@@ -4,9 +4,11 @@
 
 Issue #93 asks the repository to reduce verification time without inordinately reducing
 coverage. The operator clarified that local commits should be cheap, while a branch push should
-be thorough and identical to the GitHub CI workflow. The issue also requires global recipes,
-shared contracts, hook configuration, and unmapped files to fail closed to full verification;
-central repository recipes; selection and timing output; and deterministic regression coverage.
+be thorough and identical to the GitHub CI workflow. After implementation exposed an unbounded
+dependency-inventory closure in this prose-heavy repository, the operator approved treating
+commit checks as best-effort feedback and branch push/CI as the proof boundary. The design still
+requires central repository recipes, selection and timing output, and deterministic regression
+coverage for declared mappings.
 
 This design excludes wall-clock pass/fail thresholds and any weakening of branch-push or GitHub
 CI verification. It permits changes to hook setup and configuration, Justfile recipes, a
@@ -32,7 +34,7 @@ There are three event contracts:
 
 | Event | Repository entry point | Required behavior |
 |---|---|---|
-| Commit | `just commit-check` | Select focused recipes or fail closed to `just ci` |
+| Commit | `just commit-check` | Run declared focused recipes; defer unclassified paths |
 | Branch push | `just push-check` | Validate pushed branch refs, then invoke `just ci` once |
 | GitHub CI leg | `just ci` | Use the identical thorough path as branch push |
 
@@ -70,52 +72,45 @@ with quoted `case` patterns, accumulates fixed Just recipe names, deduplicates t
 then invokes and times each recipe. It never evaluates a path or constructs a recipe name from
 path text. Selection output names recipes, not contributor-controlled paths.
 
-The first policy version deliberately maps only these exact, direct-child surfaces. For each
-directory pattern below, the selector removes the literal directory prefix and accepts the suffix
-only when it is non-empty, contains no `/`, and ends in `.md`; Bash `case` globbing alone is not a
-one-path-segment proof.
+The first policy maps broad prose categories and a small set of executable ownership boundaries.
+Markdown below `docs/` receives repository prose checks regardless of nesting. ADR and debt files
+add their record-specific gate. Executable paths receive focused tests only where ownership is
+explicit; other paths are reported as deferred to push/CI.
 
 | Staged path pattern | Complete focused recipe set | Evidence |
 |---|---|---|
-| `docs/superpowers/specs/*.md` | `public-safety references-check` | Both scripts scan tracked prose; no other `verify` recipe consumes spec files |
-| `docs/superpowers/plans/*.md` | `public-safety references-check` | Both scripts scan tracked prose; no other `verify` recipe consumes plan files |
-| `docs/adr/*.md` | `records public-safety references-check` | `records` owns ADRs; both repository-wide prose checks also observe them |
-| `docs/debt/*.md` | `records public-safety references-check` | `records` owns debt; both repository-wide prose checks also observe it |
+| `docs/**/*.md` | `public-safety references-check` | These are the repository's prose-wide validation contracts |
+| `docs/adr/**/*.md` | `records public-safety references-check` | `records` adds ADR-specific validation |
+| `docs/debt/**/*.md` | `records public-safety references-check` | `records` adds debt-specific validation |
 | `scripts/check-public-safety.sh` | `lint format-check test-public-safety suites-check public-safety` | Shell recipes and suite reachability observe the source; its fixture and live gate prove behavior |
 | `scripts/check-public-safety-test.sh` | `lint format-check test-public-safety suites-check` | Shell recipes, the focused fixture, and suite reachability observe the test |
 
-A focused mapping is valid only when its policy row accounts for every complete-suite recipe that
-can observe or be affected by the path. A human-reviewed observer manifest records every `verify`
-dependency, a `git hash-object` fingerprint of its normalized `just --dry-run` command inventory,
-and fingerprints of the transitive repository implementation paths that command invokes. The
-independent policy-coverage fixture fails when a dependency, command, or declared implementation
-changes until the observer inventory is reviewed and updated. It also rejects a dry-run-named
-repository script absent from the manifest. Selector tests separately assert every row's entire
-selected recipe set. If the observer set cannot be established from recipe inputs and guardrail
-contracts, the path remains unmapped and selects `just ci`.
+The mapping is deliberately not a source-coverage claim. Selector tests assert each declared
+category's recipe set, overlaps, near misses, deletions, and rename endpoints. They do not attempt
+to fingerprint every transitive helper, copied fixture, glob input, or prose contract. That model
+has no stable boundary here and would make ordinary changes require manual manifest churn.
 
 `Justfile` exposes focused recipes for existing individual suites so the selector never embeds
 raw test commands. Shared command strings are held once and expanded by both the focused recipe
 and the complete `test` recipe, preserving the existing suite-reachability gate's dry-run view.
 
-The following select `just ci` immediately: `Justfile`, `.pre-commit-config.yaml`, workflow and
-tool-installation files, the selector or its policy test, shared instruction contracts, record or
-suite-coverage gate machinery, a mixture containing both focused and full-risk paths, and every
-unmapped path. The fallback is intentionally broader than the initial focused map. New surfaces
-become cheap only with a regression case proving their owning checks.
+Unmapped paths do not select `just ci` during commit. The selector reports that they are deferred,
+runs any focused recipes selected by other staged paths, and exits successfully if those recipes
+pass. New surfaces receive a focused mapping only with a regression case proving that declared
+ownership. Full `just ci` remains mandatory on branch push and in GitHub CI.
 
 Zero paths is a successful no-op because no staged content exists to verify. Deleted paths remain
 in the staged set, and both endpoints of a rename are classified. Duplicate paths and overlapping
 categories run each recipe once. A focused recipe failure stops the hook immediately and
 preserves its exit status. Elapsed seconds are printed after each successful recipe; timing is
-never asserted numerically by tests. Nested markdown paths beneath each mapped directory are
-near-miss fixtures and must select `just ci`.
+never asserted numerically by tests. Nested Markdown remains prose and receives the same prose
+checks.
 
 ## Failure handling
 
 - An unavailable required tool fails through the selected recipe with its existing actionable
   diagnostic.
-- An unknown, global, or shared path reports the full-verification reason and runs `just ci`.
+- An unclassified commit path reports that it is deferred to push/CI and does not run `just ci`.
 - A staged-path enumeration failure reports that Git could not read the index and exits nonzero;
   it never falls through to the successful empty-change path.
 - If one focused check fails, later checks do not run; the failing command's output remains intact.
@@ -160,11 +155,11 @@ CI remains the independent full-verification backstop for hook bypass.
 ## Regression proof
 
 The selector test uses a fake `just` executable and a disposable Git repository. It proves
-ordinary prose, record files, the public-safety shell family, duplicate
+ordinary and nested prose, record files, the public-safety shell family, duplicate
 categories, and multi-file focused changes select the intended recipes once and in stable order.
-It proves global recipes, shared contracts, hook configuration, selector policy, workflows,
-unknown paths, deletions, either endpoint of a rename, a large staged set, and mixed
-focused/global changes invoke `ci` exactly once. A crafted filename containing spaces, shell
+It proves global recipes, shared contracts, hook configuration, workflows, unknown paths,
+deletions, either endpoint of a rename, a large staged set, and mixed classified/unclassified
+changes are deferred without invoking `ci`. A crafted filename containing spaces, shell
 metacharacters, and terminal-control text must neither execute nor appear in output.
 
 The push-wrapper fixture supplies Git-shaped ref lines and a disposable source repository. It
@@ -179,9 +174,8 @@ failure is propagated, and later recipes stop. Configuration checks prove pre-co
 pre-push shim. Installation fixtures cover a missing destination, an owned-shim update, a foreign
 existing hook that remains byte-identical, and a destination resolved through `core.hooksPath`. A
 disposable repository invokes the installed native shim with multiple Git-shaped standard-input
-lines, proving it preserves the complete stream to `push-check` and reaches `ci` exactly once. The
-observer-policy fixture mutates a directly invoked guard script without changing its Just command
-and proves the stale manifest fails. A fake-command integration case separately proves `just ci`
+lines, proving it preserves the complete stream to `push-check` and reaches `ci` exactly once. A
+fake-command integration case separately proves `just ci`
 invokes `just verify` once and never invokes a prek hook. Output assertions require selection and
 elapsed-time labels but do not compare duration values.
 
