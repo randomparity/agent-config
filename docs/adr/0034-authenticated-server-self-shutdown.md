@@ -46,9 +46,11 @@ session directory returned by start remains the stop command's input.
 Both record copies use the same versioned schema and carry `project_key`; it is null for ephemeral
 sessions. `stop-server.sh` uses a non-null key to address stable state and removes that record only
 when its PID and server identifier still match the session copy.
+Both copies are atomically installed at `0600`. Reads accept only regular, effective-user-owned
+files that are owner-readable and have no group or world permissions.
 Stable reads also require the record key to equal the requested filename key. Session reads require
 `session_dir` to equal the canonical supplied session directory; ephemeral session records require
-a null key. Any mismatch is stale recovery and sends no stop request.
+a null key. Any mismatch sends no stop request.
 
 One shipped Node helper owns metadata validation and the stop request for both
 `start-server.sh` and `stop-server.sh`. It sends a bounded authenticated request containing the
@@ -64,16 +66,22 @@ response, user-listener closure, and acknowledgement. Metadata and both wire dir
 caps enforced before parsing; the server bounds request receive time and destroys lingering user
 connections before acknowledging port release.
 
-Missing, malformed, stale, or unreachable metadata is removed when owned by the caller and is
-treated as recoverable. An unreachable or unresponsive predecessor is not force-killed.
+The helper shares parsing, validation, liveness probing, and the authenticated request across both
+shell callers, but applies their distinct lifecycle dispositions. Persistent start removes the
+stable path it supplied after missing, malformed, stale, unreachable, or unresponsive predecessor
+state and continues without force-killing. Session stop maps a missing record to `not_running`, a
+successful authenticated acknowledgement to `stopped`, and a confirmed-absent PID to `stale_pid`.
+If a present record cannot be parsed, validated, read, or authenticated while its PID is live or
+liveness is indeterminate, stop preserves both records and returns an actionable nonzero JSON
+failure. Neither caller signals a PID.
 
 ## Consequences
 
 Replacement is portable across macOS and Linux without parsing process command lines or risking
 a recycled PID. It also works when the user-facing server binds beyond loopback because control
 uses a separate loopback listener. The private metadata becomes a versioned local contract. Its
-directory remains mode `0700`, its record remains `0600`, and parsing and deadlines have fixed
-bounds.
+private directory remains mode `0700`, both records remain `0600`, and parsing and deadlines have
+fixed bounds.
 The control credential comes from 32 bytes of Node cryptographic randomness. Its generator is an
 injectable internal function boundary solely so deterministic tests can prove the exact RNG call;
 the CLI and metadata schema do not expose that seam.
