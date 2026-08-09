@@ -149,6 +149,14 @@ assert_context "$(printf '%s\n' $'HOST_ARCHITECTURE\tdetection failed (uname-mis
 	$'TARGET_ARCHITECTURES\tx86_64' $'TARGET_ARCHITECTURES\tarm64' \
 	$'ARCHITECTURE_RELATIONSHIP\tunresolved-target-conflict')" \
 	detection-failed uname-missing conflict x86_64 arm64
+unsupported_none="$(printf '%s\n' $'HOST_ARCHITECTURE\tunsupported (riscv64)' \
+	$'TARGET_ARCHITECTURES\tnone declared' \
+	$'ARCHITECTURE_RELATIONSHIP\thost-unresolved')"
+assert_context "$unsupported_none" unsupported riscv64 none
+assert_context "$(printf '%s\n' $'HOST_ARCHITECTURE\tdetection failed (uname-missing)' \
+	$'TARGET_ARCHITECTURES\tnone declared' \
+	$'ARCHITECTURE_RELATIONSHIP\thost-unresolved')" \
+	detection-failed uname-missing none
 
 later_context="$FIXTURE/later-context"
 "$RESOLVER" ok arm64 declared x86_64 ppc64le >"$later_context"
@@ -178,6 +186,21 @@ assert_resolver_error 'empty target' 'target declarations must not be blank' \
 	ok x86_64 declared ''
 assert_resolver_error 'whitespace target' 'target declarations must not be blank' \
 	ok x86_64 conflict x86_64 '   '
+assert_resolver_error 'insufficient arguments' \
+	'usage: <ok|unsupported|detection-failed> <host-value> <conflict|none|declared> [targets...]' \
+	ok x86_64
+assert_resolver_error 'unknown host status' 'unknown host status: unknown' \
+	unknown x86_64 none
+assert_resolver_error 'unknown target state' 'unknown target state: unknown' \
+	ok x86_64 unknown
+assert_resolver_error 'declared without targets' \
+	'declared target state requires at least one target' ok x86_64 declared
+assert_resolver_error 'none with targets' 'none target state does not accept targets' \
+	ok x86_64 none arm64
+assert_resolver_error 'conflict with one declaration' \
+	'conflict target state requires at least two declarations' ok x86_64 conflict arm64
+assert_resolver_error 'target control' \
+	'target declarations must be printable record fields' ok x86_64 declared $'arm\n64'
 
 mutated_resolver="$FIXTURE/mutated-resolver"
 cp "$RESOLVER" "$mutated_resolver"
@@ -186,6 +209,26 @@ chmod +x "$mutated_resolver"
 mutated_output="$("$mutated_resolver" ok x86_64 declared amd64 arm64)"
 if [[ "$mutated_output" == *$'ARCHITECTURE_RELATIONSHIP\tincluded'* ]]; then
 	fail 'relationship mutation unexpectedly preserved the included result'
+fi
+
+priority_mutant="$FIXTURE/priority-mutant"
+awk '
+	index($0, "elif [[ \"$host_status\" != ok ]]") {
+		print "elif [[ \"$target_state\" == none ]]; then"
+		print "\trelationship=no-target-declared"
+		getline
+		getline
+		getline
+		print "elif [[ \"$host_status\" != ok ]]; then"
+		print "\trelationship=host-unresolved"
+		next
+	}
+	{ print }
+' "$RESOLVER" >"$priority_mutant"
+chmod +x "$priority_mutant"
+priority_output="$("$priority_mutant" unsupported riscv64 none)"
+if [[ "$priority_output" == "$unsupported_none" ]]; then
+	fail 'priority 2/3 mutation unexpectedly passed the degraded-none contract'
 fi
 
 preflight="$ROOT/content/skills/preflight/SKILL.md"
