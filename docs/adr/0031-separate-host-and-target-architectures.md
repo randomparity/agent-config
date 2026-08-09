@@ -22,7 +22,9 @@ and override global defaults.
 Preflight owns host detection and normalizes common machine names to `x86_64`, `arm64`,
 `ppc64le`, or `s390x`. A helper beside the canonical preflight skill performs that
 deterministic normalization. For an unsupported host it returns a non-success detection
-status together with the raw machine value. Preflight records that unsupported/raw value
+status together with the raw machine value. A detection failure instead identifies why
+`uname -m` could not produce a value. Success, unsupported input, and detection failure
+have distinct machine-readable payloads and exit statuses. Preflight records the payload
 and continues architecture-insensitive work; only architecture-sensitive generation,
 build, or verification stops with an actionable diagnostic.
 
@@ -33,6 +35,14 @@ remains effective under that precedence. Contradictory effective declarations ar
 unresolved and stop target-sensitive work for project-owner clarification; silence is
 recorded as `none declared`. Preflight never infers a target from the host or replaces a
 declared target with the detected host.
+
+Preflight derives the architecture relationship with one precedence-ordered function.
+Contradictory effective targets produce `unresolved-target-conflict`; otherwise an
+unsupported or undetected host produces `host-unresolved`; otherwise no declaration
+produces `no-target-declared`; otherwise membership of the normalized host in the
+normalized target set produces `included`, and non-membership produces `different`.
+Recognized target aliases use the host normalization table for comparison without
+rewriting their recorded declarations.
 
 The global Claude, Codex, and Bob projections state the same separation rule. Contract
 tests exercise host normalization and assert that the canonical workflow and all native
