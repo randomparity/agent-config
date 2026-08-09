@@ -21,14 +21,18 @@ and override global defaults.
 
 Preflight owns host detection and normalizes common machine names to `x86_64`, `arm64`,
 `ppc64le`, or `s390x`. A helper beside the canonical preflight skill performs that
-deterministic normalization and fails with the raw machine name when it cannot recognize
-the host.
+deterministic normalization. For an unsupported host it returns a non-success detection
+status together with the raw machine value. Preflight records that unsupported/raw value
+and continues architecture-insensitive work; only architecture-sensitive generation,
+build, or verification stops with an actionable diagnostic.
 
 Project-local instruction and policy files are authoritative for declared target
-architectures. Preflight records the normalized host and those declared targets as
-separate fields before architecture-sensitive generation, build, or verification. It
-does not infer a target from the host and does not replace declared targets with the
-detected host.
+architectures. Each agent applies its native applicable-instruction precedence to decide
+which project policy is effective. Preflight records every target declaration that
+remains effective under that precedence. Contradictory effective declarations are
+unresolved and stop target-sensitive work for project-owner clarification; silence is
+recorded as `none declared`. Preflight never infers a target from the host or replaces a
+declared target with the detected host.
 
 The global Claude, Codex, and Bob projections state the same separation rule. Contract
 tests exercise host normalization and assert that the canonical workflow and all native
@@ -41,8 +45,8 @@ projections carry the rule.
   agent.
 - Projects that need explicit targets must state them in their local instructions or
   policy; no new configuration format is introduced.
-- An unrecognized host stops architecture-sensitive work with an actionable diagnostic
-  instead of silently assuming compatibility.
+- An unrecognized host remains visible without blocking unrelated work, while
+  architecture-sensitive work stops instead of silently assuming compatibility.
 - This decision provides awareness only. Cross-compilation, emulation, and
   multi-architecture CI remain outside its scope.
 

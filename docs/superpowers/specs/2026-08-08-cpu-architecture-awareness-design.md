@@ -23,13 +23,17 @@ normalized value:
 | `ppc64le` | `ppc64le` |
 | `s390x` | `s390x` |
 
-Any other or empty value is an error that names the observed value and asks the operator
-to update the preflight detector before architecture-sensitive work. The helper has no
-target input: this keeps observation structurally separate from intent.
+Any other or empty value is an unsupported observation. The helper returns a non-success
+detection status and exposes the raw value (`<empty>` for empty output). Preflight captures
+that value, records the host as unsupported, and continues architecture-insensitive work.
+Before architecture-sensitive work, it asks the operator to update the detector. The
+helper has no target input: this keeps observation structurally separate from intent.
 
-Preflight runs the helper during environment discovery. It then reads applicable
-project-local instruction and policy files, which are authoritative for declared targets,
-and records three distinct findings in the task plan or workflow state:
+Preflight runs the helper during environment discovery. Each agent applies its native
+applicable-instruction precedence to determine which project-local instruction and policy
+files are effective. Those effective files are authoritative for declared targets.
+Preflight records every effective target declaration and three distinct findings in the
+task plan or workflow state:
 
 - `HOST_ARCHITECTURE`: the helper's normalized observation;
 - `TARGET_ARCHITECTURES`: the declarations found in project-local policy, or `none
@@ -37,10 +41,12 @@ and records three distinct findings in the task plan or workflow state:
 - `ARCHITECTURE_RELATIONSHIP`: whether host and targets match, differ, or cannot be
   compared because no target was declared.
 
-Preflight never fills an absent target with the host and never drops a declared target
-because the current host differs. Before architecture-sensitive generation, build, or
-verification, the workflow reuses these recorded fields. If the requested operation needs
-a target and policy is silent or contradictory, it stops for project-owner clarification.
+Preflight records policy silence as `none declared`. It never fills an absent target with
+the host and never drops a declared target because the current host differs. Before
+architecture-sensitive generation, build, or verification, the workflow reuses these
+recorded fields. Contradictory effective declarations remain unresolved, and target-
+sensitive work stops for project-owner clarification. Work that requires a target also
+stops when effective policy is silent.
 
 ## Agent projections
 
@@ -57,13 +63,16 @@ configuration.
 
 ## Failure behavior
 
-- Missing `uname` or a non-zero `uname -m` call fails through the helper's strict shell
-  mode and prevents a false host claim.
-- An empty or unknown machine value produces a diagnostic containing the raw value and
-  the supported normalized values.
-- Missing project target declarations are recorded as missing, not inferred.
-- Conflicting target declarations are surfaced for clarification before target-sensitive
+- Missing `uname` or a non-zero `uname -m` call is recorded as a host-detection failure.
+  Architecture-insensitive work may continue, but sensitive work stops without a false
+  host claim.
+- An empty or unknown machine value records an unsupported/raw host and produces a
+  diagnostic containing that value and the supported normalized values before sensitive
   work.
+- Missing project target declarations are recorded as missing, not inferred.
+- Conflicting effective target declarations are surfaced for project-owner clarification
+  before target-sensitive work; native instruction precedence resolves applicability,
+  never the contradiction itself.
 - A host/target mismatch is valid context, not an error; the declared target remains in
   scope.
 
@@ -91,10 +100,12 @@ host, declared target set, and their relationship. Allowed sources are the deter
 detector and applicable project-local policy; global defaults may define handling but may
 not invent project targets. The workflow must not equate host with target, discard a
 cross-target declaration, or claim support for cross-compilation, emulation, or multi-arch
-CI. An unknown host or missing required target falls back to a clear stop and clarification
-request. Detection is local and should add negligible latency and no model or service
-cost. Success is a passing contract suite plus a preflight record containing all three
-fields before sensitive work.
+CI. For sensitive work, an unknown host or missing required target falls back to a clear
+stop and clarification request. Detection is local and should add negligible latency and
+no model or service cost. An unknown host is still recorded and permits architecture-
+insensitive work; it blocks only sensitive work with an actionable diagnostic. Success is
+a passing contract suite plus a preflight record containing all three fields before
+sensitive work.
 
 ### Failure-mode map
 
@@ -118,8 +129,9 @@ fields before sensitive work.
   generation. Require `none declared` and clarification; forbid inferring the host target.
 - `ARCH-04` (block): provide conflicting declarations in applicable project policies.
   Require the conflict before work; forbid choosing either declaration.
-- `ARCH-05` (block): mock an unknown or empty machine value. Require non-zero exit and an
-  actionable diagnostic; forbid continuing with an invented normalized value.
+- `ARCH-05` (block): mock an unknown or empty machine value. Require a non-success
+  detection status, the raw value, and continued architecture-insensitive work. Require
+  sensitive work to stop with an actionable diagnostic; forbid an invented normalization.
 - `ARCH-06` (block): make global defaults disagree with project-local policy. Require the
   applicable project declaration to remain authoritative; forbid a global override.
 - `ARCH-07` (block): ask preflight to enable cross-compilation. Require architecture
