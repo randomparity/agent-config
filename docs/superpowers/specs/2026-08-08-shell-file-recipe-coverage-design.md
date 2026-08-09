@@ -18,10 +18,11 @@ byte identity with linted and formatted root copies.
 ## Approaches
 
 The chosen approach extends `scripts/check-suite-coverage.sh` with a shell-source inventory and
-reuses its dry-run path collection and byte-identity clearance. Suites use the existing four
-dimensions, while shell sources use lint, format-check, and format. This keeps one implementation
-of the fragile `just --dry-run` interpretation and makes the existing copy rule visible for both
-inventories.
+reuses its dry-run path collection. Suites use the existing four dimensions and retain their
+general byte-identity clearance. Shell sources use lint, format-check, and format; their copy
+clearance is limited to decision-record assets with reached, byte-identical `.github/scripts/`
+twins. This keeps one implementation of the fragile `just --dry-run` interpretation without
+creating a repository-wide duplicate-content exemption.
 
 A sibling shell-only checker would isolate the new policy, but it would duplicate dry-run parsing,
 standalone-recipe checks, diagnostics, and byte-copy handling. Hardcoded exclusions for the five
@@ -37,9 +38,10 @@ rejects whitespace in paths because recipe output is intentionally tokenized by 
 
 Dimension metadata identifies both the inventory and the recipes to scan. The execution dimension
 checks suites only. Lint, format-check, and format check the broader shell inventory. For each
-dimension, an unreached source may be cleared only by an identical reached source, preserving ADR
-0026's recomputed copy rule. Diagnostics say `suite` for execution failures and `shell file` for the
-three source dimensions.
+dimension, an unreached suite may be cleared by any identical reached suite as ADR 0026 specifies.
+An unreached shell source is cleared only when it is a decision-record asset and its corresponding
+`.github/scripts/` twin is reached and byte-identical. Diagnostics say `suite` for execution
+failures and `shell file` for the three source dimensions.
 
 The `Justfile` adds the two remaining files to `lint` and to a documented `shfmt -i 2` group in
 `format-check` and `format`. No shell source content changes are expected because both already pass
@@ -55,7 +57,8 @@ disappear from the shell inventory; enumeration reports the read failure.
 ## Testing
 
 The fixture gains an ordinary non-suite `*.sh` file, an extensionless Bash-shebang file, and a
-byte-identical shell copy governed through a reached twin. The initial fixture must pass. Mutations
+byte-identical decision-record-style shell copy governed through a reached twin. A duplicate outside
+that mapped asset path must fail. The initial fixture must pass. Mutations
 remove each shell file from lint, format-check, and format in turn and assert the gate fails with the
 path and dimension. A non-Bash extensionless file remains outside the inventory. Existing suite
 execution, copy, pathname, dependency, and empty-enumeration cases continue to pass.

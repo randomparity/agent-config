@@ -21,10 +21,11 @@ Extend the existing suite-coverage checker into a two-inventory recipe-coverage 
 the execution dimension. Every tracked `*.sh` file and every extensionless file whose indexed first
 line is a Bash shebang must be reached by lint, format-check, and format.
 
-Reuse ADR 0026's recomputed byte-identity clearance in each dimension. An unreached shell source is
-covered when its bytes equal a reached source's bytes; the gate reports that clearance. This covers
-the decision-record assets only while `just records` also enforces their identity with the reached
-root copies.
+Keep ADR 0026's general recomputed byte-identity clearance for suite coverage. For the broader
+shell-source inventory, bound clearance to paths under
+`content/skills/decision-records/assets/` whose corresponding `.github/scripts/` path is reached
+and byte-identical. The gate reports each clearance. Every other tracked shell source must be named
+directly by each recipe.
 
 Keep the inventory and recipe mapping explicit. A tracked shell source with whitespace in its path,
 an empty inventory, a missing scanned recipe, or a dependency on a scanned recipe fails closed.
@@ -37,8 +38,9 @@ files. The gate still does not parse shell syntax or infer formatting flags; the
 authority for those rules.
 
 The checker performs more tracked-file and index reads, but the repository is small and the work is
-local. Byte-identical copies avoid redundant lint and format invocations while their clearance stays
-visible and recomputed.
+local. The five byte-identical decision-record shell copies avoid redundant lint and format
+invocations while their clearance stays visible and recomputed. A duplicate shell source elsewhere
+receives no exemption merely because its content happens to match a reached file.
 
 ## Considered & rejected
 
@@ -53,3 +55,7 @@ content and reports the reached twin.
 **Require every shell source to be named directly.** Rejected because it repeats work for files that
 `just records` proves are exact copies. Running the same content under the same static-analysis rule
 adds cost without adding evidence.
+
+**Leave the suite-only gate unchanged.** Rejected because `statusline.sh` and `find-polluter.sh`
+were outside lint, format-check, and format while `just verify` passed. Wiring those two files
+without widening the inventory would leave the next non-suite omission equally silent.
