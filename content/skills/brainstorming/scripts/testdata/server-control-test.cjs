@@ -449,6 +449,23 @@ async function main() {
     ]);
   });
 
+  await test('partial control headers close within the receive deadline', async () => {
+    const server = trackedServer(control.createControlServer({
+      token: '3'.repeat(64),
+      pid: process.pid,
+      serverId: '2'.repeat(32),
+      closeUserListener: async () => {}
+    }));
+    const port = await listen(server);
+    const started = Date.now();
+    await writeAndWaitForClose(port,
+      'POST /stop HTTP/1.1\r\nHost: 127.0.0.1\r\nAuthorization:', 1800);
+    const elapsed = Date.now() - started;
+    assert.ok(elapsed >= 900, `receive deadline fired early after ${elapsed}ms`);
+    assert.ok(elapsed < 1600, `receive deadline fired late after ${elapsed}ms`);
+    await close(server);
+  });
+
   await test('bounded client authenticates against a real control listener', async () => {
     const token = 'e'.repeat(64);
     const server = trackedServer(control.createControlServer({

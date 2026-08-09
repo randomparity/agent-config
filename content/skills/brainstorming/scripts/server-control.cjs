@@ -281,7 +281,8 @@ function sendJson(response, statusCode, body) {
   response.writeHead(statusCode, {
     'content-type': 'application/json',
     'content-length': bytes.length,
-    'cache-control': 'no-store'
+    'cache-control': 'no-store',
+    'connection': 'close'
   });
   response.end(bytes);
 }
@@ -304,6 +305,12 @@ function createControlServer({ token, pid, serverId, closeUserListener }) {
   let lifecycle = 'running';
   let terminalSent = false;
   const controlSockets = new Set();
+  const receiveTimers = new Map();
+  const clearReceiveTimer = (socket) => {
+    const timer = receiveTimers.get(socket);
+    if (timer) clearTimeout(timer);
+    receiveTimers.delete(socket);
+  };
   const server = http.createServer((request, response) => {
     if (!isLoopbackRequest(request) || request.method !== 'POST' || request.url !== '/stop') {
       sendJson(response, 404, { status: 'failed', reason: 'not_found' });
@@ -312,18 +319,16 @@ function createControlServer({ token, pid, serverId, closeUserListener }) {
 
     let size = 0;
     const chunks = [];
-    const receiveTimer = setTimeout(() => request.destroy(), CONTROL_LIMITS.receiveTimeoutMs);
     request.on('data', (chunk) => {
       size += chunk.length;
       if (size > CONTROL_LIMITS.requestBytes) {
-        clearTimeout(receiveTimer);
         request.destroy();
         return;
       }
       chunks.push(chunk);
     });
     request.on('end', async () => {
-      clearTimeout(receiveTimer);
+      clearReceiveTimer(request.socket);
       if (size > CONTROL_LIMITS.requestBytes) return;
       const body = parseControlBody(Buffer.concat(chunks));
       const authorization = request.headers.authorization || '';
@@ -373,11 +378,15 @@ function createControlServer({ token, pid, serverId, closeUserListener }) {
       const terminalTimer = setTimeout(emitTerminal, 50);
       terminalTimer.unref();
     });
-    request.on('error', () => clearTimeout(receiveTimer));
   });
   server.on('connection', (socket) => {
     controlSockets.add(socket);
-    socket.once('close', () => controlSockets.delete(socket));
+    const timer = setTimeout(() => socket.destroy(), CONTROL_LIMITS.receiveTimeoutMs);
+    receiveTimers.set(socket, timer);
+    socket.once('close', () => {
+      clearReceiveTimer(socket);
+      controlSockets.delete(socket);
+    });
   });
   return server;
 }
