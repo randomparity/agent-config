@@ -17,9 +17,15 @@ operator additionally requires branch pushes to be thorough and to use the same 
 GitHub CI. Global recipes, shared contracts, hook configuration, and unclassified paths must
 continue to fail closed to full verification.
 
+ADR 0002 remains authoritative for tool bootstrap, platform detection, package-manager
+precedence, pinned fallbacks, and actionable setup failures. This record replaces only its
+verification topology: the decision that every local hook and CI invocation uses the same
+complete guardrail command.
+
 ## Decision
 
-Keep `just verify` as the complete repository suite, but select the command by Git event.
+Keep `just verify` as the complete repository suite, but refine ADR 0002 by selecting the
+command according to the Git event.
 
 - The pre-commit hook passes staged paths to a repository-owned selector. The selector maps
   known, isolated surfaces to focused Just recipes, reports the selected recipes and their
@@ -43,7 +49,7 @@ Keep `just verify` as the complete repository suite, but select the command by G
 - New or moved paths initially cost a full verification until the tested selector policy is
   deliberately extended.
 - The selector and its path map become part of the repository verification contract and must
-  remain portable to macOS Bash 3.2.
+  run in the repository's supported local-hook environments.
 
 ## Considered & rejected
 
