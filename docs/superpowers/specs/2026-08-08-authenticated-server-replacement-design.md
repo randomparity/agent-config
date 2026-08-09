@@ -30,9 +30,11 @@ server ID of 32..64 characters, and an exact 64-character lowercase hexadecimal 
 Malformed input produces a JSON `stale` result and never throws raw output at shell callers.
 
 For persistent starts, the authoritative path is
-`${XDG_STATE_HOME:-$HOME/.local/state}/superpowers/brainstorm/<sha256>.json`. Empty, relative, or
-unset `XDG_STATE_HOME` uses the default. `<sha256>` is the lowercase SHA-256 digest of the canonical
-project's UTF-8 path bytes. The helper creates `superpowers` and `brainstorm` at mode 0700, rejects
+`$HOME/.local/state/superpowers/brainstorm/<sha256>.json`, regardless of `XDG_STATE_HOME`.
+`<sha256>` is the lowercase SHA-256 digest of the canonical project's UTF-8 path bytes. The shell
+pipes the canonical path as raw stdin bytes to the helper; a fatal UTF-8 decoder validates them
+before hashing, state lookup, or publication. Rejection returns one parseable JSON error. The helper creates `superpowers`
+and `brainstorm` at mode 0700, rejects
 symlinks, wrong ownership, or group/world write on those components, and installs records at 0600.
 Session-local recovery metadata stays under the project. Ephemeral mode never computes this path.
 
@@ -147,7 +149,7 @@ active record in the supported serial path. Add boundary cases at 16 KiB metadat
 paths/responses, 1024-byte requests, PID/port/ID/token limits, unknown versions, type-invalid and
 mismatched-session metadata. Test the non-resetting 3000 ms client and 1000 ms receive deadlines
 with peers that drip bytes. Cover listener address and loopback validation. Add state-root cases for
-relative XDG fallback, deterministic SHA-256 keys, symlinked components, wrong ownership where the
+XDG-independence, deterministic SHA-256 keys, invalid UTF-8 path rejection, symlinked components, wrong ownership where the
 host permits it, and group/world-writable modes; each fails before credential publication.
 Inject a crash after stable installation but before session-copy installation and prove the next
 start discovers and stops that server. Fail each installation and assert the server closes both

@@ -18,9 +18,10 @@ The server process owns publication. After both its user listener and dedicated 
 listener have bound, but before it emits readiness, it atomically installs owner-only active-server
 metadata. A publication failure closes both listeners and exits without reporting startup success.
 The authoritative record lives at
-`${XDG_STATE_HOME:-$HOME/.local/state}/superpowers/brainstorm/<project-key>.json`; an empty,
-relative, or unset `XDG_STATE_HOME` uses the default. `<project-key>` is the lowercase SHA-256
-digest of the canonical project's UTF-8 path bytes. The helper rejects symlink/non-directory,
+`$HOME/.local/state/superpowers/brainstorm/<project-key>.json`, independent of XDG environment.
+`<project-key>` is the lowercase SHA-256 digest of the canonical project's UTF-8 path bytes.
+Persistent mode rejects a canonical path that is not valid UTF-8 before reading or writing state,
+returning parseable JSON. The helper rejects symlink/non-directory,
 wrong-owner, or group/world-writable application-owned state components and fails closed on unsafe
 state ancestry. It creates missing application directories as `0700` and pairs the PID,
 per-start server identifier, session directory, control port, and a separate random control
