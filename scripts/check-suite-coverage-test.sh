@@ -45,7 +45,8 @@ sed_i() {
 new_fixture() {
 	fixture_serial=$((fixture_serial + 1))
 	local dir=$tmp_root/fixture-$fixture_serial
-	mkdir -p "$dir/scripts" "$dir/.github/scripts" "$dir/mirror"
+	mkdir -p "$dir/scripts" "$dir/.github/scripts/profiles" \
+		"$dir/content/skills/decision-records/assets/profiles" "$dir/mirror"
 	cp "$gate" "$dir/scripts/check-suite-coverage.sh"
 
 	# Distinct bytes per suite, so byte-identity clears the mirrored copy and
@@ -57,6 +58,34 @@ new_fixture() {
 	done
 	cp "$dir/.github/scripts/gamma-test.sh" "$dir/mirror/gamma-test.sh"
 
+	printf '#!/usr/bin/env bash\nexit 0\n' >"$dir/scripts/helper.sh"
+	printf '#!/bin/bash\nexit 0\n' >"$dir/scripts/direct-bash"
+	printf '#!/usr/bin/env bash\nexit 0\n' >"$dir/scripts/env-bash"
+	printf '#!/usr/bin/env -S bash\nexit 0\n' >"$dir/scripts/env-split-bash"
+	printf '#!/bin/bash\nexit 0\n' >"$dir/scripts/.hidden-bash"
+	printf '#! /usr/bin/env bash\nexit 0\n' >"$dir/scripts/spaced-env-bash"
+	printf '#!/bin/bash -e\nexit 0\n' >"$dir/scripts/direct-bash-args"
+	printf '#!/usr/bin/env bash -e\nexit 0\n' >"$dir/scripts/env-bash-args"
+	printf '#!/usr/bin/env -S bash -e\nexit 0\n' >"$dir/scripts/env-split-bash-args"
+
+	printf '#!/usr/bin/env python\n' >"$dir/scripts/python-tool"
+	printf '#!/usr/bin/not-bash\n' >"$dir/scripts/not-bash"
+	printf '#!/usr/bin/env python bash\n' >"$dir/scripts/later-bash"
+	printf 'plain text\n' >"$dir/scripts/no-shebang"
+	printf '#!/bin/bash\n' >"$dir/scripts/.hidden.local"
+	: >"$dir/scripts/empty-tool"
+	printf '#!/usr/bin/env python\n' >"$dir/scripts/large-python"
+	dd if=/dev/zero bs=1024 count=128 >>"$dir/scripts/large-python" 2>/dev/null
+
+	local asset root_asset skill_asset
+	for asset in check-records.sh check-records-test.sh migrate-records.sh \
+		profiles/adr.sh profiles/debt.sh; do
+		root_asset=$dir/.github/scripts/$asset
+		skill_asset=$dir/content/skills/decision-records/assets/$asset
+		printf '#!/usr/bin/env bash\n# %s\nexit 0\n' "$asset" >"$root_asset"
+		cp "$root_asset" "$skill_asset"
+	done
+
 	cat >"$dir/Justfile" <<'JUSTFILE'
 test:
   ./alpha-test.sh
@@ -66,20 +95,30 @@ records:
   #!/usr/bin/env bash
   set -euo pipefail
   ./.github/scripts/gamma-test.sh
+  ./.github/scripts/check-records-test.sh
   for asset in gamma-test.sh; do
     cmp -s ".github/scripts/$asset" "mirror/$asset" || exit 1
   done
 
 lint:
-  shellcheck alpha-test.sh scripts/*.sh .github/scripts/*.sh
+  shellcheck alpha-test.sh scripts/*.sh .github/scripts/*.sh .github/scripts/profiles/*.sh
+  shellcheck scripts/direct-bash scripts/env-bash scripts/env-split-bash scripts/.hidden-bash \
+    scripts/spaced-env-bash scripts/direct-bash-args scripts/env-bash-args \
+    scripts/env-split-bash-args
 
 format-check:
   shfmt -d alpha-test.sh scripts/*.sh
-  shfmt -i 2 -d .github/scripts/*.sh
+  shfmt -i 2 -d .github/scripts/*.sh .github/scripts/profiles/*.sh
+  shfmt -d scripts/direct-bash scripts/env-bash scripts/env-split-bash scripts/.hidden-bash \
+    scripts/spaced-env-bash scripts/direct-bash-args scripts/env-bash-args \
+    scripts/env-split-bash-args
 
 format:
   shfmt -w alpha-test.sh scripts/*.sh
-  shfmt -i 2 -w .github/scripts/*.sh
+  shfmt -i 2 -w .github/scripts/*.sh .github/scripts/profiles/*.sh
+  shfmt -w scripts/direct-bash scripts/env-bash scripts/env-split-bash scripts/.hidden-bash \
+    scripts/spaced-env-bash scripts/direct-bash-args scripts/env-bash-args \
+    scripts/env-split-bash-args
 JUSTFILE
 
 	git -C "$dir" init -q -b main
@@ -119,6 +158,43 @@ expect_green "$fixture" 'fully wired tree'
 	fail 'the byte-identity clearance was not reported'
 [[ $last_output == *'.github/scripts/gamma-test.sh'* ]] ||
 	fail 'the clearance did not name the copy it matched'
+for source in direct-bash env-bash env-split-bash .hidden-bash spaced-env-bash \
+	direct-bash-args env-bash-args env-split-bash-args; do
+	new_fixture
+	sed_i "s| scripts/$source||g" "$fixture/Justfile"
+	expect_red "$fixture" "$source removed from lint" "scripts/$source" 'linted'
+done
+
+# A non-suite *.sh path is checked independently in every static-analysis
+# dimension. Keep beta-test.sh named so each mutation isolates helper.sh.
+new_fixture
+sed_i 's|^  shellcheck alpha-test.sh scripts/\*.sh|  shellcheck alpha-test.sh scripts/beta-test.sh|' \
+	"$fixture/Justfile"
+expect_red "$fixture" 'shell file dropped from lint' 'scripts/helper.sh' 'linted'
+
+new_fixture
+sed_i 's|^  shfmt -d alpha-test.sh scripts/\*.sh|  shfmt -d alpha-test.sh scripts/beta-test.sh|' \
+	"$fixture/Justfile"
+expect_red "$fixture" 'shell file dropped from format-check' \
+	'scripts/helper.sh' 'format-checked'
+
+new_fixture
+sed_i 's|^  shfmt -w alpha-test.sh scripts/\*.sh|  shfmt -w alpha-test.sh scripts/beta-test.sh|' \
+	"$fixture/Justfile"
+expect_red "$fixture" 'shell file dropped from format' 'scripts/helper.sh' 'formatted'
+
+# Only ADR 0032's five fixed asset/root pairs receive non-suite shell-copy
+# clearance, and the bytes are compared on every run.
+new_fixture
+printf '# drift\n' >>"$fixture/content/skills/decision-records/assets/migrate-records.sh"
+git -C "$fixture" add -A
+expect_red "$fixture" 'diverged mapped shell copy' \
+	'content/skills/decision-records/assets/migrate-records.sh' 'linted'
+
+new_fixture
+cp "$fixture/.github/scripts/check-records.sh" "$fixture/mirror/check-records.sh"
+git -C "$fixture" add -A
+expect_red "$fixture" 'unmapped identical shell copy' 'mirror/check-records.sh' 'linted'
 
 # The verdict must not depend on the caller's working directory: the gate resolves
 # the repository root from its own path, which is also what keeps a bare basename
