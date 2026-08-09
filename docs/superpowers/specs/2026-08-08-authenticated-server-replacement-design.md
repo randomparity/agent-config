@@ -39,6 +39,9 @@ records undiscoverable and cannot be diagnosed from the new root. `HOME`, `.loca
 `state` must be effective-user-owned non-symlink directories without group/world write. Missing
 `.local` and `state` components are created one at a time at 0700, then immediately validated;
 `superpowers` and `brainstorm` must additionally be exactly mode 0700.
+If creation or writing is denied by the current sandbox, persistent mode returns one JSON error
+that names `$HOME/.local/state/superpowers/brainstorm` and instructs the operator to authorize or
+write-enable it. It never attempts or requests escalation itself.
 `<sha256>` is the lowercase SHA-256 digest of the canonical project's UTF-8 path bytes. The shell
 pipes one EOF-delimited raw value of at most 4096 bytes to the helper. Newlines are data; NUL,
 overflow, or fatal UTF-8 decoding fails before hashing or state access and returns parseable JSON.
@@ -163,6 +166,8 @@ host permits it, and group/world-writable modes; each fails before credential pu
 Cover empty/relative HOME, missing `.local` and `state` bootstrap at 0700, changed-HOME
 undiscoverability as a documented prerequisite, embedded-newline identity, and rejection at NUL,
 invalid UTF-8, and 4097 bytes.
+Simulate permission denial at each state-root component and assert nonzero exit plus one parseable
+JSON error containing the fixed directory and write-enable action, with no state or server created.
 Inject a crash after stable installation but before session-copy installation and prove the next
 start discovers and stops that server. Fail each installation and assert the server closes both
 listeners, removes prepared files, and emits parseable JSON; where the stable record was installed,

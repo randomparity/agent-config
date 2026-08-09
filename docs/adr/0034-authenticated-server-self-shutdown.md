@@ -26,6 +26,9 @@ ancestry must be effective-user-owned, non-symlink directories without group/wor
 `.local` or `state` components are created one at a time at `0700` and immediately validated. The
 application-owned `superpowers` and `brainstorm` directories must be effective-user-owned,
 non-symlink directories at exactly `0700`, creating them at that mode when absent.
+When the fixed root cannot be created or written under the current sandbox, persistent mode fails
+closed with parseable JSON naming the fixed directory and instructing the operator to authorize or
+write-enable it. The scripts never request automatic sandbox escalation.
 `<project-key>` is the lowercase SHA-256 digest of the canonical project's UTF-8 path bytes.
 Persistent mode rejects a canonical path that is not valid UTF-8 before reading or writing state,
 returning parseable JSON. The shell sends the canonical path as one EOF-delimited raw stdin value,
@@ -110,3 +113,6 @@ continue leaking servers and do not meet the required replacement behavior.
 **Keep credential state project-local.** A shared or replaceable project ancestor can redirect a
 check-then-publish sequence after validation. A user-private state root supplies the required
 credential boundary without changing the public CLI.
+
+**Automatically request sandbox escalation.** Permission changes belong to the operator. Silent or
+automatic escalation would widen runtime authority beyond a server-start request.
