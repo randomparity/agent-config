@@ -29,27 +29,29 @@ Malformed input produces a JSON `stale` result and never throws raw output at sh
 
 Every server receives a fresh control credential and starts a second HTTP listener bound only to
 `127.0.0.1` on an ephemeral port. The credential is 32 bytes from Node's cryptographic random
-generator encoded as exactly 64 lowercase hexadecimal characters. `POST /stop` accepts a bounded
+generator encoded as exactly 64 lowercase hexadecimal characters. The internal
+`createControlToken(randomBytes = crypto.randomBytes)` function accepts an injected byte source
+only for deterministic unit tests; runtime callers use the default and the CLI has no option for
+overriding it. `POST /stop` accepts a bounded
 JSON body and requires that bearer credential plus the expected PID and server ID. The server
 compares all three inside its own process. A mismatch is rejected without changing lifecycle
 state. On a match it closes the user listener and WebSocket clients, responds only after that
 listener has released its port, then closes the control listener and exits. This identity check
 and self-termination are one server-side operation, so there is no verify-to-signal PID race.
 
-After both listeners are ready, `start-server.sh` atomically writes identical mode-0600 metadata
-to the session state directory and, only with `--project-dir`, to
-`.agent/brainstorm/active-server.json`. The stable file is the predecessor pointer. Publication
-happens before success JSON is returned but after startup is proven. A failed startup publishes
-neither stable nor replacement PID metadata and removes temporary artifacts. Publication is an
-ordered sequence of individually atomic writes, not a two-file transaction: session metadata is
-prepared in an owner-only temporary file, installed first, and then copied through another
-owner-only temporary file into the stable record. If either installation fails, start uses the
-still-present temporary or installed session record to request self-shutdown, removes temporary
-files, and returns one parseable error object. It removes installed metadata only after the
-authenticated shutdown succeeds. If rollback is unreachable or times out, it preserves the
-owner-only temporary or installed session metadata and includes that metadata path (never its
-credential) in the error so the shared helper can retry the stop; it removes any incomplete
-stable record.
+After both listeners are ready, `start-server.sh` prepares mode-0600 metadata in each destination
+directory. With `--project-dir`, it atomically installs the authoritative
+`.agent/brainstorm/active-server.json` first, then installs an identical session-local recovery
+copy. A crash between those renames still leaves the live server discoverable by the next start.
+Ephemeral sessions install only the session-local copy. Publication happens before success JSON
+is returned but after listener startup is proven.
+
+Each rename is atomic; the pair is deliberately not described as a transaction. If an install
+fails, start uses whichever prepared or installed record exists to request self-shutdown and
+returns one parseable error object. It removes installed metadata only after authenticated
+shutdown succeeds. If rollback is unreachable or times out, it preserves the authoritative
+stable record when present, otherwise the owner-only prepared session record, and includes that
+metadata path (never its credential) in the error so the shared helper can retry the stop.
 
 Before starting a persistent successor, `start-server.sh` invokes the shared helper on the stable
 metadata. `stopped`, `not_running`, `stale`, malformed, empty, missing, timeout, and connection
@@ -62,8 +64,8 @@ prerequisite as starts, so callers do not overlap stop and start for one project
 
 ## Failure and concurrency behavior
 
-Metadata writes use a temporary file in the destination directory followed by rename, avoiding
-partial-reader states. Each invocation validates a complete snapshot rather than combining
+Metadata writes use temporary files in their destination directories followed by rename,
+avoiding partial-reader states. Each invocation validates a complete snapshot rather than combining
 fields from multiple files. A stale helper cannot stop a successor because the server validates
 the expected per-start ID and PID inside the request. Concurrent starts may race to publish, but
 each attempted stop remains identity-safe; the last successful publication is authoritative.
@@ -117,10 +119,12 @@ identity stops it, mismatched PID/ID/token never does, and persistent cleanup ca
 active record in the supported serial path. Add focused cases for symlink, non-regular, oversized,
 unknown-version, type-invalid, and mismatched-session metadata; listener address inspection and
 loopback-address unit cases; oversized request bodies; and connection/response timeout bounds.
-Inject a failure after each metadata installation and assert the new server stops, its records are
-removed, and stdout remains parseable JSON. Also fail the first installation itself and prove the
-prewritten temporary record remains sufficient to stop the unpublished server. Inject rollback
-timeout and prove session metadata remains usable while the error discloses no credential.
-Mutation proof must demonstrate that weakening credential entropy, bypassing server-side identity
-validation, or skipping predecessor stop makes the lifecycle tests fail. Run `just verify` as the
-repository gate.
+Inject a crash after stable installation but before session-copy installation and prove the next
+start discovers and stops that server. Fail each installation and assert successful rollback
+removes its records while stdout stays parseable JSON. Inject rollback timeout and prove the
+authoritative stable record, or the prepared recovery record when no stable record exists, remains
+usable while the error discloses no credential. Substitute a deterministic `randomBytes` function
+and assert it is called for exactly 32 bytes whose exact returned value becomes lowercase hex;
+separate format tests assert 64 hex characters. Mutation proof must demonstrate that bypassing the
+RNG boundary, server-side identity validation, or predecessor stop makes the tests fail. Run
+`just verify` as the repository gate.

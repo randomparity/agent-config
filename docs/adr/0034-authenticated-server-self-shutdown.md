@@ -15,10 +15,13 @@ verify-then-signal sequence also races process exit and PID reuse.
 ## Decision
 
 Each persistent project records owner-only active-server metadata only after both the user
-server and a dedicated loopback control listener have started. The metadata pairs the PID,
+server and a dedicated loopback control listener have started. The authoritative stable record
+pairs the PID,
 per-start server identifier, session directory, control port, and a separate random control
-credential. Ephemeral `/tmp` sessions retain session-local control metadata but do not publish
-the stable project record. `start-server.sh` canonicalizes the project directory to its physical
+credential. It is installed before a session-local recovery copy so an interrupted publication
+still leaves the live server discoverable. Ephemeral `/tmp` sessions retain only session-local
+control metadata and do not publish the stable project record. `start-server.sh` canonicalizes
+the project directory to its physical
 absolute path after creating it; both scripts derive the stable record from that identity and the
 session directory returned by start remains the stop command's input.
 
@@ -40,6 +43,9 @@ Replacement is portable across macOS and Linux without parsing process command l
 a recycled PID. It also works when the user-facing server binds beyond loopback because control
 uses a separate loopback listener. The private metadata becomes a versioned local contract and
 must remain mode `0600`; the helper and server must bound parsing, request size, and timeouts.
+The control credential comes from 32 bytes of Node cryptographic randomness. Its generator is an
+injectable internal function boundary solely so deterministic tests can prove the exact RNG call;
+the CLI and metadata schema do not expose that seam.
 
 An unresponsive predecessor can remain alive and force its successor onto a fallback port. This
 is safer than signalling an identity the operating system cannot prove, and startup still
