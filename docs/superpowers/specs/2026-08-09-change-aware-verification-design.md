@@ -68,6 +68,11 @@ The first policy version deliberately maps only surfaces with a clear owning gat
 | A known shell implementation/test family | `lint`, `format-check`, and that family's focused test recipe |
 | Agent projection content with a known installer boundary | relevant installer test plus public/reference checks |
 
+A focused mapping is valid only when its policy row accounts for every complete-suite recipe that
+can observe or be affected by the path. The regression fixture asserts the entire selected recipe
+set for every focused row. If that observer set cannot be established from recipe inputs and
+guardrail contracts, the path remains unmapped and selects `just ci`.
+
 `Justfile` exposes focused recipes for existing individual suites so the selector never embeds
 raw test commands. Shared command strings are held once and expanded by both the focused recipe
 and the complete `test` recipe, preserving the existing suite-reachability gate's dry-run view.
@@ -92,6 +97,8 @@ never asserted numerically by tests.
 - If one focused check fails, later checks do not run; the failing command's output remains intact.
 - Invalid prek configuration fails `just verify` during stage dry-runs without recursively running
   either hook.
+- A non-delete pushed object that is not the checked-out `HEAD`, multiple pushed trees, or any
+  dirty working-tree state fails before verification with an actionable diagnostic.
 - A pre-push failure blocks the push. A contributor who bypasses it receives the same failure from
   GitHub CI.
 
@@ -105,10 +112,14 @@ recipe names come from a fixed allowlist; no `eval`, word re-parsing, pathname e
 path-derived command construction is allowed. Logs report only fixed recipe names, preventing
 terminal-control text in a filename from entering output.
 
-The pre-push boundary receives Git ref updates from Git but intentionally ignores them and runs a
-fixed `just ci` command. Hook installation crosses the existing local-tool boundary governed by
-ADR 0036: setup invokes the repository recipe only after tool checks succeed. No credentials,
-network destinations, privileges, authorization, or tenant data are added.
+The pre-push boundary receives Git ref updates from Git. A repository-owned wrapper parses the
+fixed four-field lines, ignores delete updates, and requires every remaining local object to equal
+the checked-out `HEAD`. It also requires a clean working tree before running fixed `just ci`.
+Malformed input, a non-HEAD object, multiple pushed trees, or dirty state fails with an actionable
+diagnostic instead of testing different content. Hook installation crosses the existing
+local-tool boundary governed by ADR 0036: setup invokes the repository recipe only after tool
+checks succeed. No credentials, network destinations, privileges, authorization, or tenant data
+are added.
 
 Out of scope are a compromised Git, Just, prek, or shell binary; deliberate use of Git's hook
 bypass flags; and denial of service from the already-authorized complete repository suite. GitHub
@@ -123,6 +134,10 @@ It proves global recipes, shared contracts, hook configuration, selector policy,
 unknown paths, deletions, either endpoint of a rename, a large staged set, and mixed
 focused/global changes invoke `ci` exactly once. A crafted filename containing spaces, shell
 metacharacters, and terminal-control text must neither execute nor appear in output.
+
+The push-wrapper fixture supplies Git-shaped ref lines and fake repository state. It proves a
+clean checked-out `HEAD` runs `ci` once, deletion-only updates remain well-formed, and malformed,
+dirty, non-HEAD, or multiple-tree pushes fail before `ci` with the relevant diagnostic.
 
 The test also proves an empty staged set is a no-op, a focused failure is propagated, and later
 recipes stop. Configuration checks prove pre-commit always runs `commit-check` without filenames,

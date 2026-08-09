@@ -33,15 +33,20 @@ command according to the Git event.
   focused Just recipes, reports the selected recipes and their elapsed time, and invokes only
   fixed recipe names. An empty change does no work. Any global, shared-contract,
   hook-configuration, mixed-risk, or unknown path selects `just ci` instead.
-- The pre-push hook invokes `just ci` with no path filtering. GitHub Actions invokes the same
-  `just ci` recipe. That recipe times one invocation of `just verify`; it never recursively
-  executes the pre-commit hook.
+- The pre-push hook validates Git's ref-update input before invoking `just ci` with no path
+  filtering. Every non-delete local object must equal the clean checked-out `HEAD`; unsupported
+  non-HEAD, multi-tree, or dirty-worktree pushes fail with an actionable message. GitHub Actions
+  invokes the same `just ci` recipe. That recipe times one invocation of `just verify`; it never
+  recursively executes the pre-commit hook.
 - `just setup` installs both pre-commit and pre-push shims through the repository `hooks`
   recipe. Full verification validates that both configured stages parse without executing
   either hook.
-- Focused recipe mapping is tested as policy. Timing values are evidence in output, never
-  pass/fail thresholds. Tests cover deletions, both rename endpoints, empty input, changes large
-  enough that framework argument batching would be unsafe, and mixed focused/full-risk changes.
+- A path is eligible for focused verification only when the mapping includes every complete-suite
+  recipe whose result can observe or be affected by that path; an unproven mapping selects
+  `just ci`. Deterministic policy tests assert each focused mapping's entire selected recipe set.
+  Timing values are evidence in output, never pass/fail thresholds. Tests also cover deletions,
+  both rename endpoints, empty input, changes large enough that framework argument batching would
+  be unsafe, mixed focused/full-risk changes, dirty worktrees, and unsupported push ref shapes.
 
 ## Consequences
 
