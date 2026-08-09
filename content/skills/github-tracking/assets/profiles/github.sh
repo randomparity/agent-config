@@ -75,7 +75,7 @@ github_classify() {
 	# gh emits "Not Found (HTTP 404)" from the REST paths and "Could not resolve
 	# to an issue" from the GraphQL ones. Matching case-sensitively caught only
 	# the second, so a permanently-missing object reported as retryable.
-	lowered=$(printf '%s' "$output" | tr '[:upper:]' '[:lower:]')
+	lowered=$(printf '%s' "$output" | LC_ALL=C tr '[:upper:]' '[:lower:]')
 	case $lowered in
 	*'could not resolve'* | *'not found'* | *'no such'* | *'http 404'*)
 		printf '%s %s' "$EXIT_NOT_FOUND" not-found

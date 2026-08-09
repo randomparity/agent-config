@@ -348,6 +348,46 @@ exit 0
 FAKE_GH
 chmod +x "$sandbox/bin/gh"
 
+# Case-folding must not inherit a caller's territory locale. The wrapper keeps
+# this regression focused on the tr boundary: it records the locale received by
+# tr, then delegates to the system implementation so the classification still
+# proves the not-found/auth/transport contract under a non-C UTF-8 locale.
+cat >"$sandbox/bin/tr" <<'FAKE_TR'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ -n ${TR_LOCALE:-} ]]; then
+	printf '%s\n' "${LC_ALL-}" >"$TR_LOCALE"
+fi
+exec /usr/bin/tr "$@"
+FAKE_TR
+chmod +x "$sandbox/bin/tr"
+
+for failure in notfound auth transport; do
+	case $failure in
+	notfound)
+		expected_exit=2
+		expected_class=not-found
+		;;
+	auth)
+		expected_exit=3
+		expected_class=auth
+		;;
+	transport)
+		expected_exit=4
+		expected_class=transport
+		;;
+	esac
+	status=0
+	TR_LOCALE="$sandbox/tr-locale" GH_FAIL=$failure GH_CALL_LOG="$sandbox/calls" \
+		PATH="$sandbox/bin:$PATH" LC_ALL="$utf8_locale" \
+		"$tracker" view --profile github --target example/repo 101 \
+		>"$sandbox/out" 2>"$sandbox/err" || status=$?
+	assert_exit "$expected_exit" "$status" "$failure under a UTF-8 locale"
+	assert_error "$sandbox/err" "$expected_class" "$failure under a UTF-8 locale"
+	[[ $(cat "$sandbox/tr-locale") == C ]] ||
+		fail "$failure case-fold inherited locale '$(cat "$sandbox/tr-locale")'"
+done
+
 status=0
 GH_FAIL=notfound GH_CALL_LOG="$sandbox/calls" PATH="$sandbox/bin:$PATH" \
 	"$tracker" view --profile github --target example/repo 101 \
