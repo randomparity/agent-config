@@ -50,6 +50,13 @@ delegates hook setup to the `hooks` recipe after confirming Just is available. F
 dry-runs the configured pre-commit stage and exercises native-hook installation without executing
 the complete hook.
 
+The native installer resolves Git's effective hook path, including `core.hooksPath`. It creates a
+missing pre-push hook or replaces an existing regular file only when that file contains the exact
+repository ownership marker carried by `scripts/pre-push-hook`. A foreign file, symlink, directory,
+or unreadable destination fails with an actionable collision diagnostic and remains byte-identical.
+An owned update is written to a temporary file in the destination directory, made executable, and
+renamed over the prior shim atomically; cleanup removes an interrupted temporary file.
+
 ## Commit selector
 
 `scripts/select-verification.sh` derives the complete staged set in one process with
@@ -110,6 +117,8 @@ never asserted numerically by tests.
 - If one focused check fails, later checks do not run; the failing command's output remains intact.
 - Invalid prek configuration fails `just verify` during the pre-commit dry-run. Native pre-push
   installation or forwarding failures are covered by the hook integration fixture.
+- A foreign or unsafe existing pre-push destination blocks setup without modifying that path; only
+  the repository ownership marker authorizes atomic replacement.
 - For remote branch updates, a non-delete pushed object that is not the checked-out `HEAD`,
   multiple pushed trees, or any dirty working-tree state fails before verification with an
   actionable diagnostic. Non-branch ref updates do not trigger or block verification.
@@ -159,12 +168,14 @@ the relevant diagnostic.
 The test also proves an empty staged set is a no-op, an enumerator failure is nonzero, a focused
 failure is propagated, and later recipes stop. Configuration checks prove pre-commit always runs
 `commit-check` without filenames and hook setup installs both the prek pre-commit stage and native
-pre-push shim. A disposable repository invokes the installed native shim with multiple Git-shaped
-standard-input lines, proving it preserves the complete stream to `push-check` and reaches `ci`
-exactly once. The observer-policy fixture mutates a directly invoked guard script without changing
-its Just command and proves the stale manifest fails. A fake-command integration case separately
-proves `just ci` invokes `just verify` once and never invokes a prek hook. Output assertions require
-selection and elapsed-time labels but do not compare duration values.
+pre-push shim. Installation fixtures cover a missing destination, an owned-shim update, a foreign
+existing hook that remains byte-identical, and a destination resolved through `core.hooksPath`. A
+disposable repository invokes the installed native shim with multiple Git-shaped standard-input
+lines, proving it preserves the complete stream to `push-check` and reaches `ci` exactly once. The
+observer-policy fixture mutates a directly invoked guard script without changing its Just command
+and proves the stale manifest fails. A fake-command integration case separately proves `just ci`
+invokes `just verify` once and never invokes a prek hook. Output assertions require selection and
+elapsed-time labels but do not compare duration values.
 
 Implementation follows TDD: first add red selector/configuration/CI-count cases, then implement
 the selector, recipes, stage configuration, setup wiring, and documentation. Focused tests and
