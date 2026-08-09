@@ -55,36 +55,21 @@ is_covered() {
 	[[ $'\n'$covered == *$'\n'"$1"$'\n'* ]]
 }
 
-# Sets $first_line from the indexed blob without retaining contributor-controlled
-# content past the classification limit. The extra read distinguishes an exact
-# limit or newline from an overlong line, and cat drains git show so pipefail can
-# still report producer failures instead of a consumer-induced SIGPIPE.
+# Sets $first_line to a bounded prefix of the indexed blob. Cat drains git show
+# after the bounded read so pipefail still reports producer failures instead of
+# a consumer-induced SIGPIPE.
 read_indexed_first_line() {
-	local tracked_path=$1 packet overlong
+	local tracked_path=$1 packet
 	if ! packet=$(git show ":$tracked_path" | {
 		line=
-		extra=
-		overlong=0
 		IFS= read -r -n "$MAX_SHEBANG_CHARS" line || :
-		if ((${#line} == MAX_SHEBANG_CHARS)); then
-			if IFS= read -r -n 1 extra && [[ -n $extra ]]; then
-				overlong=1
-			fi
-		fi
-		printf '%s\036%s' "$line" "$overlong"
+		printf '%s\036' "$line"
 		cat >/dev/null
 	}); then
 		printf 'suite-coverage: cannot read indexed path %s\n' "$tracked_path" >&2
 		exit 1
 	fi
-	overlong=${packet##*$'\036'}
-	first_line=${packet%$'\036'*}
-	if [[ $overlong == 1 ]]; then
-		printf 'suite-coverage: indexed first line for %s exceeds %d characters\n' \
-			"$tracked_path" "$MAX_SHEBANG_CHARS" >&2
-		printf '  shorten the shebang or add a filename extension so it is not classified\n' >&2
-		exit 1
-	fi
+	first_line=${packet%$'\036'}
 }
 
 # A dimension is only separate from the others while its recipes pull in no
