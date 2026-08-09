@@ -36,18 +36,19 @@ The checker builds two NUL-safe arrays from tracked paths. The suite array keeps
 `*-test.sh` enumeration. A basename is extensionless when, after removing one leading dot used for
 a hidden filename, it contains no dot. Thus `tool` and `.hook` are extensionless, while `tool.py`
 and `.hook.local` are not. The shell array includes every `*.sh` path and every extensionless path
-whose indexed first line matches one of these Bash shebang forms after optional whitespace
-following `#!`:
+whose indexed first line matches one of these Bash shebang forms after zero or more ASCII space or
+tab bytes following `#!`:
 
 - a direct interpreter token whose basename is `bash`, such as `#!/bin/bash`;
 - an `env` interpreter followed immediately by `bash`, such as `#!/usr/bin/env bash`; or
 - an `env` interpreter followed by `-S` and then `bash`, such as
   `#!/usr/bin/env -S bash -e`.
 
-Arguments after the Bash token do not change classification. A later `bash` argument to another
-interpreter, a command such as `not-bash`, or an extensionless file without a shebang does not enter
-the inventory. Each inventory fails closed when empty and rejects whitespace in paths because
-recipe output is intentionally tokenized by words.
+Interpreter tokens are separated by one or more ASCII space or tab bytes. Arguments after the Bash
+token do not change classification. A later `bash` argument to another interpreter, a command such
+as `not-bash`, or an extensionless file without a shebang does not enter the inventory. Each
+inventory fails closed when empty and rejects whitespace in paths because recipe output is
+intentionally tokenized by words.
 
 Dimension metadata identifies both the inventory and the recipes to scan. The execution dimension
 checks suites only. Lint, format-check, and format check the broader shell inventory. For each
@@ -71,14 +72,15 @@ disappear from the shell inventory; enumeration reports the read failure.
 
 The fixture gains an ordinary non-suite `*.sh` file, an extensionless Bash-shebang file, and a
 byte-identical decision-record-style shell copy governed through a reached twin. A duplicate outside
-that mapped asset path must fail. Table-driven extensionless fixtures cover direct Bash, `env bash`,
-and `env -S bash` shebangs, an extensionless hidden Bash file, optional whitespace after `#!` on a
-direct Bash shebang, and trailing Bash arguments on both direct and `env bash` shebangs. Near misses
-cover another interpreter, `not-bash`, a later Bash argument, and a hidden basename with a later
-extension dot. Each positive form must fail coverage when removed from a scanned recipe. The initial
-fixture must pass. Mutations remove each shell file from lint, format-check, and format in turn and
-assert the gate fails with the path and dimension. Existing suite execution, copy, pathname,
-dependency, and empty-enumeration cases continue to pass.
+that mapped asset path must fail. Independently named positive extensionless fixtures cover direct
+Bash, `env bash`, and `env -S bash`; a hidden Bash file; whitespace between `#!` and `env bash`;
+trailing arguments after direct Bash and `env bash`; and a trailing argument after `env -S bash`.
+Near misses cover another interpreter, `not-bash`, a later Bash argument, and a hidden basename with
+a later extension dot. Each positive fixture has its own removal mutation proving the gate reports
+that fixture as uncovered. The initial fixture must pass. Mutations also remove each ordinary shell
+file from lint, format-check, and format in turn and assert the gate fails with the path and
+dimension. Existing suite execution, copy, pathname, dependency, and empty-enumeration cases
+continue to pass.
 
 The implementation follows test-first development: add the new fixture and red mutations, prove the
 current checker misses them, then implement the inventory split and recipe wiring. `just verify` is
