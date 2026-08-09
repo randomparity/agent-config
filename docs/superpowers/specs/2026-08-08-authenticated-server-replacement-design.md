@@ -39,15 +39,20 @@ After both listeners are ready, `start-server.sh` atomically writes identical mo
 to the session state directory and, only with `--project-dir`, to
 `.agent/brainstorm/active-server.json`. The stable file is the predecessor pointer. Publication
 happens before success JSON is returned but after startup is proven. A failed startup publishes
-neither stable nor replacement PID metadata and removes temporary artifacts.
+neither stable nor replacement PID metadata and removes temporary artifacts. Publication is an
+ordered sequence of individually atomic writes, not a two-file transaction: session metadata is
+installed first, then the stable record. If either installation fails, start uses the
+session-local record to request self-shutdown, removes temporary files and records that still
+identify that new server, and returns one parseable error object.
 
 Before starting a persistent successor, `start-server.sh` invokes the shared helper on the stable
 metadata. `stopped`, `not_running`, `stale`, malformed, empty, missing, timeout, and connection
 failures are all recoverable. The helper removes only the metadata path it was explicitly given;
 the successor then starts normally. `stop-server.sh <session_dir>` invokes the same helper on the
 session-local metadata. When stopping a persistent session, it conditionally removes the stable
-record only when its server ID matches the stopped session, so an old stop cannot erase a newer
-server's record.
+record only when its server ID matches the stopped session. This is stale-state hygiene, not an
+atomic compare-and-delete guarantee: stable-record mutations have the same single-writer
+prerequisite as starts, so callers do not overlap stop and start for one project.
 
 ## Failure and concurrency behavior
 
@@ -103,5 +108,10 @@ unreachable, and mismatched metadata cases; every case must continue to parseabl
 
 Exercise `server-control.cjs` and `stop-server.sh` against a real control listener to prove valid
 identity stops it, mismatched PID/ID/token never does, and persistent cleanup cannot remove a newer
-active record. Mutation proof must demonstrate that bypassing server-side identity validation or
-skipping predecessor stop makes the lifecycle tests fail. Run `just verify` as the repository gate.
+active record in the supported serial path. Add focused cases for symlink, non-regular, oversized,
+unknown-version, type-invalid, and mismatched-session metadata; listener address inspection and
+loopback-address unit cases; oversized request bodies; and connection/response timeout bounds.
+Inject a failure after each metadata installation and assert the new server stops, its records are
+removed, and stdout remains parseable JSON. Mutation proof must demonstrate that bypassing
+server-side identity validation or skipping predecessor stop makes the lifecycle tests fail. Run
+`just verify` as the repository gate.
