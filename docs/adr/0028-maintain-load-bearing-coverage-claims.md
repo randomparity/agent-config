@@ -39,6 +39,13 @@ The `testdata` rule remains entry-shaped and name-based: a file or directory nam
 `testdata` at any depth below `content/skills` is excluded. Its coordination
 inventory now has seven sites:
 
+ADR 0025's delivered-content rule also remains current: an asset is test-only to
+this repository only when no installed agent uses it. A suite that an installed
+skill directs an agent to copy onward is payload, so
+`decision-records/assets/check-records-test.sh` stays installed. This record
+supersedes the stale coverage inventory and gap claims without retiring that
+exception.
+
 | place | how it applies or proves the rule |
 |---|---|
 | `install.sh` `stage_skills` | removes every matching entry from the staged copy |
