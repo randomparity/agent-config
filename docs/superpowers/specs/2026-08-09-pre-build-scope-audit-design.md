@@ -213,19 +213,19 @@ design proportionate; no live-model quality claim is made.
 
 | Failure mode | Severity | Deterministic evidence |
 |---|---:|---|
-| Audit treats its target or verdict as authority | 5 | Operative no-authority clause and mutation fixture |
-| Narrow issue approves a subsystem-sized plan | 4 | Proportionality rule and mutation fixture |
-| Another issue's behavior is treated as required | 4 | Ownership/checkpoint rule and mutation fixture |
-| Depended-on or worsened concern is deferred | 5 | Non-deferrable rule and mutation fixture |
-| Suspected concern is stated as verified fact | 4 | Uncertainty-preservation rule and mutation fixture |
-| Incomplete charter or artifact set reaches TDD | 5 | Complete-input and phase-order rules with mutation fixtures |
-| Missing or incomplete report reaches TDD | 5 | Report handoff rules with mutation fixtures |
-| A known or observed design change skips another pass | 4 | Change-invalidation rule and mutation fixture |
-| Audit loops on unchanged input | 4 | One-pass latency rule and mutation fixture |
-| Branch diff grows beyond the approved surface | 4 | Branch-review comparison rule and mutation fixture |
-| Caller accepts a recommendation without reception | 5 | Concern/remedy gate and mutation fixture |
-| Valid concern bootstraps an ungrounded remedy | 5 | Independent remedy disposition and mutation fixture |
-| Review-created prose bootstraps a new guarantee | 5 | No-authority rule and mutation fixture |
+| Audit treats its target or verdict as authority | 5 | Operative no-authority rule assertion |
+| Narrow issue approves a subsystem-sized plan | 4 | Proportionality rule assertion |
+| Another issue's behavior is treated as required | 4 | Ownership/checkpoint rule assertion |
+| Depended-on or worsened concern is deferred | 5 | Non-deferrable rule assertion |
+| Suspected concern is stated as verified fact | 4 | Uncertainty-preservation rule assertion |
+| Incomplete charter or artifact set reaches TDD | 5 | Complete-input and phase-order rule assertions |
+| Missing or incomplete report reaches TDD | 5 | Report handoff rule assertions |
+| A known or observed design change skips another pass | 4 | Change-invalidation rule assertion |
+| Audit loops on unchanged input | 4 | One-pass latency rule assertion |
+| Branch diff grows beyond the approved surface | 4 | Branch-review assertion and representative mutation |
+| Caller accepts a recommendation without reception | 5 | Reception assertion and representative mutation |
+| Valid concern bootstraps an ungrounded remedy | 5 | Remedy assertion and representative mutations |
+| Review-created prose bootstraps a new guarantee | 5 | No-authority assertion and representative mutation |
 
 The contract tests assert each operative rule and use representative mutations to prove that
 the assertion mechanism catches removed or weakened instructions. Cases include the happy path
@@ -236,11 +236,9 @@ request paired with a subsystem-sized plan. The repository does not add an LLM j
 tests prove that deployed prompts retain these requirements, while adversarial review supplies
 the human-readable quality check.
 
-Report mutations cover a missing or unclear verdict and an absent required semantic section.
-
-Reception mutations accept a recommendation directly, treat a valid concern as authority for
-its proposed remedy, or treat review-created prose as authority for a new guarantee. The
-prompt-contract suite must reject all three fixtures.
+Representative mutations cover a skipped phase, skipped branch comparison, direct
+recommendation acceptance, concern-authorizes-remedy, substitute-remedy bypass, and
+review-created authority. The prompt-contract suite must reject all six fixtures.
 
 ## Trust boundaries
 
