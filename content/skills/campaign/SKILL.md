@@ -198,13 +198,17 @@ Verify auto-close: `gh issue view <n> --json state` after merge. If still open, 
 
 **Cleanup waits on the same signal re-dispatch does: an observed end of run for the agent that owns the branch and worktree.** A merged PR proves the work landed; it does not prove the agent stopped, and removing a worktree its owner is still `cd`-ed into surfaces as `fatal: Unable to read current working directory` out of that agent's next push. Nothing weaker counts — not a green check, not `WORK:REVIEW`, and not an answered probe, which proves the agent *alive* and so can only ever tell you to wait. What counts is the harness's end-of-run notification for that agent, or your own stop through the harness's stop control followed by that notification: the same two things step 5 accepts, for the same reason.
 
-With the end of run observed, clean the row up in this order:
+**The precondition binds to an agent this run dispatched.** A row you adopted on resume with its PR already open, and a row whose cleanup an earlier run deferred, have no such agent and never will — waiting on a notification that cannot arrive leaks them permanently. For those the observation is `git worktree list`: no worktree on the branch means no holder, and a worktree `git worktree remove` accepts without `--force` was not in use. Anything else defers.
 
-1. **Verify the branch's diff against the base is empty** — `git diff --stat <BASE_BRANCH> <branch>`. Required, and the liveness check does not make it redundant: an agent can end having left a commit that never landed. A non-empty diff holds the row for the operator instead of deleting anything.
-2. **Remove the worktree** — `git worktree remove`, never `--force`.
+With that satisfied, clean the row up in this order:
+
+1. **Confirm the branch actually landed** — fetch, then `git merge-base --is-ancestor <branch> origin/<BASE_BRANCH>`. Required, and the liveness check does not make it redundant: an agent can end having left a commit that never landed. Do **not** use `git diff <BASE_BRANCH> <branch>` — that is a symmetric tree comparison, so a *sibling's* merge into the base makes it non-empty for a branch that landed perfectly, and deferred rows are precisely the ones swept after later merges. A squash or rebase merge rewrites the commits and defeats ancestry; there the merged PR for that exact head is the evidence, as in `$clean-branches`. Neither one holds → hold the row for the operator rather than delete anything.
+2. **Remove the worktree** — `git worktree remove`, never `--force`. It refuses on a worktree holding modified or untracked files, and a finished worker's routinely holds some. Treat the refusal as a skip rather than something to force past: put the row in the deferred list below and leave its branch with it.
 3. **Delete the branch** — worktree first, since a branch checked out in one cannot be deleted.
 
-**Without an observed end of run, defer the cleanup and keep going.** The row is `merged` and drained (step 8) either way: cleanup is filesystem hygiene, not a campaign outcome, and holding the row would hold the whole campaign behind one agent that may never stop. Carry the deferred rows in your run output, retry one when its agent's end-of-run notification arrives, and sweep once more before the final report. Nothing is written down — no manifest column, no `status:` label, no state file; `git worktree list` against the merged rows' branches recomputes the list in seconds, which is what makes storing it unnecessary. Name by path whatever is still uncleaned in the final report. The operator owns it from there, and `$clean-branches` is the standing sweep.
+**Without an observed end of run, defer the cleanup and keep going.** The row is `merged` and drained (step 8) either way: cleanup is filesystem hygiene, not a campaign outcome, and holding the row would hold the whole campaign behind one agent that may never stop. Carry the deferred rows in your run output, retry one when its agent's end-of-run notification arrives, and sweep once more before the final report. Nothing is written down — no manifest column, no `status:` label, no state file; `git worktree list` against the merged rows' branches recomputes the paths and branches in seconds, which is what makes storing them unnecessary. The one part that does not recompute is which agent owned a row, and losing it on a restart costs the report a name rather than the cleanup.
+
+Name by path whatever is still uncleaned in the final report. The operator owns it from there — **not** `$clean-branches`, which enumerates candidates by a gone upstream and so never sees a branch that tracks the base, which these do.
 
 ## 7. Re-Enqueue New Issues
 
@@ -230,4 +234,4 @@ Flip manifest to `Status: complete` only when every row is `closed` or `merged`.
 
 Report final table: issue → outcome (`closed-already-fixed` / `merged-PR#` / `blocked: reason`) → notes.
 
-List any deferred cleanup alongside it — per row, the branch and the worktree path still on disk, and the agent whose end of run was never observed.
+List any deferred cleanup alongside it — per row, the branch and the worktree path still on disk, plus the agent whose end of run was never observed where the run still knows it.
