@@ -153,20 +153,24 @@ Each prompt carries:
 
 **Parallel:** dispatch up to 5 worktree-isolated subagents in single message per wave.
 
-**Poll the wave while it is outstanding.** A dispatched agent is silent for long stretches by design — a design phase, a review loop, a CI wait — so silence is not a signal and last-commit age is not one either. Two things are, and they answer different questions:
+**Poll the wave while it is outstanding.** A dispatched agent is silent for long stretches by design — a design phase, a build, a review loop, a CI wait — so silence is not a signal, and last-commit age is not one either. Two things are, and they answer different questions:
 
-- **Has it moved?** `$work-issue` writes its phase boundaries to the tracker as it goes: the `status:` label swaps at start and again at review, `WORK:SCOPE` lands before build, the branch and PR appear at ship, `WORK:REVIEW` right after. Take the newest such event on the row and read its age — the github-tracking skill carries the label-timeline recipe, and `--json createdAt` covers the annotations. That is your progress signal, and no subagent had to be instrumented to produce it.
-- **Is it alive?** Message the agent directly. A reply of any content proves it alive; nothing weaker does. The probe is non-destructive — it costs a live agent one turn — so the staleness threshold in front of it does not have to be right. Start probing a row after roughly ten minutes with no new event, back off from there, and poll only while a wave is outstanding — never a foreground sleep loop.
+- **Has it moved?** `$work-issue` publishes its phase boundaries to the tracker as it goes, and they land in three clusters rather than five checkpoints: `status:in-progress` with `WORK:SCOPE` at the start, `status:in-review` once the build is done, then the branch, the PR and `WORK:REVIEW` (that one on the PR, not the issue) at ship. Take the newest such event on the row and read its age — the github-tracking skill carries the label-timeline recipe, and `--json createdAt` covers the annotations. Design, build and the whole review loop each sit inside a cluster gap, so this narrows which rows look interesting; it never says a row is dead, and it does not gate the probe below.
+- **Is it alive?** Message the agent directly. A reply of any content proves it alive; nothing weaker does. The probe is non-destructive — it costs a live agent one turn — so a row quiet for roughly ten minutes is worth probing even though most such rows are healthy. A probe has failed when no reply arrives by the next poll: an agent inside a long tool call answers at its next turn boundary, not on demand.
 
-**Only an observed end of run authorizes re-dispatch.** Re-dispatching a live agent lands two branches and two PRs on one issue, which is worse than the stall you are fixing, so the bar is what you saw and not what you inferred. Two things clear it: the harness's own end-of-run notification for that agent, or your stopping it through the harness's stop control and then seeing that notification. Unanswered probes are not a third. A row that has gone quiet, failed two consecutive probes, and shows no new tracker event is a **hold** — name it in your run output, take the blocker path (step 8), and keep draining the rest of the queue. A hold here is a report, not a state machine: persist nothing, because the next poll recomputes it from live queries in seconds.
+Poll when an end-of-run notification arrives, or when other work in hand finishes — a merge, a triage, the next wave. Never a foreground sleep loop, and never a poll manufactured to look busy.
 
-**A re-dispatch resumes; it does not restart.** Reconcile the row's artifacts first (step 3) — a dying agent may have pushed a branch or opened a PR you have not recorded. Then dispatch a fresh `$work-issue` with the same context as before plus the recovered branch name, an explicit `reuse` decision, and the last phase the events showed. The branch is the partial work: hand it over by reference rather than pasting a diff into the prompt, which is bulky going in and stale on arrival. Its worktree may be gone — step 6's recovery applies.
+**Only an observed end of run authorizes re-dispatch.** Re-dispatching a live agent lands two branches and two PRs on one issue, which is worse than the stall you are fixing, so the bar is what you saw and not what you inferred. Unanswered probes are not proof. A row that has gone quiet, failed two consecutive probes, and shows no new tracker event is a **hold** — name it in your run output, take the blocker path (step 8), and keep draining the rest of the queue. A hold here is a report, not a state machine: persist nothing, because the next poll recomputes it from live queries in seconds.
 
-**Report each poll as one table**, no prose per row:
+The operator's answer to that hold is what reaches the harness's stop control, which is the only other way a run ends where you can see it. Told to re-dispatch, stop the agent, wait for its end-of-run notification, and dispatch only then. The rule above survives intact: two agents never hold one issue, because you watched the first one end.
+
+**A re-dispatch resumes where it can and restarts where it cannot.** Reconcile the row's artifacts first (step 3) — a dying agent may have pushed a branch or opened a PR you have not recorded. A row where that turns up no branch has nothing to resume; dispatch it fresh. Otherwise hand the successor the context it had before plus the recovered branch name, an explicit `reuse` decision, and the last phase the events showed. The branch carries the committed work by reference, so do not paste a diff into the prompt — bulky going in, stale on arrival. It does not carry uncommitted edits: check the dead agent's worktree for those before step 6's recovery replaces it, and tell the successor what you found or lost.
+
+**Report each poll as one table**, no prose per row. `State` is one of `alive`, `quiet`, `hold`, `ended`:
 
 | Issue | Branch | Last signal | PR | State |
 |-------|--------|-------------|----|-------|
-| #NNN  | feat/… | `WORK:SCOPE` 6m | — | alive (probed) |
+| #NNN  | feat/… | `WORK:SCOPE` 6m | — | alive |
 
 ## 6. Merge
 

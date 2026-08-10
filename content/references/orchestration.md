@@ -14,7 +14,7 @@ Each parallel subagent works in its own worktree — never a shared working dire
 - Baseline pre-existing failures once (e.g. via `git stash` on a clean run) and hand the list to every agent rather than letting each rediscover them
 - Before dispatching, re-read the completion reports already in hand — re-assigning finished work costs a whole agent run
 - Before acting on a queued observation about another agent's PR, re-read live state (`gh pr view --json state,mergeable`) — cross-agent messages go stale
-- A silent agent is not a dead one — dispatched agents run in the background and answer while they work, so a direct message is a non-destructive liveness probe and a reply of any content proves it alive. Nothing weaker does: an idle branch, an unchanged file, an unanswered expectation are all consistent with a design phase or a CI wait
+- A silent agent is not a dead one — an idle branch, an unchanged file and an overdue report are all consistent with a design phase or a CI wait. Dispatched agents run in the background and answer while they work, so a direct message is a non-destructive liveness probe; treat its reply as the evidence and the silence as nothing
 
 ## Report contract
 

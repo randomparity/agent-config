@@ -60,18 +60,23 @@ The two signals answer different questions, and neither substitutes for the othe
 
 *Progress* is the age of the newest tracker event for a row — a `status:` label
 transition, a `WORK:` annotation, a branch push, a pull request, its `WORK:REVIEW`. It
-replaces last-commit age, and it is strictly better than it, because it advances at phase
-boundaries rather than at commits. It is still not sufficient alone: the gap between two
-boundaries is legitimately long.
+replaces last-commit age, and it is better where it matters, because it advances at phase
+boundaries rather than at commits and so keeps moving through a design phase that writes
+none. It is not uniformly better: through the TDD build, where `$build-tdd` commits per
+cycle and the tracker says nothing between `WORK:SCOPE` and `status:in-review`, commit
+age is the denser of the two. And those boundaries arrive in three clusters, not five —
+start, end of build, ship — so the design phase, the build and the whole review loop each
+sit inside a gap. A healthy row therefore looks stale on most polls. That is not a defect
+of the signal; it is why the signal does not decide anything on its own.
 
 *Liveness* is a direct message to the dispatched agent. A reply of any content proves the
 agent is alive; nothing weaker does.
 
-Progress decides **when to probe**. The probe decides **what is true**. That ordering is
-what makes the threshold cheap: a probe costs a live agent one turn and changes nothing
-about its work, so a threshold set too low wastes a reply rather than duplicating a pull
-request. The design does not need a correct number, which is fortunate, because the
-correct number varies with the issue.
+Progress decides **which rows are worth asking about**. The probe decides **what is
+true**. That ordering is what makes the threshold cheap: a probe costs a live agent one
+turn and changes nothing about its work, so a threshold set too low wastes a reply rather
+than duplicating a pull request. The design does not need a correct number, which is
+fortunate, because the correct number varies with the issue.
 
 **Only an observed end of run authorizes re-dispatch.** Two things count: the harness's
 own end-of-run notification for that agent, or the orchestrator stopping the agent through
@@ -79,13 +84,25 @@ the harness's stop control and then seeing that notification. Unanswered probes 
 third. A row that has gone quiet, failed two consecutive probes, and shows no new tracker
 event is a **hold** — reported in the run output, routed to the blocker path, with the
 rest of the queue still draining. It is not a persisted state: the next poll recomputes it
-from live queries in seconds, and the operator is present in the run that reports it.
+from live queries in seconds.
+
+**The operator's answer to a hold is what reaches the stop control.** That is the entry
+condition, and without one the second route above would be an authorization nothing could
+ever trigger, leaving automatic re-dispatch to fire only on a harness-reported crash and
+never on the wedged agent this was filed against. Putting the operator there also puts the
+judgement where the destructive half is: stopping a merely slow agent discards whatever it
+had not committed, and no threshold this record could name distinguishes slow from wedged
+— that is precisely what the probe already failed to do by the time a hold exists.
 
 **A re-dispatch resumes rather than restarts, and carries the partial work by reference.**
-The branch holds the diff. The successor is handed the branch name, an explicit reuse
+The branch holds the committed work; the successor is handed its name, an explicit reuse
 decision, and the last phase the tracker showed — not a pasted diff, which is bulky going
-in and stale on arrival. Artifact reconciliation runs first, because a dying agent may
-have pushed a branch or opened a pull request the manifest has not recorded.
+in and stale on arrival. Two cases are not resumable that way and are called out rather
+than papered over. A row with no branch at all died before one existed and is dispatched
+fresh. And a branch does not carry uncommitted edits, so recovering it into a new worktree
+discards them silently unless the dying agent's worktree is read first and what was found
+or lost is handed on. Artifact reconciliation runs before any of this, because a dying
+agent may have pushed a branch or opened a pull request the manifest has not recorded.
 
 ## Consequences
 
@@ -104,10 +121,10 @@ have pushed a branch or opened a pull request the manifest has not recorded.
   dead, which is the duplicate-pull-request failure by a subtler route; a genuinely wedged
   agent surfaces as a row whose progress never advances, and the operator is watching the
   table that says so.
-- The bar for re-dispatch is high enough that some real deaths will be reported as holds
-  rather than repaired automatically. Accepted: the stall the operator has to notice is
-  the failure this change was filed against, and a table naming the stalled row is
-  already the whole of that repair.
+- The bar for re-dispatch is high enough that a real death reaches the operator as a hold
+  before anything is stopped or re-dispatched. Accepted, and it is most of the repair on
+  its own: the failure this was filed against is a stall nobody noticed, and a table
+  naming the stalled row is the noticing.
 - A future harness that does not deliver end-of-run notifications loses automatic
   re-dispatch entirely and keeps everything else — the poll still runs, the probe still
   discriminates, and every candidate becomes a hold.
