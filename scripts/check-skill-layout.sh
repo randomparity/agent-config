@@ -200,11 +200,19 @@ validate_utf8() {
 
 	# Prove the sinks before trusting the status. A redirection bash cannot open makes
 	# the command fail without running it, and it fails with 1 -- the same 1 that means
-	# "every line is well-formed", so an unwritable workspace would report every skill
-	# file valid. `: >` under set -e turns that into an abort, and is the idiom the
-	# config-root results files already use below.
-	: >"$workspace/utf8-bad"
-	: >"$workspace/utf8-error"
+	# "every line is well-formed", so an unwritable workspace reported every skill file
+	# valid having read no bytes.
+	#
+	# The check has to be explicit rather than left to set -e. This function runs inside
+	# `count="$(validate_inventory ...)"`, and bash does not carry errexit into a command
+	# substitution: the failed redirection returns 1, execution continues, and the gate
+	# prints ok. `shopt -s inherit_errexit` would fix that on bash 4.4, but bash 3.2 is
+	# the macOS system shell this repo targets, where the shopt is an unknown option and
+	# aborts the gate outright. So each sink states its own consequence.
+	: >"$workspace/utf8-bad" ||
+		skill_error "$relative" 'UTF-8 scan failed: cannot create the scan output file'
+	: >"$workspace/utf8-error" ||
+		skill_error "$relative" 'UTF-8 scan failed: cannot create the scan error file'
 	rg --text --encoding none --no-config --invert-match --line-number --max-count 1 \
 		--no-filename -- "$utf8_line" "$file" \
 		>"$workspace/utf8-bad" 2>"$workspace/utf8-error" || status=$?
@@ -323,8 +331,15 @@ scan_config_roots() { # results-file rg-argument...
 	# the command with 1, which this function reads as "no matches" and reports ok.
 	# The results sink is appended rather than truncated -- two calls share one file --
 	# so the function proves both its own sinks instead of trusting its callers to.
-	: >>"$results"
-	: >"$workspace/rg-error"
+	#
+	# Stated explicitly here too. These calls are at top level today, where set -e would
+	# catch a bare `: >`, but that is a property of the call site rather than of this
+	# function: moving one inside a command substitution would silently restore the
+	# fail-open, which is exactly how it survived in validate_utf8.
+	: >>"$results" ||
+		skill_error 'content' 'config-root scan failed: cannot create the results file'
+	: >"$workspace/rg-error" ||
+		skill_error 'content' 'config-root scan failed: cannot create the scan error file'
 	rg --no-config --text --encoding none -l --hidden --no-ignore "$@" >>"$results" \
 		2>"$workspace/rg-error" || status=$?
 	# 0 = matches, 1 = no matches, anything else = the scan did not happen.

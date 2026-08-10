@@ -516,6 +516,41 @@ output="$(cd "$utf8_root" && PATH="$utf8_shim" "$BASH" scripts/check-skill-layou
 	fail "gate must validate UTF-8 with only its declared prerequisites: $output"
 case_count=$((case_count + 1))
 
+# The sink proof has to hold from inside a command substitution, which is where
+# `validate_utf8` actually runs: bash does not carry set -e into `count="$(...)"`, so a
+# bare `: >` failed, execution continued, rg never ran, and its unrun 1 is the same 1
+# that means "every line is well-formed" -- the gate reported 36 valid skill files
+# having read no bytes. `shopt -s inherit_errexit` is not the fix to lean on: bash 3.2
+# is the macOS system shell this repo targets and does not have it.
+#
+# A mktemp shim is what reaches the failure without root or a full filesystem. It hands
+# back the workspace the gate asked for, with one sink path already occupied by a
+# directory, and leaves every other path alone -- so the case fails on the sink proof
+# rather than on a workspace that was never usable.
+sabotage_bin="$tmpdir/sabotage-bin"
+mkdir -p "$sabotage_bin"
+cat >"$sabotage_bin/mktemp" <<EOF
+#!/usr/bin/env bash
+real='$(command -v mktemp)'
+EOF
+cat >>"$sabotage_bin/mktemp" <<'EOF'
+set -euo pipefail
+target="$("$real" "$@")"
+mkdir "$target/utf8-bad"
+printf '%s\n' "$target"
+EOF
+chmod 755 "$sabotage_bin/mktemp"
+root="$(new_fixture)"
+set +e
+output="$(cd "$root" && PATH="$sabotage_bin:$PATH" bash scripts/check-skill-layout.sh 2>&1)"
+status="$?"
+set -e
+[[ "$status" -ne 0 ]] ||
+	fail "expected failure when a UTF-8 scan sink cannot be created; got: $output"
+printf '%s\n' "$output" | rg --no-config -Fq 'UTF-8 scan failed: cannot create' ||
+	fail "expected the sink proof to fire; got: $output"
+case_count=$((case_count + 1))
+
 # An absent rg has to be an error too: `if rg -Fxq` reads exit 127 as "not a
 # reserved name" and the config-root scan read it as "no matches". The shim
 # directory holds every other command the gate runs, so the failure below is the
