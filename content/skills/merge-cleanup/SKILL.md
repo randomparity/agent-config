@@ -76,8 +76,21 @@ not prevent other dependents from being evaluated.
 
 1. Switch to `BASE_BRANCH`.
 2. Fast-forward pull.
-3. Delete the merged local branch.
+3. Delete the merged local branch **this run created**.
 4. Prune remote-tracking branches.
-5. Remove any external worktree you created for this issue
+5. Remove any external worktree **this run created** for this issue
    (`git worktree remove`).
 6. Verify the working tree is clean.
+
+**That scoping is load-bearing, not a formality.** A worktree another agent created
+belongs to that agent, and merging its pull request does not prove it has stopped: a
+`$work-issue` worker stops at hand-off, which comes some way *after* its pull request
+first reads green + mergeable. Removing that directory while its owner is still inside it
+surfaces as `fatal: Unable to read current working directory` out of that agent's next
+push, and the branch it still has checked out cannot be deleted anyway.
+
+So leave both alone and report them to your caller as deferred cleanup, naming the
+worktree path and the branch. A `$campaign` orchestrator is the caller that can act on it
+— it holds the end-of-run notification the removal waits on, and its step 6 owns the
+retry. Never `git worktree remove --force` and never `git branch -D` your way past this:
+the force *is* the failure mode, not the way around it.

@@ -187,14 +187,24 @@ Whether the PR *implements* its issue is not what any of this answers: the refer
 
 As each issue reaches green + mergeable, run `$merge-cleanup` (you are authorized). Merge one PR, then for each remaining in-flight PR re-check `mergeStateStatus`. If `BEHIND`/`DIRTY`, merge `BASE_BRANCH` into PR branch, regenerate artifacts, rerun guardrails, re-confirm green. If the repo forbids merge commits (linear history) and rebasing a pushed branch is denied, stop with a named blocker.
 
-In parallel mode, subagent is done and worktree may be gone. You own recovery: check out branch in fresh external worktree or re-dispatch subagent with same context. Use step-4 assignments for artifact regeneration.
+**In parallel mode the dispatched agent may still be running.** It stops at hand-off, and hand-off comes some way after its PR first reads green + mergeable — which is the moment you start merging — so the branch is usually still checked out in a worktree you did not create. Merging is unaffected: it touches only refs already pushed. The refresh above is — `git worktree add` on a branch checked out elsewhere fails. Refresh a `BEHIND` sibling only once you have observed that agent's end of run, or ask the agent to do the refresh itself; that is the work it was already doing when this race was found. Once it has ended you own recovery: check out the branch in a fresh external worktree, or re-dispatch a subagent with the same context. Use step-4 assignments for artifact regeneration.
 
 **ADR index handling** (three states: `coupled` | `not coupled` | `no index`):
 - **`no index`**: skip row handling entirely
 - **`not coupled`** (index exists, not CI-gated): subagents write only ADR file, report `index row pending`. You append all pending rows **once** after wave's last PR merges, on its own branch.
 - **`coupled`** (index is CI-gated): subagents add their own rows in their PRs. You resolve adjacent-insertion conflicts during the serial-merge branch refresh. Expect no `index row pending` reports.
 
-Verify auto-close: `gh issue view <n> --json state` after merge. If still open, close explicitly and note why. Record outcome in manifest before moving to next PR. Clean up branch and worktree.
+Verify auto-close: `gh issue view <n> --json state` after merge. If still open, close explicitly and note why. Record outcome in manifest before moving to next PR.
+
+**Cleanup waits on the same signal re-dispatch does: an observed end of run for the agent that owns the branch and worktree.** A merged PR proves the work landed; it does not prove the agent stopped, and removing a worktree its owner is still `cd`-ed into surfaces as `fatal: Unable to read current working directory` out of that agent's next push. Nothing weaker counts — not a green check, not `WORK:REVIEW`, and not an answered probe, which proves the agent *alive* and so can only ever tell you to wait. What counts is the harness's end-of-run notification for that agent, or your own stop through the harness's stop control followed by that notification: the same two things step 5 accepts, for the same reason.
+
+With the end of run observed, clean the row up in this order:
+
+1. **Verify the branch's diff against the base is empty** — `git diff --stat <BASE_BRANCH> <branch>`. Required, and the liveness check does not make it redundant: an agent can end having left a commit that never landed. A non-empty diff holds the row for the operator instead of deleting anything.
+2. **Remove the worktree** — `git worktree remove`, never `--force`.
+3. **Delete the branch** — worktree first, since a branch checked out in one cannot be deleted.
+
+**Without an observed end of run, defer the cleanup and keep going.** The row is `merged` and drained (step 8) either way: cleanup is filesystem hygiene, not a campaign outcome, and holding the row would hold the whole campaign behind one agent that may never stop. Carry the deferred rows in your run output, retry one when its agent's end-of-run notification arrives, and sweep once more before the final report. Nothing is written down — no manifest column, no `status:` label, no state file; `git worktree list` against the merged rows' branches recomputes the list in seconds, which is what makes storing it unnecessary. Name by path whatever is still uncleaned in the final report. The operator owns it from there, and `$clean-branches` is the standing sweep.
 
 ## 7. Re-Enqueue New Issues
 
@@ -203,6 +213,8 @@ If triage/fixing surfaced new issues (filed with `gh issue create` and linked), 
 ## 8. Done
 
 **Drained** means every row is `closed`, `merged`, or `blocked`. End your turn when drained, leaving manifest `active` if any `blocked` rows remain.
+
+A `merged` row is drained whether or not its branch and worktree have been cleaned (step 6). Deferred cleanup never holds a row, never reopens one, and never keeps the manifest `active` — it is reported, not tracked.
 
 **On resume with blocked rows:** revalidate each blocker against its `WORK:TRAJECTORY` note and current state. If resolved, transition to appropriate state (`pending`, `in-flight`, etc.) and continue; if not resolved, leave blocked.
 
@@ -217,3 +229,5 @@ Ensure manifest row and GitHub state agree before moving on.
 Flip manifest to `Status: complete` only when every row is `closed` or `merged`. Campaigns containing `blocked` rows stay `active`.
 
 Report final table: issue → outcome (`closed-already-fixed` / `merged-PR#` / `blocked: reason`) → notes.
+
+List any deferred cleanup alongside it — per row, the branch and the worktree path still on disk, and the agent whose end of run was never observed.
