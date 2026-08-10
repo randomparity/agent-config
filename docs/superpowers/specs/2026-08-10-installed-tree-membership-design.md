@@ -105,15 +105,22 @@ of the pushed objects, nor CI on a clean checkout sees it.
 
 ### Comparison and verdicts
 
-Both sides are read into Bash associative arrays keyed by repo-relative path — `declared` from
-the manifest, `present` from the NUL-delimited enumeration — and each is then tested for
-membership of the other. Keying makes a manifest line duplicated by a careless edit inert by
-construction rather than by promise: a repeated key is the same key. `comm` was the obvious
-alternative and does not hold that property — `comm -23` emits the surplus occurrence of a
-duplicated entry as file1-only, which is exactly a spurious `missing-member` for a file that
-is plainly there — and it has no NUL mode, so it does not compose with the enumeration either.
-Like the tree-containment rule, the duplicate property is not fixture-reachable, because the
-manifest is a literal in the script; it holds structurally or not at all.
+Both sides become newline-delimited lists of repo-relative paths, each passed through
+`LC_ALL=C sort -u`, and the three verdict sets are taken with `comm`: entries present but not
+declared, entries declared but not present, and — for the summary count — the declared set
+itself. `sort -u` is what makes a manifest line duplicated by a careless edit inert: the
+duplicate collapses before any comparison, so it can never surface as a `missing-member` for a
+file that is plainly there. Like the no-fault-for-an-entry-under-no-tree case, that property is
+not fixture-reachable, because the manifest is a literal in the script; it holds structurally
+or not at all.
+
+Bash associative arrays would express the comparison more directly and are ruled out:
+`declare -A` is Bash 4.0+, and the `macos-latest` leg of `verify.yml` runs system Bash 3.2,
+where it fails outright. The workflow's own comment records that this leg has already caught a
+`mapfile` that exited 127, and no script in this repository uses an associative array. The
+cost of the portable form is that a path containing a newline splits across lines and reports
+as two bogus `unexpected-member` entries. The run is still red, which is the property that
+matters, and no such path exists or should.
 
 The enumeration completes before any comparison begins, so an enumeration fault (exit 2) is
 reached while no finding yet exists. A fault therefore never suppresses findings that were
@@ -121,7 +128,7 @@ already made, and never emits partial ones.
 
 | status | condition | message |
 |---|---|---|
-| 0 | the two sets are equal | `deployed-membership: ok (<n> declared members across <m> installed trees)` — `<n>` is the declared-member count, `<m>` the number of declared trees that survived the `-d`/`! -L` filter |
+| 0 | the two sets are equal | `deployed-membership: ok (<n> declared members across <m> installed trees)` — `<n>` is the number of *distinct* declared paths, so a duplicated manifest line does not inflate it, and `<m>` the number of declared trees that survived the `-d`/`! -L` filter |
 | 1 | present, not declared | `deployed-membership: unexpected-member: <repo-relative path>` |
 | 1 | declared, not present | `deployed-membership: missing-member: <repo-relative path>` |
 | 1 | present, not a regular file | `deployed-membership: non-regular-member: <repo-relative path>` |
@@ -137,11 +144,11 @@ A run reports every finding before it exits; it does not stop at the first. This
 the intended use — a wave branch that adds one file and deletes another must be told about
 both, not sent round the loop twice. Emission order is fixed so the suite can assert it: all
 `unexpected-member` lines, then all `non-regular-member` lines, then all `missing-member`
-lines, each in `LC_ALL=C` path order. The script pins that collation itself, at the sort that
-produces the order: the associative arrays it compares iterate in hash order, so a sort is
-mandatory, and an unpinned one would take `LC_COLLATE` from the caller — `Zig.md` sorts before
-`a.md` under `C` and after it under `en_US.UTF-8`. The suite pins it the same way wherever it
-builds an expected sequence.
+lines, each in `LC_ALL=C` path order. The script pins that collation at every sort it runs,
+rather than inheriting `LC_COLLATE` from the caller: `Zig.md` sorts before `a.md` under `C`
+and after it under `en_US.UTF-8`, and `comm` requires both inputs sorted under the same
+collation it is then read with. The suite pins it the same way wherever it builds an expected
+sequence.
 
 A declared tree that is not a directory is deliberately **not** a fault. It contributes no
 members, so every file the manifest declares under it reports as `missing-member`. That case
@@ -152,11 +159,13 @@ it exists to describe. Since the tree filter runs first, a missing tree can neve
 enumeration fail; the exit-2 enumeration fault is left for a real failure, such as an
 unreadable directory.
 
-What this buys is a correct answer from *this* gate, not a fault-free `just verify`: both
-deletions the paragraph above names also remove a scan root that `check-deployed-references.sh`
-and `check-shared-standards.sh` fault on, so the developer sees an exit 2 from a sibling
-either way. `membership-check` is therefore ordered ahead of `shared-standards-check` in the
-`verify` chain, so the membership answer is printed before a sibling's fault stops the run.
+What this buys is a correct answer from *this* gate, not a fault-free `just verify`. Both
+deletions the paragraph above names still make a sibling exit 2, by different mechanisms:
+deleting the rules file trips `check-shared-standards.sh`'s expected-block-site manifest, and
+deleting the references file leaves `check-deployed-references.sh` without a deployment root.
+`membership-check` is therefore ordered ahead of `shared-standards-check` in the `verify`
+chain — the earliest recipe that faults on either deletion — so the membership answer is
+printed before a sibling's fault stops the run.
 
 There is deliberately no fault for a manifest entry lying under no declared tree. Both lists
 are literals in the same script, so no repository state can trigger it — it would be a lint on
@@ -208,6 +217,11 @@ files or a directory copy. Enumerating the index and then reading the working tr
 the determinism claim half true — a tracked path deleted locally, or an interrupted rebase,
 would abort the fixture build with a copy error rather than produce any of the verdicts the
 suite asserts. Checking the content out of the index too makes it hold as written.
+
+One index state it does not cover: an unmerged path lists once per stage and
+`checkout-index` refuses it, so the suite would die at the fixture build on git's "is unmerged"
+lines rather than on any verdict. The suite therefore runs `git -C "$ROOT" ls-files -u -- <trees>`
+first and aborts with its own message naming the conflict, so the failure is attributable.
 
 The two rejected sources explain the choice. A synthetic fixture would have to restate the
 manifest, so the suite would assert the checker against a second copy of its own data and go
