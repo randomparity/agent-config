@@ -18,6 +18,10 @@ set -euo pipefail
 #     repository and cannot enumerate one repository's recipe names;
 #   - the filter list is tail, head, grep and rg, and the short-circuit list is `true`
 #     and `:`, so `| sed`, `| awk`, `| cat`, `| less` and `|| echo failed` mask freely.
+#
+# Both hooks read the command as text, so both miss the indirection a text match cannot
+# follow: backticks, `xargs`, and a command assembled from a variable. `bash -c`, `sh -c`
+# and `eval` are recognised; the rest are accepted false negatives.
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 SETTINGS="$ROOT/agents/claude/shared/settings.base.json"
@@ -88,6 +92,13 @@ assert_fails_open() { # hook-command label
 	[[ $status == 0 ]] || fail "$2 must fail open without jq, got exit $status: $output"
 }
 
+assert_posix_agrees() { # hook-command label command-string expected-status
+	local status=0 output
+	output=$(jq -nc --arg command "$3" '{tool_input: {command: $command}}' |
+		sh -c "$1" 2>&1) || status=$?
+	[[ $status == "$4" ]] || fail "$2 under sh must exit $4 for [$3], got $status: $output"
+}
+
 assert_deny_entry() { # pattern
 	jq -e --arg pattern "$1" '.permissions.deny | index($pattern)' "$SETTINGS" >/dev/null ||
 		fail "permissions.deny is missing $1"
@@ -133,6 +144,13 @@ assert_blocked "$CLEAN_HOOK" 'git clean hook' 'git clean -d'
 assert_blocked "$CLEAN_HOOK" 'git clean hook' 'git clean -x'
 assert_blocked "$CLEAN_HOOK" 'git clean hook' 'git clean'
 assert_blocked "$CLEAN_HOOK" 'git clean hook' 'git clean -f -e node_modules'
+# A flag that merely contains n or i is not a dry run.
+assert_blocked "$CLEAN_HOOK" 'git clean hook' 'git clean -fd --quiet'
+assert_blocked "$CLEAN_HOOK" 'git clean hook' 'git clean -fdx --exclude=node_modules'
+assert_blocked "$CLEAN_HOOK" 'git clean hook' 'cd /tmp && git clean -fd --quiet'
+# Shell wrappers are command positions too.
+assert_blocked "$CLEAN_HOOK" 'git clean hook' 'bash -c "git clean -fd"'
+assert_blocked "$CLEAN_HOOK" 'git clean hook' 'eval git clean -fd'
 # A preview beside a real delete must not disarm the guard for the delete.
 assert_blocked "$CLEAN_HOOK" 'git clean hook' 'git clean -n && git clean -fd'
 assert_blocked "$CLEAN_HOOK" 'git clean hook' 'git clean -n; git clean -fd'
@@ -152,6 +170,7 @@ assert_allowed "$CLEAN_HOOK" 'git clean hook' 'git clean -nxd'
 assert_allowed "$CLEAN_HOOK" 'git clean hook' 'git clean -id'
 assert_allowed "$CLEAN_HOOK" 'git clean hook' 'git clean --interactive'
 assert_allowed "$CLEAN_HOOK" 'git clean hook' 'git clean -f -n'
+assert_allowed "$CLEAN_HOOK" 'git clean hook' 'git clean -dn'
 assert_allowed "$CLEAN_HOOK" 'git clean hook' 'git status --porcelain'
 assert_allowed "$CLEAN_HOOK" 'git clean hook' 'git stash push --include-untracked'
 assert_allowed "$CLEAN_HOOK" 'git clean hook' 'git worktree remove /tmp/wt --force'
@@ -244,5 +263,12 @@ assert_blocked "$MASK_HOOK" 'masked exit hook' $'cat >note.md <<EOF\njust ci | t
 # missing jq would otherwise block every Bash call over a masking pattern that may not
 # even be present.
 assert_fails_open "$MASK_HOOK" 'masked exit hook'
+
+# The shell Claude Code runs a hook body in is not this suite's to choose, so both hook
+# bodies stay inside POSIX shell and are asserted under sh as well as bash.
+assert_posix_agrees "$CLEAN_HOOK" 'git clean hook' 'git clean -fd' 2
+assert_posix_agrees "$CLEAN_HOOK" 'git clean hook' 'git clean -n' 0
+assert_posix_agrees "$MASK_HOOK" 'masked exit hook' 'just ci | tail' 2
+assert_posix_agrees "$MASK_HOOK" 'masked exit hook' 'just ci | tee /tmp/ci.log' 0
 
 printf 'claude-settings-hooks-test: ok\n'
