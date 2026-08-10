@@ -67,15 +67,23 @@ assert_blocked "$CLEAN_HOOK" 'git clean hook' 'git   clean   -fd'
 assert_blocked "$CLEAN_HOOK" 'git clean hook' 'cd /tmp && git clean -fd'
 assert_blocked "$CLEAN_HOOK" 'git clean hook' 'git status; git clean -fd'
 assert_blocked "$CLEAN_HOOK" 'git clean hook' 'git -C /tmp/repo clean -fd'
+assert_blocked "$CLEAN_HOOK" 'git clean hook' 'git --no-pager clean -fd'
 assert_blocked "$CLEAN_HOOK" 'git clean hook' $'git status\ngit clean -fd'
+assert_blocked "$CLEAN_HOOK" 'git clean hook' '(git clean -fd)'
+assert_blocked "$CLEAN_HOOK" 'git clean hook' '{ git clean -fd; }'
 
-# Read-only inspection stays legal.
+# Forms that cannot force-delete stay legal.
 assert_allowed "$CLEAN_HOOK" 'git clean hook' 'git clean -n'
 assert_allowed "$CLEAN_HOOK" 'git clean hook' 'git clean --dry-run'
 assert_allowed "$CLEAN_HOOK" 'git clean hook' 'git clean -i'
 assert_allowed "$CLEAN_HOOK" 'git clean hook' 'git status --porcelain'
 assert_allowed "$CLEAN_HOOK" 'git clean hook' 'git stash push --include-untracked'
 assert_allowed "$CLEAN_HOOK" 'git clean hook' 'git worktree remove /tmp/wt --force'
+# A force flag and the word "clean" in the same line are not `git clean --force`.
+assert_allowed "$CLEAN_HOOK" 'git clean hook' 'git worktree remove /tmp/wt --force && echo clean'
+assert_allowed "$CLEAN_HOOK" 'git clean hook' 'git checkout -f main && make clean'
+assert_allowed "$CLEAN_HOOK" 'git clean hook' 'git rm -f clean'
+assert_allowed "$CLEAN_HOOK" 'git clean hook' 'git commit -m "make clean -f"'
 # Searching for the banned text is not running it: the hook must not fire on its own
 # literal appearing inside a quoted argument.
 assert_allowed "$CLEAN_HOOK" 'git clean hook' 'rg -n "git clean -fd" docs/'
@@ -95,8 +103,21 @@ assert_blocked "$MASK_HOOK" 'masked exit hook' 'just ci || true'
 assert_blocked "$MASK_HOOK" 'masked exit hook' 'just verify | tail -5'
 assert_blocked "$MASK_HOOK" 'masked exit hook' 'just verify || true'
 assert_blocked "$MASK_HOOK" 'masked exit hook' 'cd /tmp/repo && just ci | head'
+# `rg` is the grep this repository's own instructions mandate.
+assert_blocked "$MASK_HOOK" 'masked exit hook' 'just ci | rg -n error'
+# A redirect ahead of the pipe must not carry the run past the check.
+assert_blocked "$MASK_HOOK" 'masked exit hook' 'just ci 2>&1 | tail -20'
+assert_blocked "$MASK_HOOK" 'masked exit hook' 'just ci 2>&1 | grep -i error'
+assert_blocked "$MASK_HOOK" 'masked exit hook' 'just verify 2>&1 | head'
+# pipefail rescues the pipe, not a discarded or swallowed exit code.
+assert_blocked "$MASK_HOOK" 'masked exit hook' 'set -o pipefail; just ci >/dev/null'
+assert_blocked "$MASK_HOOK" 'masked exit hook' 'set -o pipefail; just ci || true'
 
-# tee logging, bare runs, and unrelated pipelines stay legal.
+# tee logging, bare runs, the documented pipefail escape, and unrelated pipelines
+# stay legal.
+assert_allowed "$MASK_HOOK" 'masked exit hook' 'set -o pipefail; just ci | tail -50'
+assert_allowed "$MASK_HOOK" 'masked exit hook' 'just ci > /tmp/ci.log'
+assert_allowed "$MASK_HOOK" 'masked exit hook' 'just ci | rgx-report'
 assert_allowed "$MASK_HOOK" 'masked exit hook' 'just ci'
 assert_allowed "$MASK_HOOK" 'masked exit hook' 'just verify'
 assert_allowed "$MASK_HOOK" 'masked exit hook' 'just ci | tee /tmp/ci.log'
