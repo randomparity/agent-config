@@ -29,7 +29,10 @@ smallest viable alternative, classifies findings, and records a compact approved
 components, contracts, complexity, exclusions, and owned deferrals. It is evidence, not
 authority. Material expansion returns to `SCOPE CHECKPOINT`; independent adjacent concerns
 use the existing debt and tracker workflow; depended-on or worsened concerns cannot be
-deferred. Branch review compares the diff with the approved surface.
+deferred. The report preserves uncertainty in provenance, ownership, and dependency
+classification. A link or plausible owner is not verification; only a verified independent
+owner may appear as an owned deferral. Branch review compares the diff with the approved
+surface.
 
 The workflow uses prompt-contract tests and the existing installed-projection test. It adds
 no formal result schema, parser, artifact identity graph, content hashing, transaction

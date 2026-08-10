@@ -120,6 +120,11 @@ subsystem-sized plan therefore returns `needs-attention`; a necessary direct dep
 an explicit criterion mapping can pass. Behavior owned by another issue is a checkpoint or
 split, never an `in-scope-required` shortcut.
 
+Uncertainty in provenance, ownership, or dependency classification stays explicit. A linked
+or plausible tracker is evidence to investigate, not proof of independent ownership, and it
+cannot make a concern eligible for deferral. Only a verified independent owner appears in the
+approved surface as an owned deferral.
+
 The audit cannot authorize scope. A `scope-checkpoint` finding returns the interactive root
 to the existing `SCOPE CHECKPOINT` before code is written. A `defer-candidate` is input to the
 existing review-loop disposition semantics: verify it, preserve uncertainty honestly, and
