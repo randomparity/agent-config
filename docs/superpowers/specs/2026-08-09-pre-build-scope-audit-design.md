@@ -30,8 +30,9 @@ the failure mode, not authority for their behavior.
 Add one short skill whose only product is a human-readable report. `work-issue` dispatches a
 fresh agent after the ADR, specification, and plan have passed their existing reviews. The
 agent reads those artifacts collectively with the frozen charter and linked ownership,
-writes its report to unique per-worktree state under `.agent/scope-audit/`, and returns the
-verdict and path. This is the smallest approach that is both reusable and independent.
+writes its report to a pre-minted per-worktree path under `.agent/scope-audit/`, and the
+caller reads that exact report as the sole result. This is the smallest approach that is both
+reusable and independent.
 
 ### Inline proportionality checklist — rejected
 
@@ -65,7 +66,9 @@ before TDD.
    - explicit paths to every reviewed ADR, specification, and plan associated with the run;
    - the base branch needed to inspect the design-artifact diff; and
    - linked issue, dependency, debt-record, and tracker ownership relevant to findings.
-4. Read the completed report and disposition its result before TDD.
+4. Open the exact pre-minted path, require the completion sentinel and one explicit valid
+   verdict, and disposition the report before TDD. The subagent completion message carries no
+   second verdict or alternative path.
 5. Preserve the report path and compact approved-surface section as the design-to-build
    context checkpoint.
 
@@ -110,6 +113,12 @@ or modify ignore files. The report is Markdown with these human-readable section
 
 This is a prose contract, not a formal schema. The caller reads it as a document and does not
 add a result parser or identifier cross-reference engine.
+
+The report at the caller's exact pre-minted path is the sole audit result. The caller ensures
+that path did not already exist before dispatch, ignores any alternative path or verdict in a
+completion message, and stops before TDD when the expected file is missing, the sentinel is
+absent, the verdict is missing or not one of the two allowed words, or the document is otherwise
+incomplete. This fail-closed read is a document check, not a new result parser.
 
 The auditor challenges the combined proposal for unsupported guarantees, behavior owned by
 another issue, unnecessary persistence/authentication/schema/permission/concurrency or
@@ -160,8 +169,9 @@ The diff cannot use its implementation or successful tests as authority to widen
 **AI-SPEC.** The user is an operator running `work-issue`; the trigger is completion of a
 non-trivial design and plan review; inputs are the frozen public-safe charter, explicit local
 design artifact paths, and linked ownership; output is a human-readable audit report and an
-`approve` or `needs-attention` verdict. Allowed sources are those inputs and repository evidence
-needed to verify ownership. Disallowed behavior is editing targets or Git state, authorizing
+`approve` or `needs-attention` verdict within that report. Allowed sources are those inputs
+and repository evidence needed to verify ownership. Disallowed behavior is editing targets
+or Git state, authorizing
 scope, inventing certainty, absorbing adjacent work, or repeatedly rerunning unchanged input.
 On incomplete inputs or an incomplete report, the workflow stops before TDD. The latency/cost
 budget is one fresh model pass per unchanged artifact set. Success means the deterministic
@@ -176,6 +186,7 @@ design proportionate; no live-model quality claim is made.
 | Depended-on or worsened concern is deferred | 5 | Non-deferrable rule and mutation fixture |
 | Suspected concern is stated as verified fact | 4 | Uncertainty-preservation rule and mutation fixture |
 | Incomplete charter or artifact set reaches TDD | 5 | Complete-input and phase-order rules with mutation fixtures |
+| Missing, stale, partial, or misdirected report reaches TDD | 5 | Sole-result path and completion rules with mutation fixtures |
 | A known or observed design change skips another pass | 4 | Change-invalidation rule and mutation fixture |
 | Audit loops on unchanged input | 4 | One-pass latency rule and mutation fixture |
 | Branch diff grows beyond the approved surface | 4 | Branch-review comparison rule and mutation fixture |

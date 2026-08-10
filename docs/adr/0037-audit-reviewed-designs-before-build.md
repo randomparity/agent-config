@@ -19,14 +19,16 @@ that result constrains later review without creating another policy engine.
 ## Decision
 
 Add a reusable, prose-only `scope-audit` skill. For every `work-issue` run that enters the
-full design path, a fresh independent agent reads the complete frozen charter, every reviewed ADR,
-specification, and plan associated with that run, and linked ownership as one proposed
+full design path, a fresh independent agent reads the complete frozen charter, every reviewed
+ADR, specification, and plan associated with that run, and linked ownership as one proposed
 change after design review and before TDD. A missing or unresolved expected artifact returns
 `needs-attention`. The caller enumerates the set, and the independent auditor cross-checks it
 against the branch diff and linked work evidence without adding a discovery schema. Uncertain
 completeness remains uncertain and returns `needs-attention`. The audit writes a human-readable
-report as per-worktree state under `.agent/scope-audit/` and returns `approve` or
-`needs-attention`.
+report as per-worktree state under `.agent/scope-audit/`, with `approve` or `needs-attention`
+inside that report. The pre-minted report path is the sole result; no separate
+returned verdict can disagree with it. Missing, malformed, incomplete, or misdirected output
+stops before TDD.
 
 The observable trigger is entry into `work-issue`'s full design path: any run that produces
 or consumes reviewed design artifacts runs the audit before TDD. Existing trivial-bugfix and
