@@ -118,7 +118,10 @@ The report at the caller's exact pre-minted path is the sole audit result. The c
 that path did not already exist before dispatch, ignores any alternative path or verdict in a
 completion message, and stops before TDD when the expected file is missing, the sentinel is
 absent, the verdict is missing or not one of the two allowed words, or the document is otherwise
-incomplete. This fail-closed read is a document check, not a new result parser.
+incomplete. This detects ordinary reuse of a pre-existing path under the intended single-writer
+workflow. It does not prove provenance against concurrent creation or replacement; concurrent
+runs must use distinct paths, and detecting an exact-path replacement would require the excluded
+reservation machinery. The fail-closed read is a document check, not a new result parser.
 
 The auditor challenges the combined proposal for unsupported guarantees, behavior owned by
 another issue, unnecessary persistence/authentication/schema/permission/concurrency or
@@ -186,7 +189,7 @@ design proportionate; no live-model quality claim is made.
 | Depended-on or worsened concern is deferred | 5 | Non-deferrable rule and mutation fixture |
 | Suspected concern is stated as verified fact | 4 | Uncertainty-preservation rule and mutation fixture |
 | Incomplete charter or artifact set reaches TDD | 5 | Complete-input and phase-order rules with mutation fixtures |
-| Missing, stale, partial, or misdirected report reaches TDD | 5 | Sole-result path and completion rules with mutation fixtures |
+| Missing, pre-existing, partial, or misdirected report reaches TDD | 5 | Sole-result path and completion rules with mutation fixtures |
 | A known or observed design change skips another pass | 4 | Change-invalidation rule and mutation fixture |
 | Audit loops on unchanged input | 4 | One-pass latency rule and mutation fixture |
 | Branch diff grows beyond the approved surface | 4 | Branch-review comparison rule and mutation fixture |

@@ -28,9 +28,11 @@ completeness remains uncertain and returns `needs-attention`. The audit writes a
 report as per-worktree state under `.agent/scope-audit/`, with `approve` or `needs-attention`
 inside that report. Before dispatch, the caller verifies that the unique pre-minted path does
 not exist and mints a different path on collision; report paths are never reused. The caller
-accepts only the newly created report at that exact path as the sole result, so no separate
-returned verdict can disagree with it. Missing, stale, malformed, incomplete, or misdirected
-output stops before TDD.
+accepts the report at that exact path as the sole result, so no separate returned verdict can
+disagree with it. This prevents ordinary stale-path reuse under the intended single-writer
+workflow; it does not prove provenance against concurrent creation or replacement, which
+would require the excluded reservation machinery. Missing, malformed, incomplete, or
+misdirected output stops before TDD.
 
 The observable trigger is entry into `work-issue`'s full design path: any run that produces
 or consumes reviewed design artifacts runs the audit before TDD. Existing trivial-bugfix and
@@ -63,6 +65,8 @@ not guaranteed without the excluded identity machinery.
 - Deterministic tests prove the load-bearing prompt contract, not live-model judgment quality.
 - A resumed workflow must inspect its design state, but the prose report cannot prove that no
   unobserved out-of-band edit occurred.
+- Concurrent writers must use distinct paths. The workflow does not detect a writer that
+  deliberately or accidentally replaces another run's exact report path.
 
 ## Considered & rejected
 
