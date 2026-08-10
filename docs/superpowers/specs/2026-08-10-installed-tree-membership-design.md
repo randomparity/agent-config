@@ -77,8 +77,21 @@ contributes no members, and its declared files therefore report as `missing-memb
 
 Every entry under a surviving tree that is not a directory is a member: regular files,
 symlinks, and dot-prefixed and ignored files alike, because `cp -pR` copies all of them.
-`find <trees> ! -type d -print0` produces exactly that set and has no ignore logic to defeat,
-which is why it is used here in place of the repository's usual `rg`.
+`find <surviving trees> ! -type d -print` produces exactly that set and has no ignore logic to
+defeat, which is why it is used here in place of the repository's usual `rg`. The trees are
+passed as `$ROOT`-absolute paths and each result has the `$ROOT/` prefix stripped, following
+`check-shared-standards.sh`; `find`'s exit status is captured directly rather than through a
+pipeline, so a scan that did not happen cannot read as an empty one. `-print` rather than
+`-print0` because the comparison below is newline-delimited anyway — a NUL delimiter that is
+converted to newlines before use buys nothing and only suggests a safety the design does not
+have.
+
+**When no declared tree survives the filter, `find` is not invoked at all** and the present
+set is empty, so every manifest entry reports as `missing-member`. That is the per-tree rule
+made total, and it has to be stated because the alternative is silent: GNU `find` given no
+path operand defaults to `.` and would enumerate the whole working directory as unexpected
+members, while BSD `find` on the `macos-latest` leg errors instead — two different wrong
+answers from one unstated case.
 
 **A member that is not a regular file is additionally a finding, whatever the manifest says.**
 `cp -pR` preserves a symlink rather than dereferencing it, and `find ! -type d` does not
@@ -105,10 +118,9 @@ of the pushed objects, nor CI on a clean checkout sees it.
 
 ### Comparison and verdicts
 
-Both sides become newline-delimited lists of repo-relative paths, each passed through
-`LC_ALL=C sort -u`, and the three verdict sets are taken with `comm`: entries present but not
-declared, entries declared but not present, and — for the summary count — the declared set
-itself. `sort -u` is what makes a manifest line duplicated by a careless edit inert: the
+Both sides are newline-delimited lists of repo-relative paths, each passed through `sort -u`,
+and the two difference sets are taken with `comm`: entries present but not declared, and
+entries declared but not present. `sort -u` is what makes a manifest line duplicated by a careless edit inert: the
 duplicate collapses before any comparison, so it can never surface as a `missing-member` for a
 file that is plainly there. Like the no-fault-for-an-entry-under-no-tree case, that property is
 not fixture-reachable, because the manifest is a literal in the script; it holds structurally
@@ -118,9 +130,9 @@ Bash associative arrays would express the comparison more directly and are ruled
 `declare -A` is Bash 4.0+, and the `macos-latest` leg of `verify.yml` runs system Bash 3.2,
 where it fails outright. The workflow's own comment records that this leg has already caught a
 `mapfile` that exited 127, and no script in this repository uses an associative array. The
-cost of the portable form is that a path containing a newline splits across lines and reports
-as two bogus `unexpected-member` entries. The run is still red, which is the property that
-matters, and no such path exists or should.
+cost of the line-delimited form is that a path containing a newline splits across lines and
+reports as two bogus `unexpected-member` entries. The run is still red, which is the property
+that matters, and no such path exists or should.
 
 The enumeration completes before any comparison begins, so an enumeration fault (exit 2) is
 reached while no finding yet exists. A fault therefore never suppresses findings that were
@@ -144,11 +156,14 @@ A run reports every finding before it exits; it does not stop at the first. This
 the intended use — a wave branch that adds one file and deletes another must be told about
 both, not sent round the loop twice. Emission order is fixed so the suite can assert it: all
 `unexpected-member` lines, then all `non-regular-member` lines, then all `missing-member`
-lines, each in `LC_ALL=C` path order. The script pins that collation at every sort it runs,
-rather than inheriting `LC_COLLATE` from the caller: `Zig.md` sorts before `a.md` under `C`
-and after it under `en_US.UTF-8`, and `comm` requires both inputs sorted under the same
-collation it is then read with. The suite pins it the same way wherever it builds an expected
-sequence.
+lines, each in `LC_ALL=C` path order. The script pins that collation for its whole run — one
+`export LC_ALL=C` near the top, the way `check-shared-standards.sh` unsets
+`RIPGREP_CONFIG_PATH` — rather than only at each `sort`. Pinning the sorts alone is not
+enough: `comm` collates by locale too, so C-sorted inputs read under `en_US.UTF-8` make it
+emit spurious lines and `not in sorted order` diagnostics. One export puts `sort`, `comm` and
+everything downstream on one collation and keeps the caller's environment out of the verdict.
+The suite pins it the same way wherever it builds an expected sequence, and asserts the
+verdict is unchanged when the caller's locale is not `C`.
 
 A declared tree that is not a directory is deliberately **not** a fault. It contributes no
 members, so every file the manifest declares under it reports as `missing-member`. That case
@@ -204,7 +219,9 @@ the status — with two deliberate departures, each because a guarantee here wou
 unfalsifiable:
 
 - `run_checker` captures stdout and stderr into separate files instead of merging them, so the
-  stream split is asserted rather than described.
+  stream split is asserted rather than described — and so a green run can be shown to be
+  silent as well as correct. A merged capture would let `comm` disorder diagnostics or
+  `find`'s own `Permission denied` lines ride along on a passing run.
 - an `assert_findings` helper compares the whole stderr finding sequence against an expected
   list in order, so multiplicity and emission order can fail. `assert_fails` remains for the
   single-finding rows, and `assert_absent` (also from the sibling suite) pins the lines a case
@@ -242,7 +259,9 @@ vacuously with `0 declared members`.
 
 | case | expectation |
 |---|---|
-| the three trees as tracked | passes; summary asserted against the count the suite itself enumerated, and asserted non-zero, on stdout |
+| the three trees as tracked | passes; the whole summary line asserted on stdout — `<n>` against the count the suite enumerated and asserted non-zero, `<m>` against the number of trees the suite lists — and stderr asserted empty |
+| the three trees as tracked, caller locale not `C` | identical verdict and summary |
+| every declared tree removed | every manifest entry as `missing-member`; no member from outside the trees |
 | an ordinary file added, once per tree | `unexpected-member` naming it |
 | a dot-prefixed file added | `unexpected-member` naming it |
 | a file added under a tree, named by an `.ignore` at the fixture root | `unexpected-member` naming it |
