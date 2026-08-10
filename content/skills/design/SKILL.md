@@ -190,7 +190,7 @@ If the change is security-relevant — it moves what an untrusted actor can reac
 or cause, touches authn/authz or tenancy, handles a secret, parses input it did
 not produce, builds a command/query/path/URL from a non-literal, widens a
 permission grant, or changes dependencies or security-relevant defaults (the
-same trigger `$work-issue` step 5 applies to the diff, judged here on intent
+same trigger `$work-issue` step 6 applies to the diff, judged here on intent
 because no diff exists yet) — the spec is incomplete without a threat model.
 
 Add to the spec:

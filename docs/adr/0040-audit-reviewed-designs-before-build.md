@@ -1,4 +1,4 @@
-# 0040 -- Audit reviewed designs before implementation
+# 0040 — Audit reviewed designs before implementation
 
 ## Status
 
@@ -49,10 +49,13 @@ classification. A link or plausible owner is not verification; only a verified i
 owner may appear as an owned deferral. Branch review compares the diff with the approved
 surface and applies the same reception gate to its findings.
 
-Per ADR 0038 the phase prose is not gated for its wording. The charter carrier the dispatch
-carries is machine-read, so `scripts/check-carrier-drift.sh` pins it byte for byte, and the
-existing installed-projection test covers the new skill. The workflow adds
-no formal result schema, parser, artifact identity graph, content hashing, transaction
+Per ADR 0038 the phase prose is not gated for its wording. The dispatch carries the eight-line
+scope charter, and `scripts/check-carrier-drift.sh` pins those eight lines byte for byte; the
+four audit-specific fields below them, and the two-line branch-review carrier, are outside the
+gate's window and are not pinned. That is accepted rather than closed: `scope-audit` reads its
+inputs as prose, so a renamed field degrades a model's brief instead of breaking a parser, and
+a wider window is machinery this handoff does not earn. The existing installed-projection test
+covers the new skill. The workflow adds no formal result schema, parser, artifact identity graph, content hashing, transaction
 protocol, or live-model evaluation subsystem. A design change the workflow makes or observes
 invalidates the report and requires another audit. Detecting arbitrary out-of-band edits is
 not guaranteed without the excluded identity machinery.
@@ -64,9 +67,12 @@ not guaranteed without the excluded identity machinery.
 - Its Markdown report follows ADR 0027's self-ignored `.agent/` convention, so it survives a
   session boundary without becoming committed product documentation.
 - Reviewers and operators, rather than a new parser, judge the report's substantive quality.
-- No gate asserts that the phase's rule sentences survive a rewrite. Under ADR 0038 that is
-  the accepted cost of gating meaning over wording: the dispatch carrier is pinned, and the
-  rules around it are reviewed by humans at review time.
+- No gate asserts that the phase's rule sentences survive a rewrite, and only the charter half
+  of the dispatch carrier is pinned. Under ADR 0038 that is the accepted cost of gating meaning
+  over wording: what agents parse is checked, and the rest is reviewed by humans at review time.
+- The report is per-worktree state and resolves against `git rev-parse --show-toplevel`, the
+  root ADR 0027 assigns to `.agent/sdd/` for the same reason: an audit belongs to one branch's
+  design cycle, and `campaign` dispatches work-issue into parallel worktrees.
 - A resumed workflow must inspect its design state, but the prose report cannot prove that no
   unobserved out-of-band edit occurred.
 - The report does not prove that no concurrent or out-of-band writer changed its contents.
