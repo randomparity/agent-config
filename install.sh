@@ -370,8 +370,9 @@ erased_base_paths() { # base merged
 		    | $p ] as $bad
 		| $bad
 		| map(select(. as $p
-		             | [ $bad[] | select((length < ($p | length)) and ($p[0:length] == .)) ]
-		             | length == 0))
+		             | $bad
+		             | any((length < ($p | length)) and ($p[0:length] == .))
+		             | not))
 		| map(map(tostring) | join("."))
 		| .[]
 	'
