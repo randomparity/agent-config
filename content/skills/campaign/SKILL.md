@@ -57,7 +57,7 @@ Verify: `git -C "$campaign_root" check-ignore -q .agent/campaigns/`. Stop if fai
 
 **You are the only writer.** Subagents reference manifest facts by value (copied into prompts), never write it. Write atomically (temp + rename).
 
-**Edits are surgical, never `replace_all`.** A `replace_all` edit keyed on a too-short match string rewrites every row containing it, silently flipping rows outside the current edit. Match on the full unique row (issue number + status), not a substring. Re-read the manifest after each edit to confirm only the intended row changed.
+**Edits are surgical, never `replace_all`.** A `replace_all` edit keyed on a too-short match string rewrites every row containing it, silently flipping rows outside the current edit. Match on the full unique row (issue number + status), not a substring. Re-read the manifest after each edit to confirm only the intended row changed; if not, stop with a named blocker before any further write or GitHub action.
 
 **Validate manifest before use:** required fields present, issue rows unique, states recognized (`pending|triaged|in-flight|ready-to-merge|merged|closed|blocked`), table structure valid. Stop with blocker on failure.
 
