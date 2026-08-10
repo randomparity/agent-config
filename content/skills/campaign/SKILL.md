@@ -153,6 +153,21 @@ Each prompt carries:
 
 **Parallel:** dispatch up to 5 worktree-isolated subagents in single message per wave.
 
+**Poll the wave while it is outstanding.** A dispatched agent is silent for long stretches by design — a design phase, a review loop, a CI wait — so silence is not a signal and last-commit age is not one either. Two things are, and they answer different questions:
+
+- **Has it moved?** `$work-issue` writes its phase boundaries to the tracker as it goes: the `status:` label swaps at start and again at review, `WORK:SCOPE` lands before build, the branch and PR appear at ship, `WORK:REVIEW` right after. Take the newest such event on the row and read its age — the github-tracking skill carries the label-timeline recipe, and `--json createdAt` covers the annotations. That is your progress signal, and no subagent had to be instrumented to produce it.
+- **Is it alive?** Message the agent directly. A reply of any content proves it alive; nothing weaker does. The probe is non-destructive — it costs a live agent one turn — so the staleness threshold in front of it does not have to be right. Start probing a row after roughly ten minutes with no new event, back off from there, and poll only while a wave is outstanding — never a foreground sleep loop.
+
+**Only an observed end of run authorizes re-dispatch.** Re-dispatching a live agent lands two branches and two PRs on one issue, which is worse than the stall you are fixing, so the bar is what you saw and not what you inferred. Two things clear it: the harness's own end-of-run notification for that agent, or your stopping it through the harness's stop control and then seeing that notification. Unanswered probes are not a third. A row that has gone quiet, failed two consecutive probes, and shows no new tracker event is a **hold** — name it in your run output, take the blocker path (step 8), and keep draining the rest of the queue. A hold here is a report, not a state machine: persist nothing, because the next poll recomputes it from live queries in seconds.
+
+**A re-dispatch resumes; it does not restart.** Reconcile the row's artifacts first (step 3) — a dying agent may have pushed a branch or opened a PR you have not recorded. Then dispatch a fresh `$work-issue` with the same context as before plus the recovered branch name, an explicit `reuse` decision, and the last phase the events showed. The branch is the partial work: hand it over by reference rather than pasting a diff into the prompt, which is bulky going in and stale on arrival. Its worktree may be gone — step 6's recovery applies.
+
+**Report each poll as one table**, no prose per row:
+
+| Issue | Branch | Last signal | PR | State |
+|-------|--------|-------------|----|-------|
+| #NNN  | feat/… | `WORK:SCOPE` 6m | — | alive (probed) |
+
 ## 6. Merge
 
 **Verify each issue's PR before merging it.** Green + mergeable says CI passed and Git can fast-forward — neither says the PR contains the work you dispatched. Two `gh` queries answer that; if either fails twice, hold rather than merge, since the merge is the irreversible half. (Your own ADR-index PR below has no issue and no manifest row, so none of this applies to it.)
