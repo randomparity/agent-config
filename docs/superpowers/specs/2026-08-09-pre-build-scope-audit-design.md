@@ -261,6 +261,8 @@ Implementation is limited to:
   and branch-review comparison;
 - `scripts/check-workflow-scope-contract-test.sh` — structural prompt-contract checks and
   mutation fixtures; and
+- `install-test.sh` and `scripts/check-skill-layout-test.sh` — mechanical canonical-skill
+  inventory expectation updates required by the new skill; and
 - this ADR, specification, and the transient implementation plan.
 
 `install-test.sh` already compares the canonical skill tree with every installed projection,
