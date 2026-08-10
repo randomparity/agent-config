@@ -79,6 +79,13 @@ sequence remain deployed, each from its own base or its own valid overlay. The g
 per-agent, not per-run, and that is the honest statement of it: what must not happen is a
 settings file that is deployed and unguarded.
 
+That reads more forgiving than the run actually is, so state the other half. Agents *later*
+in the sequence do not install at all — the abort ends the run — and Claude is first, so a
+bad Claude overlay installs nothing whatsoever. The partial run this describes is the
+exception rather than the shape to expect, and what a refused agent stops receiving is not
+only its settings file but the rest of its managed content: skills, `CLAUDE.md`, the shared
+`content/` tree.
+
 ## Consequences
 
 - The documented `permissions.allow` overlay in `examples/hosts/example-host/` keeps

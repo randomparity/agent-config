@@ -220,6 +220,12 @@ overlay from silently dropping the shared hooks and `permissions.deny` entries; 
 `permissions.allow`, as `examples/hosts/example-host/` does, is unaffected — the base
 defines no such key, so the overlay adds rather than replaces.
 
+There is no overlay route to *extend* a protected array, so a host-specific
+`hooks.PreToolUse` entry or an extra `permissions.deny` entry has to be added to the
+public base file in this repository. That is a real limit for a deny entry naming
+something host-specific, since the base is public; issue #118 tracks giving hosts a
+private route.
+
 The Codex `config.overlay.toml` carries no such guarantee: it is concatenated onto the
 base rather than merged, so what a duplicate key resolves to is the TOML parser's
 business. Issue #123 tracks that gap.
