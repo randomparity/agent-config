@@ -57,6 +57,16 @@ The check is expressed over the merge output rather than over the overlay's shap
 comparison covers every route to the loss — naming the path, and replacing any ancestor of it —
 without restating jq's recursion rules.
 
+Two properties of that comparison are part of the contract, because the naive form gets them wrong.
+**It is guarded.** Looking a protected path up in the merged output raises a jq type error when an
+ancestor is no longer indexable — `{"hooks":"x"}` yields `Cannot index string with string
+"PreToolUse"`, and `{"hooks":[]}` the array equivalent. Only a `null` ancestor indexes cleanly. An
+unguarded lookup therefore aborts the install with a jq stack error naming neither the overlay nor
+the path, which is the loud-and-actionable failure degrading to a loud-and-useless one. The lookup
+is wrapped so a failed traversal is reported as an ordinary mismatch. **It reports outermost paths
+only.** A path whose proper ancestor is already mismatching is suppressed, so `{"hooks":"x"}` names
+`hooks` rather than the four array paths and every nested object path beneath it.
+
 All three call sites obtain this from the shared function: the Claude settings overlay, the Bob
 settings overlay, and the Bob MCP overlay. Bob's two base files contain no arrays today, so the
 check is satisfied vacuously there; it is not conditioned on the agent.
@@ -126,7 +136,19 @@ Two assertions, both against a deployed artifact rather than the in-repo base fi
    way. This is the clause the array check alone does not cover, and against unmodified `install.sh`
    it deploys a settings file with the base's whole `env` subtree gone.
 
-The rejection assertions are the ones that bite, so they are written first and observed failing
+4. **Non-indexable ancestor.** A fourth run with an overlay of `{"hooks": "x"}` must abort with a
+   message naming the overlay file and `hooks` — not a jq type error, and not a dozen derived paths
+   beneath it. This fixture is what pins the guarded, outermost-only comparison above; without it
+   the ancestor route is claimed and untested.
+
+5. **The published example works.** A fifth run whose private overlay directory is seeded by copying
+   `examples/hosts/example-host/` must succeed, and the deployed `settings.json` must carry the
+   base's `hooks` and `permissions.deny` *and* the example's `permissions.allow` entry. This is the
+   one part of the out-of-repo compatibility surface that is in-repo and therefore checkable, and it
+   converts criterion (4) from an argument about today's base into a gate that fires the day a base
+   change breaks the documented example — the `permissions.allow` case ADR 0009 makes plausible.
+
+Assertions 2, 3 and 4 are the ones that bite, so they are written first and observed failing
 against unmodified `install.sh` before the fix lands.
 
 `scripts/claude-settings-hooks-test.sh` keeps reading hooks out of the base file; its header
@@ -134,7 +156,10 @@ comment stops claiming that overlays merely "must" leave hooks alone and states 
 now enforces it, pointing at ADR 0043. No other region of that file is touched.
 
 `README.md`'s Private Overlays section gains the contract in the table above, stated in the two
-sentences an operator needs: an overlay may add and may override scalars and object members, and an
-overlay that replaces an array the base defines fails the install.
+sentences an operator needs — and both refusals have to be in them, because an operator who reads
+only "replaces an array" concludes that appending a host-specific hook is supported and meets the
+abort instead: an overlay may add new keys and may override scalars and object members; an overlay
+that writes a path the base holds as a non-empty array, *including to extend it*, or that replaces
+a base object with a non-object, fails the install and names the path.
 
 The guardrail is `just verify`, run bare.
