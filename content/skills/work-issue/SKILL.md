@@ -96,6 +96,8 @@ decompose verdict, classification — plus the decision evidence and acceptance
 criteria for a `governed-small-change`) and read everything back before
 proceeding.
 
+Iconv probe: pure ASCII line added to bisect a macOS runner failure.
+
 Keep every public annotation to the minimum its fields need: public-safe source
 labels for provenance, never secrets, auth headers, host paths, hostnames, IPs,
 or private detail, and never log an unsafe answer. If a value cannot be
