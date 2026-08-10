@@ -6,7 +6,8 @@ Record: [0045](../../adr/0045-installed-trees-declare-their-membership.md)
 ## Problem
 
 `install_managed_path` ends in `cp -pR`. When its source is a directory the whole subtree
-lands in the agent's configuration directory. Four call sites pass a directory:
+lands in the agent's configuration directory. Four directory sources reach it, across six
+call sites — the staged skills tree is passed once per agent:
 
 | call site | source tree | installs to | reaches |
 |---|---|---|---|
@@ -21,12 +22,14 @@ say. A file dropped into one of these directories therefore installs into every 
 agent configuration with nothing asking whether it belongs. Record 0041 disclosed this as an
 open residual.
 
-`content/skills` stays out of this design, on the grounds recorded in 0045: its growth is the
-routine act, and `check-skill-layout.sh` covers part of the surface — every *top-level* child
-must be a skill directory, and a whole-tree walk forbids symlinks and non-regular files and
-constrains every path component. It does not ask which files may exist inside a skill
-directory, so a file added there still deploys unchecked. That residual is recorded, not
-closed.
+`content/skills` stays out of this design, on the grounds recorded in 0045: its unit of
+delivery is the skill directory rather than the file, and `check-skill-layout.sh` gates that
+unit at its boundary — every top-level child must be a skill directory with a valid
+`SKILL.md`, and a whole-tree walk forbids symlinks and non-regular files and constrains every
+path component. It does not ask which files may exist inside a skill directory, so a file
+added there still deploys unchecked; that residual is recorded, not closed. The cost side is
+the other half: 96 files across eleven commits there, against seven files and one commit in
+the three covered trees.
 
 ## Goal
 
@@ -93,10 +96,13 @@ directions.
 
 Every finding is reported before the script exits; a run does not stop at the first one.
 
-Exit 1 is a difference the comparison found. Exit 2 is the comparison not happening. That
-division is the reason a missing member here is a finding while a missing block site in
-`check-shared-standards.sh` is a fault: there the file is an input to a byte comparison that
-then cannot run, here its absence is the answer.
+Exit 1 is a difference the comparison found. Exit 2 is the gate not being able to trust that
+it is comparing the right thing — including a declared tree that is not there, which is the
+call `check-shared-standards.sh` and `check-deployed-references.sh` both already make for a
+missing scan root, and which keeps a checker pointed at the wrong root from emitting seven
+`missing-member` findings instead of saying so. A missing member of a present tree is a
+finding; a missing block site in `check-shared-standards.sh` stays a fault because the file
+is an input to a byte comparison that then cannot run.
 
 ### Wiring
 
