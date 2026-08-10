@@ -128,6 +128,9 @@ skills-check:
 carrier-check:
   ./scripts/check-carrier-drift.sh
 
+shared-standards-check:
+  ./scripts/check-shared-standards.sh
+
 public-safety:
   ./scripts/check-public-safety.sh
 
@@ -146,8 +149,8 @@ actions-check:
   actionlint
   zizmor --offline .github/workflows/
 
-verify: tools-check records commit-check skills-check carrier-check test \
-        references-check actions-check
+verify: tools-check records commit-check skills-check carrier-check \
+        shared-standards-check test references-check actions-check
   prek run --all-files --stage pre-commit --dry-run
 
 ci:
