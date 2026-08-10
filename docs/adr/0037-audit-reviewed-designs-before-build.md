@@ -21,8 +21,8 @@ that result constrains later review without creating another policy engine.
 Add a reusable, prose-only `scope-audit` skill. For every non-trivial `work-issue` run, a
 fresh independent agent reads the complete frozen charter, the reviewed ADR/specification,
 the reviewed plan, and linked ownership as one proposed change after design review and before
-TDD. It writes a human-readable report outside the repository and returns `approve` or
-`needs-attention`.
+TDD. It writes a human-readable report as per-worktree state under
+`.agent/scope-audit/` and returns `approve` or `needs-attention`.
 
 The report maps promises to external provenance and components to criteria, compares the
 smallest viable alternative, classifies findings, and records a compact approved surface of
@@ -40,7 +40,8 @@ invalidates the report and requires another audit.
 
 - Aggregate scope is challenged before implementation cost is sunk.
 - The audit adds one independent model pass to ordinary non-trivial issue work.
-- Its Markdown report is durable workflow evidence but is not committed product documentation.
+- Its Markdown report follows ADR 0027's self-ignored `.agent/` convention, so it survives a
+  session boundary without becoming committed product documentation.
 - Reviewers and operators, rather than a new parser, judge the report's substantive quality.
 - Deterministic tests prove the load-bearing prompt contract, not live-model judgment quality.
 

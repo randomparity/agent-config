@@ -30,8 +30,8 @@ the failure mode, not authority for their behavior.
 Add one short skill whose only product is a human-readable report. `work-issue` dispatches a
 fresh agent after the ADR, specification, and plan have passed their existing reviews. The
 agent reads those artifacts collectively with the frozen charter and linked ownership,
-writes its report to a unique scratch path outside the repository, and returns the verdict
-and path. This is the smallest approach that is both reusable and independent.
+writes its report to unique per-worktree state under `.agent/scope-audit/`, and returns the
+verdict and path. This is the smallest approach that is both reusable and independent.
 
 ### Inline proportionality checklist — rejected
 
@@ -51,8 +51,9 @@ causes another audit.
 `work-issue` gains one mandatory phase for non-trivial changes:
 
 1. Finish the existing design phase, including ADR, specification, and plan reviews.
-2. Mint a unique scratch report path outside the repository. The path includes the issue and
-   branch identity so concurrent runs do not share a report.
+2. Ensure the worktree's `.agent/` root is self-ignored under ADR 0027, verify that
+   `.agent/scope-audit/` is ignored, and mint a unique report path there. The path includes
+   the issue and branch identity so concurrent runs do not share a report.
 3. Dispatch one fresh subagent to run `scope-audit` over:
    - the unchanged eight-field frozen charter;
    - explicit paths to the reviewed ADR, specification, and plan;
@@ -73,8 +74,9 @@ not run this phase. Every non-trivial run does.
 ## Audit behavior
 
 The skill is read-only with respect to reviewed artifacts, Git state, debt records, and
-tracker state. Its sole write is the requested report outside the repository. The report is
-Markdown with these human-readable sections:
+tracker state. Its sole write is the requested report under `.agent/scope-audit/`. The
+caller owns ADR 0027's fail-closed ignore setup before dispatch; the auditor does not create
+or modify ignore files. The report is Markdown with these human-readable sections:
 
 - `Verdict`: exactly `approve` or `needs-attention`;
 - `Promise to provenance`: every normative design guarantee and its external authority or
@@ -171,9 +173,10 @@ an agent tool-use boundary: a fresh local agent reads operator-selected reposito
 writes one operator-selected scratch report. The local operator and existing agent sandbox remain
 trusted; issue and artifact prose may be mistaken or adversarial and therefore supplies evidence,
 never authority. The complete external charter controls authority, explicit artifact paths bound
-reads, the report path stays outside the repository, and the auditor may not edit Git or external
-state. Error output names missing inputs without copying secrets or host-specific values into
-GitHub comments. Threats outside the existing local-agent permission model are not addressed.
+reads, and ADR 0027's verified self-ignore keeps the per-worktree report out of Git while
+preserving it across a session boundary. The auditor may not edit Git or external state. Error
+output names missing inputs without copying secrets or host-specific values into GitHub comments.
+Threats outside the existing local-agent permission model are not addressed.
 
 ## Files and verification
 
