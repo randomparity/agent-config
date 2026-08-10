@@ -56,7 +56,7 @@ first_line=${template%%$'\n'*}
 expected_sites='brainstorming/SKILL.md 1
 design/SKILL.md 3
 review-loop/SKILL.md 2
-work-issue/SKILL.md 1'
+work-issue/SKILL.md 2'
 
 # rg exits 1 when nothing matches, which here is a failure of the gate's
 # subject, not a clean scan: zero carriers means the protocol was deleted and

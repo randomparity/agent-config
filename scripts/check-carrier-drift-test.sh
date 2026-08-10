@@ -4,7 +4,8 @@ set -euo pipefail
 # Fixture suites for scripts/check-carrier-drift.sh. Each fixture is a content
 # root holding content/skills/<name>/SKILL.md files — all the gate reads —
 # shaped to the gate's expected-site manifest: brainstorming 1, design 3,
-# review-loop 2 (one CHARTER-labelled), work-issue 1.
+# review-loop 2 (one CHARTER-labelled), work-issue 2 (design handoff and
+# scope-audit dispatch).
 #
 # Mutations avoid `sed -i` entirely: BSD sed requires a backup suffix there,
 # and this suite runs on the macOS CI leg (ADR 0027).
@@ -63,7 +64,12 @@ $template
 focus: <review focus, unchanged>"
 	write_skill "$root" work-issue "# Work issue
 
-$template"
+$template
+
+And the scope-audit dispatch.
+
+$template
+reviewed artifacts: <explicit paths to every reviewed ADR, specification, and plan>"
 }
 
 # Portable single-line replacement: the first line equal to $2 becomes $3.
@@ -142,7 +148,12 @@ $template
 focus: <review focus, unchanged>"
 write_skill "$reloc_root" work-issue "# Work issue
 
-$template"
+$template
+
+And the scope-audit dispatch.
+
+$template
+reviewed artifacts: <explicit paths to every reviewed ADR, specification, and plan>"
 assert_fails 'label relocated to the plain carrier' "$reloc_root" \
 	'review-dispatch carrier lost its canonical CHARTER label'
 
@@ -175,7 +186,7 @@ write_skill "$removed_root" work-issue '# Work issue
 
 The carrier was deleted here.'
 assert_fails 'deleted carrier' "$removed_root" \
-	'work-issue/SKILL.md: expected 1 carrier(s), found 0'
+	'work-issue/SKILL.md: expected 2 carrier(s), found 0'
 
 # A manifest site that vanishes with its skill is named, not scanned past.
 missing_root=$tmp_root/missing
