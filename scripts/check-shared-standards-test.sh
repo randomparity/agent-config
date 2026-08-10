@@ -76,12 +76,23 @@ duplicated_block() {
 # the begin-marker count cannot see. Without the second, arithmetic on a
 # two-line "line number" fails inside a call whose errexit is suppressed and the
 # run reports ok.
+# Spelled out rather than substituted into canonical_block: BSD sed does not
+# read \n in a replacement as a newline, so the same fixture would be one joined
+# line on macOS and the pinned marker positions would differ by platform.
 duplicated_begin_block() {
-	canonical_block | sed "s|^### Two\$|$BEGIN\n\n### Two|"
+	printf '%s\n' "$BEGIN"
+	printf '## Guardrails\n\n### One\n\nfirst rule\n\n'
+	printf '%s\n\n' "$BEGIN"
+	printf '### Two\n\nsecond rule\n\n### Three\n\nthird rule\n'
+	printf '%s\n' "$END"
 }
 
 duplicated_end_block() {
-	canonical_block | sed "s|^### Two\$|$END\n\n### Two|"
+	printf '%s\n' "$BEGIN"
+	printf '## Guardrails\n\n### One\n\nfirst rule\n\n'
+	printf '%s\n\n' "$END"
+	printf '### Two\n\nsecond rule\n\n### Three\n\nthird rule\n'
+	printf '%s\n' "$END"
 }
 
 unterminated_block() {
