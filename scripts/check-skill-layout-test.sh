@@ -10,7 +10,7 @@ assert_contains() {
 	local expected="$1"
 	local file="$2"
 
-	rg -Fq "$expected" "$file" || fail "expected $file to contain: $expected"
+	rg --no-config -Fq "$expected" "$file" || fail "expected $file to contain: $expected"
 }
 
 assert_fails() { # expected root [locale]
@@ -30,7 +30,7 @@ assert_fails() { # expected root [locale]
 	status="$?"
 	set -e
 	[[ "$status" -ne 0 ]] || fail "expected failure containing: $expected"
-	printf '%s\n' "$output" | rg -Fq "$expected" ||
+	printf '%s\n' "$output" | rg --no-config -Fq "$expected" ||
 		fail "expected failure containing: $expected; got: $output"
 	case_count=$((case_count + 1))
 }
@@ -94,14 +94,14 @@ case_count=0
 # run under the inherited locale -- they stop proving the property, rather than
 # turning a portability check into a host-configuration check.
 utf8_locale="$(locale -a 2>/dev/null |
-	rg -N -m1 '^[a-z]{2}_[A-Z]{2}\.(utf8|UTF-8)$' || true)"
+	rg --no-config -N -m1 '^[a-z]{2}_[A-Z]{2}\.(utf8|UTF-8)$' || true)"
 
 example_skill="$repo_root/examples/project-review-skills/accessibility-reviewer/SKILL.md"
 bob_instructions="$repo_root/examples/bob-project/AGENTS.md"
 repo_instructions="$repo_root/AGENTS.md"
 legacy_bob_skill="$repo_root/examples/bob-project/.bob/skills/project-context/SKILL.md"
-applicability_line="$(rg -n '^## Applicability$' "$example_skill" | cut -d: -f1)"
-policy_line="$(rg -n '^## Required project policy$' "$example_skill" | cut -d: -f1)"
+applicability_line="$(rg --no-config -n '^## Applicability$' "$example_skill" | cut -d: -f1)"
+policy_line="$(rg --no-config -n '^## Required project policy$' "$example_skill" | cut -d: -f1)"
 [[ "$applicability_line" -lt "$policy_line" ]] ||
 	fail 'accessibility applicability must precede project-policy discovery'
 root="$(new_fixture)"
@@ -299,6 +299,16 @@ assert_invalid_utf8 'first scalar above U+10FFFF' '\0364\0220\0200\0200'
 assert_invalid_utf8 'lead byte outside the grammar' '\0365\0200\0200\0200'
 assert_invalid_utf8 'byte that never appears in UTF-8' '\0376\0377'
 
+# Naming the file was what the replaced call did, and issue #101 is what it costs when
+# the name is all you get. The line number is the half a reader can act on, so it is
+# asserted exactly rather than by substring: `write_skill` lays down five lines.
+root="$(new_fixture)"
+printf '%b\n' 'a clean line' >>"$root/content/skills/skill-01/SKILL.md"
+printf '%b\n' 'and a \0377 byte' >>"$root/content/skills/skill-01/SKILL.md"
+assert_fails \
+	'content/skills/skill-01/SKILL.md: file must be valid UTF-8 (first malformed line 7)' \
+	"$root"
+
 # rg stops reading at the first NUL unless it is told the input is text, and a file
 # whose scan ended early reports as well-formed. The bad byte sits after the NUL, so
 # this passes for any validator that lets binary detection cut the scan short.
@@ -433,15 +443,28 @@ root="$(new_fixture)"
 printf '%s\n' 'State goes in .codex/campaigns/x.md here.' >>"$root/content/languages/python.md"
 assert_fails "$repo_state_error" "$root"
 
+# rg calls a file binary on the strength of one NUL byte and skips it while walking a
+# directory, so a forbidden reference sharing a file with a NUL was invisible and the
+# gate printed ok. The scan reads it as text now; this is what keeps it doing so.
+root="$(new_fixture)"
+printf '%b' 'lead\0000\nUse ~/.claude/skills here.\n' >"$root/content/languages/binary.md"
+assert_fails 'installed config-root reference is forbidden' "$root"
+
 # rg exits 2 for any scan it could not complete, and the gate used to read that
 # as "no matches" and report ok. Root reads an unreadable file, so there the case
-# would assert nothing.
+# would assert nothing. The UTF-8 rule has the same three-way exit and the same
+# failure mode, so both branches are pinned rather than only the older one.
 if [[ "$EUID" -ne 0 ]]; then
 	root="$(new_fixture)"
 	printf '%s\n' 'Use ~/.claude/skills here.' >"$root/content/languages/unreadable.md"
 	chmod 000 "$root/content/languages/unreadable.md"
 	assert_fails 'config-root scan failed' "$root"
 	chmod 644 "$root/content/languages/unreadable.md"
+
+	root="$(new_fixture)"
+	chmod 000 "$root/content/skills/skill-01/SKILL.md"
+	assert_fails 'content/skills/skill-01/SKILL.md: UTF-8 scan failed' "$root"
+	chmod 644 "$root/content/skills/skill-01/SKILL.md"
 fi
 
 # Every command the gate runs apart from rg. `iconv` is deliberately absent: the
@@ -475,7 +498,7 @@ output="$(cd "$root" && PATH="$shim_bin" "$BASH" scripts/check-skill-layout.sh 2
 status="$?"
 set -e
 [[ "$status" -ne 0 ]] || fail 'expected failure when rg is absent'
-printf '%s\n' "$output" | rg -Fq 'skills-check: rg is required' ||
+printf '%s\n' "$output" | rg --no-config -Fq 'skills-check: rg is required' ||
 	fail "expected the rg guard to fire; got: $output"
 case_count=$((case_count + 1))
 

@@ -12,7 +12,9 @@ set -euo pipefail
 # then decides what these rules match. `--fixed-strings` alone breaks the gate in
 # both directions at once -- the UTF-8 grammar becomes a literal that matches no
 # line, so every skill file reads as malformed, and the config-root patterns become
-# literals that match nothing, so a real violation reports clean.
+# literals that match nothing, so a real violation reports clean. The rule holds for
+# this gate only so far -- the sibling gate scripts in the same `just verify` chain
+# are still steerable, and issue #119 tracks sweeping them.
 if ! command -v rg >/dev/null 2>&1; then
 	printf 'skills-check: rg is required\n' >&2
 	exit 2
@@ -181,16 +183,30 @@ validate_portable_tree() {
 # the guarantee rather than the current behaviour -- a NUL byte ahead of a malformed
 # sequence must not end the scan and report the file clean. `check-skill-layout-test.sh`
 # covers the NUL case, and it passes either way; that is why the flag stays.
+#
+# The message names the offending line, because the failure it replaces cost hours
+# for want of one. --max-count 1 keeps the early exit --quiet used to give. The line
+# goes to a file rather than a command substitution on purpose: the bytes that failed
+# may include a NUL, which bash drops from a substitution with a warning on stderr,
+# and a guardrail should not emit one. sed takes the number and leaves the bytes --
+# under LC_ALL=C, because the line it is trimming is by definition not decodable in a
+# UTF-8 locale, and there `.*` stops at the first bad byte and drags it into the
+# message (ADR 0023's defect in a new place).
 validate_utf8() {
 	local file="$1"
 	local relative="$2"
 	local status=0
+	local bad_line
 
-	rg --text --encoding none --no-config --invert-match --quiet \
-		-- "$utf8_line" "$file" 2>"$workspace/utf8-error" || status=$?
+	rg --text --encoding none --no-config --invert-match --line-number --max-count 1 \
+		--no-filename -- "$utf8_line" "$file" \
+		>"$workspace/utf8-bad" 2>"$workspace/utf8-error" || status=$?
 	# 0 = a line that is not well-formed, 1 = every line is, 2+ = no scan happened.
 	case "$status" in
-	0) skill_error "$relative" 'file must be valid UTF-8' ;;
+	0)
+		bad_line="$(LC_ALL=C sed -n '1s/:.*//p' "$workspace/utf8-bad")"
+		skill_error "$relative" "file must be valid UTF-8 (first malformed line $bad_line)"
+		;;
 	1) ;;
 	*) skill_error "$relative" "UTF-8 scan failed: $(<"$workspace/utf8-error")" ;;
 	esac
@@ -271,13 +287,20 @@ validate_inventory() {
 # these the scan set is narrower than the delivery set, and a dot-prefixed file
 # under content/skills/ would ship to users unscanned while this gate printed ok.
 # They belong here rather than at the call sites so the two rules cannot drift.
+#
+# --text is the same argument one step further: rg skips a file it decides is binary
+# during traversal, and it decides that on a single NUL byte, so a forbidden
+# config-root reference anywhere in a file carrying one is invisible and the gate
+# reports clean. Every file these roots deliver today is text, so the flag only costs
+# reading an asset that would otherwise be skipped -- the direction a gate should err
+# in, since the alternative is a delivery the scan never saw.
 scan_config_roots() { # results-file rg-argument...
 	local results="$1"
 	local status=0
 	shift
 
-	rg --no-config -l --hidden --no-ignore "$@" >>"$results" 2>"$workspace/rg-error" ||
-		status=$?
+	rg --no-config --text -l --hidden --no-ignore "$@" >>"$results" \
+		2>"$workspace/rg-error" || status=$?
 	# 0 = matches, 1 = no matches, anything else = the scan did not happen.
 	[[ "$status" -le 1 ]] ||
 		skill_error 'content' "config-root scan failed: $(<"$workspace/rg-error")"
