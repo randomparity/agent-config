@@ -227,9 +227,10 @@ design proportionate; no live-model quality claim is made.
 | Valid concern bootstraps an ungrounded remedy | 5 | Independent remedy disposition and mutation fixture |
 | Review-created prose bootstraps a new guarantee | 5 | No-authority rule and mutation fixture |
 
-The eval cases are the corresponding contract-test mutations. They include the happy path of
-a necessary direct dependency; an ambiguous or incomplete input that stops; a forbidden scope
-claim that checkpoints; stale/conflicting evidence through visible design change; the
+The contract tests assert each operative rule and use representative mutations to prove that
+the assertion mechanism catches removed or weakened instructions. Cases include the happy path
+of a necessary direct dependency; an ambiguous or incomplete input that stops; a forbidden
+scope claim that checkpoints; stale/conflicting evidence through visible design change; the
 issue-ownership boundary; the no-repeat cost cap; and PR #92's regression shape of a narrow
 request paired with a subsystem-sized plan. The repository does not add an LLM judge. The
 tests prove that deployed prompts retain these requirements, while adversarial review supplies
