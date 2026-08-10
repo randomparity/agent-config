@@ -28,9 +28,12 @@ matched.
 2. **Resolve the base branch.** `gh repo view --json defaultBranchRef --jq .defaultBranchRef.name`;
    without `gh`, `git symbolic-ref --short refs/remotes/origin/HEAD` and strip the `origin/`.
    Every ancestry test below runs against `origin/<base>` — the ref you just fetched, not a
-   local base that may be behind. **Stop if neither resolves** — the fallback exits 128
-   whenever `origin/HEAD` was never set, and the base name is the reference for every ancestry
-   test as well as row 1's whole test. Never guess `main`.
+   local base that may be behind. **Stop if the name does not resolve, or if
+   `git rev-parse --verify -q origin/<base>` does not** — the `symbolic-ref` fallback exits 128
+   whenever `origin/HEAD` was never set, and `gh` answers about the remote, so in a
+   single-branch clone it names a ref that was never fetched. The base is the reference for
+   every ancestry test as well as row 1's whole test, and without it row 6 fatals on every
+   branch and every pushed branch falls through to row 7's API call. Never guess `main`.
 3. **Enumerate candidates** — every local branch — with plumbing, not porcelain:
 
    ```bash
@@ -95,10 +98,10 @@ unordered table would classify it `merged` and delete it.
 | 2 | protected | name is in step 5's protected set | skip, name it |
 | 3 | checked out where the sweep must not reach | branch is the HEAD of the main checkout, of the worktree the sweep is running in, or of more than one worktree | skip, name it |
 | 4 | never pushed | neither push evidence holds: no `refs/remotes/origin/<branch>` in step 4's set, and no `%(upstream:track)` of `[gone]` whose `%(upstream:short)` is `origin/<branch>` | **skip, never delete** |
-| 5 | dirty or unreadable worktree | `git status --porcelain` in its worktree is non-empty, or does not exit 0 | skip, name it |
+| 5 | dirty or unreadable worktree | `git -C <path> status --porcelain` is non-empty, or does not exit 0 | skip, name it |
 | 6 | merged | `git merge-base --is-ancestor <branch> origin/<base>` succeeds | delete |
 | 7 | squash-merged | not an ancestor, but `gh pr list --head <branch> --state merged --json number,title,headRefOid --limit 1` returns a PR, and `git merge-base --is-ancestor <branch> <headRefOid>` succeeds | delete; the plan line names the PR |
-| 8 | unmerged | neither — no ancestry, no merged PR at this tip (or no `gh`/GitHub remote) | **report, never delete** |
+| 8 | unmerged | neither — no ancestry, and no merged PR containing this tip (or no `gh`/GitHub remote, or the merged head sha could not be obtained) | **report, never delete** |
 
 **Row 2 is new because enumeration is.** Under the old `[gone]` predicate a long-lived
 integration branch was never a candidate. Now it is: merge `release/1.2` into the base with
@@ -160,8 +163,10 @@ destroys the ignored ones.** `git status --porcelain` says nothing about `.env`,
 `node_modules`, or local build state, so a worktree holding only those reads clean and
 `git worktree remove` deletes them without `--force`. Under the old predicate almost no
 worktree reached this; now every clean merged branch's does. Name the path in the plan and say
-that ignored files there go with it — `git status --porcelain --ignored <path>` lists what
-would be lost, when the operator asks.
+that ignored files there go with it — `git -C <path> status --porcelain --ignored` lists what
+would be lost, when the operator asks. Run it *in* the worktree, as every row 5 test is:
+passing another worktree's path as a pathspec fatals with `outside repository` and empty
+stdout, which reads as "nothing would be lost" about a directory holding `.env`.
 
 Read the exit code, not just the output. A worktree whose directory has been deleted is still
 listed by `git worktree list --porcelain` and still enters the map, and `git status` there
@@ -198,6 +203,14 @@ collectable. A tip *ahead* holds commits the pull request does not, falls to row
 reported: that is work, not residue. Under a reused name the local commits are not ancestors
 of the old head either, which is the property this row exists for.
 
+**`headRefOid` may not be in the local object database.** That is the same lagging-tip case:
+the remote head advanced past what was fetched, and if the merge deleted it, a pruned fetch
+never brings the sha down. `git merge-base --is-ancestor` then exits **128** with
+`fatal: Not a valid commit name`, which is a missing object, not a verdict. Fetch it once —
+`git fetch origin refs/pull/<number>/head`, which survives head-branch deletion and updates
+only `FETCH_HEAD` — and re-run the test. Any other non-zero exit, and a failed fetch, mean
+row 8. Neither is a sweep failure.
+
 Both push-evidence clauses are name-level too, which is why row 4 only decides whether a
 branch is *eligible* to be classified. Rows 6 and 7 are what prove the work landed, and both
 test shas. Keep that division — loosening either to a name-level test reopens the hazard
@@ -210,9 +223,10 @@ above.
   your current `HEAD` otherwise, never against `origin/<base>`. On the squash path it prints
   `merged to 'refs/remotes/origin/<branch>', but not yet merged to HEAD` and **succeeds** on a
   branch that is no ancestor of the base. Where the branch has *no* upstream — a push without
-  `-u` still leaves a remote head, so row 4 admits it — `-d` compares against `HEAD` instead
-  and refuses a branch that did land. Both directions are wrong, which is why the `-D`
-  fallback below is the normal path rather than an exception.
+  `-u` still leaves a remote head, so row 4 admits it — `-d` compares against `HEAD` instead,
+  so its verdict depends on what you happen to have checked out. Neither reading is the one
+  rows 6 and 7 made, which is why the `-D` fallback below is the normal path rather than an
+  exception.
 - Try `-d` first anyway, since its refusals are informative, and fall back to `-D` for a
   branch rows 6 or 7 already classified and for nothing else. Never `-D` a branch classified
   unmerged — that needs the operator naming it after seeing it in the plan.

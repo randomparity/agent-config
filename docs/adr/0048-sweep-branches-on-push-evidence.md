@@ -90,14 +90,20 @@ requires the branch tip to be contained in the merged pull request's `headRefOid
 Containment rather than equality, because a local tip *behind* the merged head is ordinary —
 a reviewer committing a suggestion in the web interface advances the remote head, and a plain
 fetch never fast-forwards the local branch — and everything such a tip holds is in the pull
-request. Only a tip carrying commits the pull request does not is refused.
+request. A tip carrying commits the pull request does not is refused.
+
+That same lagging tip is why the merged head sha may be absent from the local object database,
+in which case `git merge-base --is-ancestor` exits 128 rather than answering. The sweep fetches
+`refs/pull/<number>/head` once and retries; where that fails, the branch is reported rather
+than deleted. An error is never read as a verdict — the failure this sweep exists to be
+distinguishable from.
 
 Record 0044 endorsed the branch-name lookup as "sound in a repo-wide sweep". That endorsement
 was made about a sweep whose candidates were `[gone]` branches, where a name could not be in
 reuse: the head was deleted. Widening enumeration is what invalidates its premise, so
 tightening the test belongs to the change that widened it rather than to a later one. The
-identity check costs one extra JSON field on a call the row already makes, and it subsumes the
-smaller case of commits added after the merge.
+containment check costs one extra JSON field on a call the row already makes, and it subsumes
+the smaller case of commits added after the merge.
 
 **Widening enumeration admits a category the `[gone]` predicate never reached, so the table
 gains a protected-branch row.** A long-lived integration branch — `release/1.2` merged into
