@@ -41,11 +41,8 @@ Everything else in this skill still applies: exploring project context, the scop
 Carry all charter values unchanged. A missing, incomplete, or unresolvable field takes this
 same path and never derives authority from the proposed design:
 
-<!-- SCOPE-RULE:ambiguity-checkpoint -->
 In dispatched mode, send design-changing ambiguity to SCOPE CHECKPOINT; never choose inline.
-<!-- SCOPE-RULE:END:ambiguity-checkpoint -->
 
-<!-- SCOPE-CARRIER:brainstorming-checkpoint -->
 SCOPE CHECKPOINT
 interaction: <unchanged root value>
 scope identity: <external scope identity, never reviewed target>
@@ -57,7 +54,6 @@ surface: <frozen permitted surface>
 ambiguities: <frozen ambiguity list>
 question: <one design-selecting question>
 why design-changing: <affected scope field or normative guarantee>
-<!-- SCOPE-CARRIER:END:brainstorming-checkpoint -->
 
 An interactive caller asks the returned question and re-freezes the charter with the
 answer and provenance. An unattended caller parks for human input.

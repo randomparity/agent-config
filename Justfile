@@ -1,7 +1,5 @@
 set shell := ["bash", "-eu", "-o", "pipefail", "-c"]
 
-test_public_safety_command := "./scripts/check-public-safety-test.sh"
-
 default:
   just --list
 
@@ -51,117 +49,92 @@ records:
     fi
   done
 
-# A `testdata/` suite is excluded from the installed payload, never from the
-# gates: each glob below names it explicitly so it stays linted, formatted and
-# run from its new path (ADR 0025).
+# Shell sources are discovered from Git, never enumerated: a tracked file is a
+# shell source when its name ends in .sh or its first line is a Bash shebang,
+# which also covers the extensionless helpers (scripts/list-shell-sources.sh).
+# A new script or suite is linted, formatted and run with no recipe edit, and a
+# `testdata/` suite is discovered the same way — it stays excluded only from
+# the installed payload, never from the gates (ADR 0025).
 lint:
-  shellcheck install.sh install-tools.sh install-test.sh install-tools-test.sh scripts/*.sh \
-    scripts/pre-push-hook \
-    .github/scripts/*.sh .github/scripts/profiles/*.sh \
-    content/skills/issue/scripts/*.sh \
-    content/skills/issue/scripts/testdata/*.sh \
-    content/skills/brainstorming/scripts/*.sh \
-    content/skills/brainstorming/scripts/testdata/*.sh \
-    content/skills/github-tracking/assets/*.sh \
-    content/skills/github-tracking/assets/profiles/*.sh \
-    content/skills/github-tracking/assets/testdata/*.sh
-  # Named one by one, not by glob: these three are extensionless, so no `*.sh`
-  # pattern reaches them and they sat outside every gate until #74 put new logic
-  # in sdd-workspace.
-  shellcheck content/skills/subagent-driven-development/scripts/sdd-workspace \
-    content/skills/subagent-driven-development/scripts/task-brief \
-    content/skills/subagent-driven-development/scripts/review-package \
-    content/skills/subagent-driven-development/scripts/testdata/*.sh
-  shellcheck agents/claude/shared/statusline.sh \
-    content/skills/systematic-debugging/find-polluter.sh
-  shellcheck content/skills/preflight/scripts/detect-host-architecture \
-    content/skills/preflight/scripts/resolve-architecture-context \
-    content/skills/preflight/scripts/testdata/*.sh
+  #!/usr/bin/env bash
+  set -euo pipefail
+  files=()
+  while IFS= read -r -d '' file; do
+    files+=("$file")
+  done < <(./scripts/list-shell-sources.sh --all -z)
+  shellcheck "${files[@]}"
 
-# The brainstorming scripts and the suite that exercises them take `-i 2`. The
-# scripts are vendored two-space-indented (ADR 0005, under which an upstream
-# update is a deliberate re-vendor that reviews the upstream diff against local
-# adaptations), so reformatting them to the repository default would cost that
-# diff for nothing. ADR 0025 gave the suite `-i 2` for the same reason (#57).
+# The two-space subset is the vendored brainstorming tree (ADR 0005's
+# re-vendor argument: an upstream update reviews the upstream diff, so a
+# reformat here would cost that diff for nothing), the two-space record gate
+# under .github/scripts and its byte-identical decision-records asset twins,
+# and two first-party sources that predate the gate at two-space indent.
+# list-shell-sources.sh owns the classification.
 format-check:
-  shfmt -d install.sh install-tools.sh install-test.sh install-tools-test.sh scripts/*.sh \
-    scripts/pre-push-hook
-  shfmt -i 2 -d .github/scripts/*.sh .github/scripts/profiles/*.sh
-  shfmt -d content/skills/issue/scripts/*.sh \
-    content/skills/issue/scripts/testdata/*.sh
-  shfmt -i 2 -d content/skills/brainstorming/scripts/*.sh \
-    content/skills/brainstorming/scripts/testdata/*.sh
-  shfmt -d content/skills/github-tracking/assets/*.sh \
-    content/skills/github-tracking/assets/profiles/*.sh \
-    content/skills/github-tracking/assets/testdata/*.sh
-  # Repository default, not `-i 2`: these are first-party, so the ADR 0005
-  # re-vendor argument that earns the brainstorming carve-out does not apply.
-  shfmt -d content/skills/subagent-driven-development/scripts/sdd-workspace \
-    content/skills/subagent-driven-development/scripts/task-brief \
-    content/skills/subagent-driven-development/scripts/review-package \
-    content/skills/subagent-driven-development/scripts/testdata/*.sh
-  # These existing first-party sources use two-space indentation; keeping that
-  # style avoids an unrelated full-file reformat while bringing them under the gate.
-  shfmt -i 2 -d agents/claude/shared/statusline.sh \
-    content/skills/systematic-debugging/find-polluter.sh
-  shfmt -d content/skills/preflight/scripts/detect-host-architecture \
-    content/skills/preflight/scripts/resolve-architecture-context \
-    content/skills/preflight/scripts/testdata/*.sh
+  #!/usr/bin/env bash
+  set -euo pipefail
+  tabs=()
+  while IFS= read -r -d '' file; do
+    tabs+=("$file")
+  done < <(./scripts/list-shell-sources.sh --tabs -z)
+  two_space=()
+  while IFS= read -r -d '' file; do
+    two_space+=("$file")
+  done < <(./scripts/list-shell-sources.sh --two-space -z)
+  shfmt -d "${tabs[@]}"
+  shfmt -i 2 -d "${two_space[@]}"
 
 format:
-  shfmt -w install.sh install-tools.sh install-test.sh install-tools-test.sh scripts/*.sh \
-    scripts/pre-push-hook
-  shfmt -i 2 -w .github/scripts/*.sh .github/scripts/profiles/*.sh
-  shfmt -w content/skills/issue/scripts/*.sh \
-    content/skills/issue/scripts/testdata/*.sh
-  shfmt -i 2 -w content/skills/brainstorming/scripts/*.sh \
-    content/skills/brainstorming/scripts/testdata/*.sh
-  shfmt -w content/skills/github-tracking/assets/*.sh \
-    content/skills/github-tracking/assets/profiles/*.sh \
-    content/skills/github-tracking/assets/testdata/*.sh
-  shfmt -w content/skills/subagent-driven-development/scripts/sdd-workspace \
-    content/skills/subagent-driven-development/scripts/task-brief \
-    content/skills/subagent-driven-development/scripts/review-package \
-    content/skills/subagent-driven-development/scripts/testdata/*.sh
-  shfmt -i 2 -w agents/claude/shared/statusline.sh \
-    content/skills/systematic-debugging/find-polluter.sh
-  shfmt -w content/skills/preflight/scripts/detect-host-architecture \
-    content/skills/preflight/scripts/resolve-architecture-context \
-    content/skills/preflight/scripts/testdata/*.sh
+  #!/usr/bin/env bash
+  set -euo pipefail
+  tabs=()
+  while IFS= read -r -d '' file; do
+    tabs+=("$file")
+  done < <(./scripts/list-shell-sources.sh --tabs -z)
+  two_space=()
+  while IFS= read -r -d '' file; do
+    two_space+=("$file")
+  done < <(./scripts/list-shell-sources.sh --two-space -z)
+  shfmt -w "${tabs[@]}"
+  shfmt -i 2 -w "${two_space[@]}"
 
 test:
-  ./install-test.sh
-  ./install-tools-test.sh
-  ./content/skills/issue/scripts/testdata/create-verified-issue-test.sh
-  ./content/skills/brainstorming/scripts/testdata/start-server-test.sh
-  ./content/skills/brainstorming/scripts/testdata/stop-server-test.sh
-  ./content/skills/subagent-driven-development/scripts/testdata/sdd-workspace-test.sh
-  ./content/skills/preflight/scripts/testdata/architecture-awareness-test.sh
-  ./content/skills/github-tracking/assets/testdata/tracker-test.sh
-  {{test_public_safety_command}}
-  ./scripts/check-deployed-references-test.sh
-  ./scripts/check-workflow-scope-contract-test.sh
-  ./scripts/check-cleared-dependencies-test.sh
-  ./scripts/check-skill-layout-test.sh
-  ./scripts/check-suite-coverage-test.sh
-  ./scripts/git-fixture-isolation-test.sh
-  ./scripts/select-verification-test.sh
-  ./scripts/verify-push-test.sh
-
-test-public-safety:
-  {{test_public_safety_command}}
+  #!/usr/bin/env bash
+  set -euo pipefail
+  # Every tracked suite runs here except the records gate's own suite, which
+  # `just records` already executes; running it here too would duplicate the
+  # repository's largest suite for no new evidence.
+  count=0
+  while IFS= read -r -d '' suite; do
+    case $suite in
+    .github/scripts/check-records-test.sh | \
+      content/skills/decision-records/assets/check-records-test.sh)
+      continue
+      ;;
+    esac
+    printf '== %s\n' "$suite"
+    "./$suite"
+    count=$((count + 1))
+  done < <(git ls-files -z -- '*-test.sh')
+  if ((count == 0)); then
+    printf 'test: no suites discovered\n' >&2
+    exit 1
+  fi
+  printf 'test: %s suites passed\n' "$count"
 
 skills-check:
   ./scripts/check-skill-layout.sh
 
-suites-check:
-  ./scripts/check-suite-coverage.sh
+carrier-check:
+  ./scripts/check-carrier-drift.sh
 
 public-safety:
   ./scripts/check-public-safety.sh
 
-commit-check:
-  ./scripts/select-verification.sh
+# The one recipe the pre-commit hook invokes (ADR 0039). verify depends on it
+# too, so a static gate added to either chain reaches both and the hook never
+# names recipes of its own.
+commit-check: lint format-check public-safety
 
 push-check:
   ./scripts/verify-push.sh
@@ -173,8 +146,8 @@ actions-check:
   actionlint
   zizmor --offline .github/workflows/
 
-verify: tools-check records lint format-check skills-check suites-check test \
-        public-safety references-check actions-check
+verify: tools-check records commit-check skills-check carrier-check test \
+        references-check actions-check
   prek run --all-files --stage pre-commit --dry-run
 
 ci:

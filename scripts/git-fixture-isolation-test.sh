@@ -110,7 +110,6 @@ suites=(
 	content/skills/subagent-driven-development/scripts/testdata/sdd-workspace-test.sh
 	content/skills/github-tracking/assets/testdata/tracker-test.sh
 	content/skills/brainstorming/scripts/testdata/start-server-test.sh
-	scripts/check-suite-coverage-test.sh
 	.github/scripts/check-records-test.sh
 	content/skills/decision-records/assets/check-records-test.sh
 )

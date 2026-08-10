@@ -2,6 +2,8 @@
 
 ## Status
 
+> **Superseded by [0037](0037-verification-recipes-discover-shell-sources.md)** (2026-08-09)
+
 Accepted (2026-08-03)
 
 ## Context
