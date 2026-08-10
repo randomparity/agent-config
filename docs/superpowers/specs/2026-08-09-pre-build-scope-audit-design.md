@@ -80,8 +80,10 @@ artifact, or observes that one changed after approval and before TDD, `work-issu
 audit. The prose workflow does not guarantee detection of arbitrary out-of-band edits; doing
 so would require the excluded artifact-identity machinery.
 
-Trivial bugfixes and governed small changes retain their existing design-skip paths and do
-not run this phase. Every non-trivial run does.
+The observable trigger is the full design path: every run that produces or consumes reviewed
+design artifacts runs this phase before TDD. Trivial bugfixes and governed small changes retain
+their existing design-skip paths and do not run it. Contract fixtures exercise both the design
+path and the two skip paths so the exemption cannot expand silently.
 
 ## Audit behavior
 

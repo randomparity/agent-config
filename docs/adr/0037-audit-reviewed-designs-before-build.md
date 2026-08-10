@@ -26,6 +26,11 @@ change after design review and before TDD. A missing or unresolved expected arti
 writes a human-readable report as per-worktree state under `.agent/scope-audit/` and returns
 `approve` or `needs-attention`.
 
+The observable trigger is entry into `work-issue`'s full design path: any run that produces
+or consumes reviewed design artifacts runs the audit before TDD. Existing trivial-bugfix and
+governed-small-change paths, which do not enter design, remain exempt. Coupled contract tests
+exercise both sides of this boundary.
+
 The report maps promises to external provenance and components to criteria, compares the
 smallest viable alternative, classifies findings, and records a compact approved surface of
 components, contracts, complexity, exclusions, and owned deferrals. It is evidence, not
