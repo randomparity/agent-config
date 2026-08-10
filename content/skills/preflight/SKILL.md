@@ -135,7 +135,7 @@ concurrently, honor what the orchestrator handed you:
   single row in your own PR then, matching the length and tone of the rows around
   it, and give its `Status` cell the same value as your record's own `## Status` —
   such a guard usually compares the two. Touch no other row and do not reflow the
-  table; the orchestrator's serial-merge rebase (`$campaign` step 6) reconciles the
-  adjacent-insertion conflicts between siblings.
+  table; the orchestrator's serial-merge branch refresh (`$campaign` step 6)
+  reconciles the adjacent-insertion conflicts between siblings.
 - Expect generated-doc and snapshot files to be cross-agent conflict zones; keep
   your edits to them minimal and additive.

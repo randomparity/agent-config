@@ -2,7 +2,9 @@
 
 ## Status
 
-Proposed
+> **Superseded by [0037](0037-verification-recipes-discover-shell-sources.md)** (2026-08-09)
+
+Superseded (2026-08-09)
 
 ## Context
 

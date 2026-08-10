@@ -1,8 +1,8 @@
-# 0037 — Audit reviewed designs before implementation
+# 0040 -- Audit reviewed designs before implementation
 
 ## Status
 
-Accepted (2026-08-09)
+Accepted (2026-08-10)
 
 ## Context
 
@@ -32,8 +32,7 @@ TDD. This is a prose handoff, not an identity, reservation, or transaction proto
 
 The observable trigger is entry into `work-issue`'s full design path: any run that produces
 or consumes reviewed design artifacts runs the audit before TDD. Existing trivial-bugfix and
-governed-small-change paths, which do not enter design, remain exempt. Coupled contract tests
-exercise both sides of this boundary.
+governed-small-change paths, which do not enter design, remain exempt.
 
 The report maps promises to external provenance and components to criteria, compares the
 smallest viable alternative, classifies findings, and records a compact approved surface of
@@ -50,7 +49,9 @@ classification. A link or plausible owner is not verification; only a verified i
 owner may appear as an owned deferral. Branch review compares the diff with the approved
 surface and applies the same reception gate to its findings.
 
-The workflow uses prompt-contract tests and the existing installed-projection test. It adds
+Per ADR 0038 the phase prose is not gated for its wording. The charter carrier the dispatch
+carries is machine-read, so `scripts/check-carrier-drift.sh` pins it byte for byte, and the
+existing installed-projection test covers the new skill. The workflow adds
 no formal result schema, parser, artifact identity graph, content hashing, transaction
 protocol, or live-model evaluation subsystem. A design change the workflow makes or observes
 invalidates the report and requires another audit. Detecting arbitrary out-of-band edits is
@@ -63,7 +64,9 @@ not guaranteed without the excluded identity machinery.
 - Its Markdown report follows ADR 0027's self-ignored `.agent/` convention, so it survives a
   session boundary without becoming committed product documentation.
 - Reviewers and operators, rather than a new parser, judge the report's substantive quality.
-- Deterministic tests prove the load-bearing prompt contract, not live-model judgment quality.
+- No gate asserts that the phase's rule sentences survive a rewrite. Under ADR 0038 that is
+  the accepted cost of gating meaning over wording: the dispatch carrier is pinned, and the
+  rules around it are reviewed by humans at review time.
 - A resumed workflow must inspect its design state, but the prose report cannot prove that no
   unobserved out-of-band edit occurred.
 - The report does not prove that no concurrent or out-of-band writer changed its contents.

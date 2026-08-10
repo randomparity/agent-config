@@ -1,41 +1,19 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-tracking=$repo_root/content/skills/github-tracking/SKILL.md
-triage=$repo_root/content/skills/triage-issues/SKILL.md
-printf -v type_label '\140type:\140'
-printf -v blocked_candidate_contract \
-	'**Blocked candidates** — open, non-\140epic\140 issues carrying \140status:blocked\140.'
+script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
 fail() {
 	printf 'cleared-dependencies-test: %s\n' "$*" >&2
 	exit 1
 }
 
-assert_text() {
-	local file=$1 text=$2
-	rg -q --fixed-strings "$text" "$file" || fail "$file missing: $text"
-}
-
-extract_recipe() {
-	local output=$1
-	awk '
-    $0 == "# BEGIN CLEARED-DEPENDENCY RECIPE" { copy = 1; next }
-    $0 == "# END CLEARED-DEPENDENCY RECIPE" { copy = 0; found = 1 }
-    copy { print }
-    END { if (!found) exit 42 }
-  ' "$tracking" >"$output"
-}
-
 tmp_dir=$(mktemp -d)
 trap 'rm -rf "$tmp_dir"' EXIT
-recipe=$tmp_dir/recipe.sh
-extract_recipe "$recipe" || fail 'canonical executable recipe is missing'
-shellcheck "$recipe"
-shfmt -d -i 2 "$recipe"
+# The recipe is the asset beside this suite; lint and format gates cover it
+# directly now that it is a file rather than a block embedded in SKILL.md.
 # shellcheck source=/dev/null
-source "$recipe"
+source "$script_dir/../cleared-dependencies.sh"
 
 gh_log=$tmp_dir/gh.log
 blocker_log=$tmp_dir/blockers.log
@@ -232,21 +210,5 @@ fi
 if LC_ALL=C rg -q $'\033' "$tmp_dir/api-fail"; then
 	fail 'issue-list error leaked a control character'
 fi
-
-assert_text "$repo_root/content/skills/merge-cleanup/SKILL.md" \
-	'reconcile_cleared_dependencies apply'
-assert_text "$repo_root/content/skills/recover-orphans/SKILL.md" \
-	'reconcile_cleared_dependencies plan'
-assert_text "$triage" 'A sweep produces two populations for step 4:'
-assert_text "$triage" \
-	'When none are supplied, sweep untriaged and blocked open issues.'
-assert_text "$triage" '**Untriaged**'
-assert_text "$triage" "$blocked_candidate_contract"
-assert_text "$triage" "regardless of whether they carry a $type_label label"
-assert_text "$triage" 'Union and deduplicate the two populations before step 4.'
-assert_text "$triage" \
-	'Do not stop when the untriaged count is zero if blocked candidates remain.'
-assert_text "$triage" 'cleared-dependency check only'
-assert_text "$triage" 'manual reassessment fallback'
 
 printf 'cleared-dependencies-test: pass\n'

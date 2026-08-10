@@ -2,7 +2,7 @@
 
 Issue: [#94](https://github.com/randomparity/agent-config/issues/94)
 
-ADR: [0037](../../adr/0037-audit-reviewed-designs-before-build.md)
+ADR: [0040](../../adr/0040-audit-reviewed-designs-before-build.md)
 
 ## Scope and authority
 
@@ -13,8 +13,8 @@ checks the aggregate reviewed design before implementation and constrains branch
 the approved surface.
 
 The permitted product surface is `content/skills/scope-audit/`, the canonical
-`content/skills/work-issue/` workflow, and directly coupled contract and installation tests.
-This design also adds its governing ADR and design artifacts. Bookkeeping-only debt records
+`content/skills/work-issue/` workflow, and the directly coupled carrier-drift and installation
+gates. This design also adds its governing ADR and design artifacts. Bookkeeping-only debt records
 and tracker issues are permitted only for independently verified adjacent concerns; they do
 not authorize implementing those concerns.
 
@@ -89,8 +89,8 @@ so would require the excluded artifact-identity machinery.
 
 The observable trigger is the full design path: every run that produces or consumes reviewed
 design artifacts runs this phase before TDD. Trivial bugfixes and governed small changes retain
-their existing design-skip paths and do not run it. Contract fixtures exercise both the design
-path and the two skip paths so the exemption cannot expand silently.
+their existing design-skip paths and do not run it. The phase prose states both the trigger and
+the two exemptions so review can see an exemption widening.
 
 ## Audit behavior
 
@@ -220,39 +220,37 @@ and repository evidence needed to verify ownership. Disallowed behavior is editi
 or Git state, authorizing
 scope, inventing certainty, absorbing adjacent work, or repeatedly rerunning unchanged input.
 On incomplete inputs or an incomplete report, the workflow stops before TDD. The latency/cost
-budget is one fresh model pass per unchanged artifact set. Success means the deterministic
-prompt-contract suite proves the load-bearing instructions and an independent review finds the
-design proportionate; no live-model quality claim is made.
+budget is one fresh model pass per unchanged artifact set. Success means the instructions below
+are present and operative in the installed prompts and an independent review finds the design
+proportionate; no live-model quality claim is made.
 
-| Failure mode | Severity | Deterministic evidence |
+Each failure mode is addressed by an instruction in `scope-audit` or `work-issue`. Per ADR 0038
+these sentences are not byte-pinned by a gate: the wording is reviewed by humans, and only the
+machine-read charter carrier the dispatch carries is checked by `check-carrier-drift.sh`.
+
+| Failure mode | Severity | Where the instruction lives |
 |---|---:|---|
-| Audit treats its target or verdict as authority | 5 | Operative no-authority rule assertion |
-| Narrow issue approves a subsystem-sized plan | 4 | Proportionality rule assertion |
-| Another issue's behavior is treated as required | 4 | Ownership/checkpoint rule assertion |
-| Depended-on or worsened concern is deferred | 5 | Non-deferrable rule assertion |
-| Suspected concern is stated as verified fact | 4 | Uncertainty-preservation rule assertion |
-| Incomplete charter or artifact set reaches TDD | 5 | Complete-input and phase-order rule assertions |
-| Missing or incomplete report reaches TDD | 5 | Report handoff rule assertions |
-| A known or observed design change skips another pass | 4 | Change-invalidation rule assertion |
-| Audit loops on unchanged input | 4 | One-pass latency rule assertion |
-| Branch diff grows beyond the approved surface | 4 | Branch-review assertion and representative mutation |
-| Caller accepts a recommendation without reception | 5 | Reception assertion and representative mutation |
-| Valid concern bootstraps an ungrounded remedy | 5 | Remedy assertion and representative mutations |
-| Review-created prose bootstraps a new guarantee | 5 | No-authority assertion and representative mutation |
-| Dispositioned findings leave the workflow deadlocked | 5 | Post-reception transition assertion |
+| Audit treats its target or verdict as authority | 5 | `scope-audit` Audit, no-authority sentence |
+| Narrow issue approves a subsystem-sized plan | 4 | `scope-audit` Audit, smaller-alternative comparison |
+| Another issue's behavior is treated as required | 4 | `scope-audit` Audit, checkpoint-or-split sentence |
+| Depended-on or worsened concern is deferred | 5 | `scope-audit` Audit, non-deferrable sentence |
+| Suspected concern is stated as verified fact | 4 | `scope-audit` Audit, uncertainty sentence |
+| Incomplete charter or artifact set reaches TDD | 5 | `scope-audit` Inputs; `work-issue` step 4 dispatch carrier |
+| Missing or incomplete report reaches TDD | 5 | `work-issue` step 4, required-sections stop |
+| A known or observed design change skips another pass | 4 | `work-issue` step 4, report invalidation |
+| Audit loops on unchanged input | 4 | `scope-audit` Report, one-pass sentence |
+| Branch diff grows beyond the approved surface | 4 | `work-issue` step 6, surface comparison |
+| Caller accepts a recommendation without reception | 5 | `work-issue` step 4, Receiving the findings |
+| Valid concern bootstraps an ungrounded remedy | 5 | `work-issue` step 4, remedy and substitute-remedy checks |
+| Review-created prose bootstraps a new guarantee | 5 | `work-issue` step 4, review-created-authority sentence |
+| Dispositioned findings leave the workflow deadlocked | 5 | `work-issue` step 4, continuation conditions |
 
-The contract tests assert each operative rule and use representative mutations to prove that
-the assertion mechanism catches removed or weakened instructions. Cases include the happy path
-of a necessary direct dependency; an ambiguous or incomplete input that stops; a forbidden
-scope claim that checkpoints; stale/conflicting evidence through visible design change; the
-issue-ownership boundary; the no-repeat cost cap; and PR #92's regression shape of a narrow
-request paired with a subsystem-sized plan. The repository does not add an LLM judge. The
-tests prove that deployed prompts retain these requirements, while adversarial review supplies
-the human-readable quality check.
-
-Representative mutations cover a skipped phase, skipped branch comparison, direct
-recommendation acceptance, concern-authorizes-remedy, substitute-remedy bypass, and
-review-created authority. The prompt-contract suite must reject all six fixtures.
+The repository does not add an LLM judge, and the guardrails do not evaluate report quality.
+Adversarial review supplies the human-readable check: the happy path of a necessary direct
+dependency; an ambiguous or incomplete input that stops; a forbidden scope claim that
+checkpoints; stale or conflicting evidence through visible design change; the issue-ownership
+boundary; the no-repeat cost cap; and PR #92's regression shape of a narrow request paired
+with a subsystem-sized plan.
 
 ## Trust boundaries
 
@@ -273,8 +271,8 @@ Implementation is limited to:
 - `content/skills/scope-audit/SKILL.md` — reusable audit instructions;
 - `content/skills/work-issue/SKILL.md` — phase placement, dispositions, context checkpoint,
   and branch-review comparison;
-- `scripts/check-workflow-scope-contract-test.sh` — structural prompt-contract checks and
-  mutation fixtures; and
+- `scripts/check-carrier-drift.sh` and its suite — the expected-site manifest gains
+  work-issue's second charter carrier, the one the audit dispatch carries; and
 - `install-test.sh` and `scripts/check-skill-layout-test.sh` — mechanical canonical-skill
   inventory expectation updates required by the new skill; and
 - this ADR, specification, and the transient implementation plan.

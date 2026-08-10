@@ -41,9 +41,12 @@ When you do merge:
   review-iteration PRs.
 - When several sibling PRs are in flight, **merge serially**: merge one, then
   for each remaining PR re-check `mergeStateStatus`; if it went
-  `BEHIND`/`DIRTY`, rebase it onto the updated `BASE_BRANCH`, regenerate
-  generated artifacts, rerun guardrails, and confirm green + mergeable again
-  before merging it. Never merge an unmergeable PR on the strength of
+  `BEHIND`/`DIRTY`, merge the updated `BASE_BRANCH` into it — never rebase a
+  pushed branch: force-push is denied. Regenerate generated artifacts, rerun
+  guardrails, and confirm green + mergeable again before merging it. If the
+  repo forbids merge commits (linear history) so a base merge-in is
+  unacceptable and a pushed-branch rebase is denied, stop with a named
+  blocker. Never merge an unmergeable PR on the strength of
   previously-green checks.
 
 **Caller contract.** If invoked inside `$work-issue`, completing the cleanup

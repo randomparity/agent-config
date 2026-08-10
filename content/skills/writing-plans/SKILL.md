@@ -22,9 +22,7 @@ Assume they are a skilled developer, but know almost nothing about our toolset o
 Dispatched mode controls sequencing, not human reachability. Consume the complete external
 scope charter supplied by `$design`, including the separate root `interaction` value.
 
-<!-- SCOPE-RULE:inherit-interaction -->
 Inherit interaction from the root; never infer it from nesting.
-<!-- SCOPE-RULE:END:inherit-interaction -->
 
 Carry `scope identity`, `outcome`, `completion criteria`, `provenance`, `exclusions`,
 `surface`, and `ambiguities` unchanged. If any field is missing, incomplete, or
