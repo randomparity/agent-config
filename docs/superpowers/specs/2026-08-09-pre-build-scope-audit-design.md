@@ -30,8 +30,8 @@ closed PR #92 are evidence of the failure mode, not authority for their behavior
 Add one short skill whose only product is a human-readable report. `work-issue` dispatches a
 fresh agent after the ADR, specification, and plan have passed their existing reviews. The
 agent reads those artifacts collectively with the frozen charter and linked ownership,
-writes its report to a pre-minted per-worktree path under `.agent/scope-audit/`, and the
-caller reads that exact report as the sole result. This is the smallest approach that is both
+writes its report to a fresh caller-supplied per-worktree path under `.agent/scope-audit/`,
+and the caller reads the report before TDD. This is the smallest approach that is both
 reusable and independent.
 
 ### Inline proportionality checklist — rejected
@@ -59,9 +59,7 @@ before TDD.
 
 1. Finish the existing design phase, including ADR, specification, and plan reviews.
 2. Ensure the worktree's `.agent/` root is self-ignored under ADR 0027, verify that
-   `.agent/scope-audit/` is ignored, and mint a unique, never-created report pathname there
-   without touching the file. The path includes the issue and branch identity so concurrent
-   runs do not share a report.
+   `.agent/scope-audit/` is ignored, and supply a fresh report pathname there.
 3. Dispatch a fresh reviewer task with the declared inputs and without prior verdicts,
    intended fixes, or review history in its brief. The workflow does not claim or prove that
    the runtime excludes inherited conversation; any inherited history is non-authoritative
@@ -70,9 +68,8 @@ before TDD.
    - explicit paths to every reviewed ADR, specification, and plan associated with the run;
    - the base branch needed to inspect the design-artifact diff; and
    - linked issue, dependency, debt-record, and tracker ownership relevant to findings.
-4. Open the exact pre-minted path, require the completion sentinel and one explicit valid
-   verdict, and disposition the report before TDD. The subagent completion message carries no
-   second verdict or alternative path.
+4. Read the supplied report path, require one explicit valid verdict and the required semantic
+   sections, and disposition every finding before TDD.
 5. Preserve the report path and compact approved-surface section as the design-to-build
    context checkpoint.
 
@@ -100,37 +97,26 @@ path and the two skip paths so the exemption cannot expand silently.
 The skill is read-only with respect to reviewed artifacts, Git state, debt records, and
 tracker state. Its sole write is the requested report under `.agent/scope-audit/`. The
 caller owns ADR 0027's fail-closed ignore setup before dispatch; the auditor does not create
-or modify ignore files. The report uses this minimal Markdown envelope:
+or modify ignore files. The report contains:
 
-- first nonblank line, exactly once: `**Verdict:** approve` or
-  `**Verdict:** needs-attention`;
-- `## Promise to provenance`: every normative design guarantee and its external authority or
+- one clear `approve` or `needs-attention` verdict;
+- a promise-to-provenance section: every normative design guarantee and its authority or
   necessary-consequence reasoning;
-- `## Component to criterion`: every proposed component, file group, test group, or runtime
+- a component-to-criterion section: every proposed component, file group, test group, or runtime
   behavior and the criterion that needs it;
-- `## Smallest viable alternative`: the selected approach compared with a materially smaller
+- a smallest-viable-alternative section: the selected approach compared with a smaller
   implementation, including why the smaller option fails or should replace the proposal;
-- `## Approved surface`: components, contracts, complexity budget, exclusions, and verified
+- an approved-surface section: components, contracts, complexity budget, exclusions, and verified
   owned deferrals that branch review must use;
-- `## Findings`: evidence, impact, recommendation, uncertainty, and one classification per
-  concern; and
-- final nonblank line: `<!-- SCOPE-AUDIT:COMPLETE -->`.
-
-The five headings occur once in that order and each section contains at least one content
-line; `none` is explicit when a section has no entries. A missing, duplicate, or out-of-order
-envelope element, or a sentinel before the final nonblank line, is incomplete and stops.
+- a findings section: evidence, impact, recommendation, uncertainty, and one classification
+  per concern.
 
 This is a prose contract, not a formal schema. The caller reads it as a document and does not
 add a result parser or identifier cross-reference engine.
 
-The report at the caller's exact pre-minted path is the sole audit result. The caller ensures
-that path did not already exist before dispatch, ignores any alternative path or verdict in a
-completion message, and stops before TDD when the expected file is missing, the sentinel is
-absent, the verdict is missing or not one of the two allowed words, or the document is otherwise
-incomplete. This detects ordinary reuse of a pre-existing path under the intended single-writer
-workflow. It does not prove provenance against concurrent creation or replacement; concurrent
-runs must use distinct paths, and detecting an exact-path replacement would require the excluded
-reservation machinery. The fail-closed read is a document check, not a new result parser.
+The caller stops before TDD when the supplied report is missing, its verdict is absent or
+unclear, or a required semantic section is absent. The report is a human-readable handoff; it
+does not prove provenance, identity, or protection against concurrent or out-of-band edits.
 
 The auditor challenges the combined proposal for unsupported guarantees, behavior owned by
 another issue, unnecessary persistence/authentication/schema/permission/concurrency or
@@ -162,9 +148,10 @@ or plausible tracker is evidence to investigate, not proof of independent owners
 cannot make a concern eligible for deferral. Only a verified independent owner appears in the
 approved surface as an owned deferral.
 
-The audit cannot authorize scope. A `scope-checkpoint` finding returns the interactive root
-to the existing `SCOPE CHECKPOINT` before code is written. A `defer-candidate` is input to the
-existing review-loop disposition semantics: verify it, preserve uncertainty honestly, and
+The audit cannot authorize scope. A `needs-attention` verdict stops before TDD while the
+caller dispositions its findings. A verified material expansion returns the interactive root
+to the existing `SCOPE CHECKPOINT`; the classification alone does not. A `defer-candidate` is
+input to the existing review-loop disposition semantics: verify it, preserve uncertainty, and
 give a verified independent concern a `docs/debt/` owner plus tracker pointer where supported.
 A concern the proposed change depends on or worsens cannot be deferred. Unsupported concerns
 are rejected with evidence rather than converted into requirements.
@@ -190,8 +177,9 @@ The caller records one disposition before making any responsive edit:
   worsened by this change; or
 - `blocked`: correctness requires a change for which the workflow lacks authority.
 
-A valid concern does not validate its proposed remedy. The caller may reject that remedy and
-derive a smaller necessary consequence from the charter, but must record the reasoning. Audit
+A valid concern does not validate its proposed remedy. Any substitute or derived remedy must
+pass the same authority, necessity, and proportionality checks and receive a disposition
+before an edit. Audit
 classifications, severity, repetition across review passes, and prose created by an earlier
 review do not supply authority or bootstrap a new guarantee. A `scope-checkpoint`
 classification is therefore a recommendation to verify, not an automatic scope decision.
@@ -231,7 +219,7 @@ design proportionate; no live-model quality claim is made.
 | Depended-on or worsened concern is deferred | 5 | Non-deferrable rule and mutation fixture |
 | Suspected concern is stated as verified fact | 4 | Uncertainty-preservation rule and mutation fixture |
 | Incomplete charter or artifact set reaches TDD | 5 | Complete-input and phase-order rules with mutation fixtures |
-| Missing, pre-existing, partial, or misdirected report reaches TDD | 5 | Sole-result path and completion rules with mutation fixtures |
+| Missing or incomplete report reaches TDD | 5 | Report handoff rules with mutation fixtures |
 | A known or observed design change skips another pass | 4 | Change-invalidation rule and mutation fixture |
 | Audit loops on unchanged input | 4 | One-pass latency rule and mutation fixture |
 | Branch diff grows beyond the approved surface | 4 | Branch-review comparison rule and mutation fixture |
@@ -247,9 +235,7 @@ request paired with a subsystem-sized plan. The repository does not add an LLM j
 tests prove that deployed prompts retain these requirements, while adversarial review supplies
 the human-readable quality check.
 
-Report-envelope mutations cover a pre-existing expected path, a missing or duplicated verdict,
-missing or reordered headings, an empty section, a sentinel that is absent or not final, and
-output written only to a different path.
+Report mutations cover a missing or unclear verdict and an absent required semantic section.
 
 Reception mutations accept a recommendation directly, treat a valid concern as authority for
 its proposed remedy, or treat review-created prose as authority for a new guarantee. The
