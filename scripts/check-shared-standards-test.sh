@@ -159,6 +159,28 @@ reset_fixture
 write_copy "$CLAUDE" 'Claude-native prose.' whitespace_block
 assert_fails 'trailing whitespace is drift' block-drift
 
+# ripgrep reads RIPGREP_CONFIG_PATH, so a developer's own config can change the
+# shape of the marker scan's output. With --with-filename forced and the
+# checker's --no-filename removed, the line-number field became a path, bash
+# arithmetic failed inside a suppressed-errexit call, and the gate exited 0
+# having compared nothing. Drift has to stay visible whatever that config says.
+reset_fixture
+write_copy "$CODEX" 'Codex-native prose.' drifted_block
+printf -- '--with-filename\n' >"$SCRATCH/rgconfig"
+if (
+	export RIPGREP_CONFIG_PATH="$SCRATCH/rgconfig"
+	"$CHECKER" "$FIXTURE"
+) >"$SCRATCH/output" 2>&1; then
+	printf 'not ok - a ripgrep config must not hide drift\n' >&2
+	sed -n '1,20p' "$SCRATCH/output" >&2
+	exit 1
+fi
+if ! rg -q 'shared-standards: block-drift:' "$SCRATCH/output"; then
+	printf 'not ok - drift under a ripgrep config should report block-drift\n' >&2
+	sed -n '1,20p' "$SCRATCH/output" >&2
+	exit 1
+fi
+
 reset_fixture
 printf '# Global Development Standards\n\nClaude-native prose.\n' >"$FIXTURE/$CLAUDE"
 assert_fails 'a mirror lost its block' missing-block

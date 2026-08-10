@@ -94,10 +94,15 @@ count_lines() { # newline-delimited-text
 # Line numbers of every occurrence of one marker in one file, newline-delimited
 # and empty when the file has none. rg exits 1 on no match, which is a normal
 # answer here rather than a failure; anything else is a broken scan.
+#
+# --no-filename is not redundant with the single-file argument: ripgrep reads
+# RIPGREP_CONFIG_PATH, so a developer whose config sets --with-filename would
+# otherwise turn every line of output into `path:line:text` and make the field
+# below the path instead of the line number.
 marker_lines() { # absolute-path marker
 	local output rg_status
 	set +e
-	output=$(rg -n --fixed-strings -- "$2" "$1")
+	output=$(rg -n --no-filename --fixed-strings -- "$2" "$1")
 	rg_status=$?
 	set -e
 	case "$rg_status" in
