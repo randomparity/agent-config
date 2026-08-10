@@ -297,6 +297,12 @@ validate_inventory() {
 # begins \xFF\xFE is decoded as UTF-16, and the reference the scan is looking for
 # comes out as mojibake that matches nothing. Reading raw bytes is also what
 # validate_utf8 does, so both rules now see the file the installer will copy.
+#
+# That is a trade, not a free win: a file under these roots that really is UTF-16 was
+# transcoded and scanned before and is opaque to this rule now. Nothing gates the
+# encoding of `content/languages` or `content/references` -- only SKILL.md is checked
+# -- so neither reading is safe for a genuine UTF-16 delivery, and the spoof is the
+# reachable half. Issue #127 tracks giving those roots an encoding rule of their own.
 scan_config_roots() { # results-file rg-argument...
 	local results="$1"
 	local status=0

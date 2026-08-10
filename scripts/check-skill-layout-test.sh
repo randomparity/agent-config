@@ -341,11 +341,20 @@ assert_fails 'content/skills/skill-01/SKILL.md: file must be valid UTF-8' "$root
 # to strip that file back to ASCII (issue #101, PR #99). Every well-formed width
 # has to pass -- including the 4-byte sequences no skill file carries yet, and the
 # two scalars at the edges of the grammar.
+#
+# Every alternative in the acceptor appears here, not just the ones live content uses.
+# The reject cases below pin each narrow lead range from one side only: they prove the
+# grammar refuses what sits outside it, and would keep passing if an alternative were
+# deleted outright. The last line is the other side -- U+0800 and U+D7FF bracket the
+# surrogate hole, U+E000 reopens after it, and U+10000 and U+40000 cover the two
+# four-byte alternatives the earlier lines miss.
 utf8_root="$(new_fixture)"
 {
 	printf '%b\n' 'caf\0303\0251 \0342\0200\0224 dash \0342\0206\0222 arrow'
 	printf '%b\n' 'CJK \0344\0270\0255\0346\0226\0207 emoji \0360\0237\0232\0200'
 	printf '%b\n' 'first \0302\0200 last \0364\0217\0277\0277'
+	printf '%b\n' 'floor \0340\0240\0200 pre \0355\0237\0277 post \0356\0200\0200'
+	printf '%b\n' 'plane1 \0360\0220\0200\0200 plane3 \0361\0200\0200\0200'
 } >>"$utf8_root/content/skills/skill-01/SKILL.md"
 output="$(cd "$utf8_root" && bash scripts/check-skill-layout.sh)"
 [[ "$output" == 'skills-check: ok (1 canonical skills, 1 project review examples)' ]] ||
