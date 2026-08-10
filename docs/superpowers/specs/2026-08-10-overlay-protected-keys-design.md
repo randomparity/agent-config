@@ -40,7 +40,7 @@ and warn-and-continue.
 | Overlay that adds keys, or overrides scalars and object members | Merge with `.[0] * .[1]`; report that the overlay was applied. Unchanged. |
 | Overlay that adds an array at a path the base does not define, or replaces an empty base container (`[]` or `{}`) | Merged and kept. This is what `permissions.allow` in the example host does. |
 | Overlay that reproduces a base non-empty array **verbatim** | Merged and kept — the merged result is unchanged, so nothing is lost. It aborts at the next base change; see below. |
-| Overlay whose merged result changes a base non-empty array (**extending it counts**), or leaves a non-object where the base held an object — whether by naming the path or by replacing an ancestor | **Abort the install**, naming the overlay file and every base path the merge would not have preserved. Write no output. |
+| Overlay whose merged result changes a base non-empty array (**extending it counts**), or leaves a non-object where the base held a **non-empty** object — whether by naming the path or by replacing an ancestor | **Abort the install**, naming the overlay file and every base path the merge would not have preserved. Write no output. |
 | Overlay that is not exactly one JSON object — a non-object value, or two concatenated documents | **Abort the install**, naming the overlay path, before the merge runs. |
 
 The rule is normative over the **merged result**, never over the overlay's shape, in two clauses
@@ -48,14 +48,20 @@ computed from the base on each merge: every path whose value is a **non-empty ar
 identical in the merged output, and every path whose value is a **non-empty object** must still
 hold an object there. The second clause's unique contribution is the scalar-only objects — `env`
 and `statusLine` — since any object with a protected array beneath it already fails the first
-clause; it is what stops `"env": null` from silently re-enabling the telemetry the base disables.
+clause.
 
-Scalars and empty base containers are unprotected, because replacing either erases nothing the
-overlay author did not name. That exemption is operative only in the array clause: an object clause
-requiring merely an object is satisfied by `{}` either way, so `agents/bob/shared/settings.base.json`
-and `mcpServers` in `agents/bob/shared/mcp.json` are unaffected by it rather than instances of it.
-No base file holds an empty array today, so this is the one rule with no in-repo instance, and
-verification has to construct one.
+What that clause buys is precisely **whole-subtree erasure**, and no more: `"env": null` and
+`"env": "x"` abort, while `{"env": {"DISABLE_TELEMETRY": "0"}}` merges cleanly and deploys, because
+scalars are unprotected. An overlay can still re-enable the telemetry the base disables by naming
+the variable; what it cannot do is drop all four privacy defaults at once without naming any of
+them. `env` is not a guarded value, and the spec should not be read as making it one.
+
+**Empty base containers are unprotected — arrays and objects alike, symmetrically** — because
+replacing either erases nothing the overlay author did not name. Both clauses therefore carry
+"non-empty". The one input that separates this from the alternative reading exists in-repo:
+`agents/bob/shared/mcp.json` is `{"mcpServers": {}}`, so an overlay of `{"mcpServers": null}`
+installs rather than aborting. Objects are where the exemption bites today (Bob's two `{}` files);
+for arrays it has no in-repo instance at all, so verification constructs one.
 
 Because the rule is over the result and not the shape, an overlay reproducing a base array verbatim
 passes today and aborts the first time the base changes — the stale-copy cost ADR 0043 rejects the
@@ -124,6 +130,14 @@ close, so it is a hole in the control rather than an accepted residual. The mess
 "not a JSON object" from "more than one JSON value"; a zero-byte overlay is the former by
 `length == 1` failing, and is reported as an empty overlay rather than mislabelled.
 
+One discard on this boundary stays open and is accepted rather than closed: a **repeated key inside
+a single object** — `{"permissions": {...}, "permissions": {...}}` — is valid JSON that jq resolves
+by keeping the last, so it passes the shape check and deploys with the earlier value dropped. The
+same causes produce it as produce the two-document case. It is accepted because the loss is confined
+to overlay content the operator wrote — every base protected value still survives the merged-result
+comparison — and detecting it would require a second parser that preserves duplicates, which is more
+machinery than a defect fix should carry for a self-inflicted, non-guardrail loss.
+
 **Control per boundary.** The overlay merge is governed by the two-clause preservation comparison
 above, which is a bound (what the overlay may not do) rather than a validation of content. It fails
 closed: on a mismatch nothing is deployed for that agent and the install exits non-zero. It does
@@ -149,8 +163,17 @@ defends against a hostile local user, who has strictly easier paths.
 
 ## Verification
 
-Nine assertions: three read a deployed artifact's content (1, 5, 8), four assert a refusal (2, 3, 4,
-7), and two guard against over-protection (6, 9).
+Ten assertions: four read a deployed artifact's content (1, 5, 8, 10), four assert a refusal (2, 3,
+4, 7), and two guard against over-protection (6, 9).
+
+**Isolation, stated once and applying to every item below.** `install-test.sh` exports `HOME`,
+`CLAUDE_CONFIG_DIR`, `BOB_CONFIG_DIR` and `AGENT_CONFIG_PRIVATE_DIR` once, and every later run
+inherits them. Items 5, 6, 8 and 9 require four mutually exclusive contents for that one private
+directory, and the existing assertion at `install-test.sh:278` (`.env.AGENT_CONFIG_TEST == claude`)
+depends on the original overlay staying in place. So every new assertion gets **its own
+`AGENT_CONFIG_PRIVATE_DIR` and its own destination directories under `$tmpdir`**, passed per-run
+rather than exported, leaving the suite's existing exported paths and assertions untouched. Item 6
+adds a second fixture-repo run rather than extending the existing one, for the same reason.
 
 The completion criterion asks for a deployed-artifact assertion that also fails if the fix is
 reverted, and those two halves land on different items — item 1 reads the deployed file but passes
@@ -224,6 +247,14 @@ second.
    overlay *names* a protected path, assertions 1-8 all still pass — so without it the spec's
    load-bearing framing is documented and ungated, which is the shape ADR 0043 blames for the
    original defect.
+
+10. **The deployed file is left unchanged by a failed run.** The abort message promises this and
+    ADR 0043 repeats it, and nothing above observes it: item 2 runs in a tree where nothing was ever
+    deployed. So install once with a benign overlay, then re-run the same destination with the
+    clobbering `hooks.PreToolUse` overlay, and assert after the failure that the deployed
+    `settings.json` still carries the base's `hooks` and `permissions.deny`. This reads deployed
+    content *and* fails if the fix is reverted — the revert overwrites the good file with the
+    one-hook one — so it is the item that satisfies both halves of the completion criterion at once.
 
 Assertions 2, 3 and 4 are the ones that bite, so they are written first and observed failing
 against unmodified `install.sh` before the fix lands. Assertions 6 and 9 bite in the other

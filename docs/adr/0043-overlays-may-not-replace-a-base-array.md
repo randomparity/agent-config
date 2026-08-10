@@ -53,21 +53,22 @@ The first clause is the reported defect. The second is narrower than it looks, a
 being precise about: any base object with a non-empty array beneath it is *already* covered
 by the first clause, since `"hooks": null` makes `hooks.PreToolUse` absent from the result
 and the array check fails. What the second clause uniquely protects, in today's base, is the
-objects holding only scalars — `env` and `statusLine`. That is deliberate. `env` carries
-`DISABLE_TELEMETRY`, `DISABLE_ERROR_REPORTING` and `CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY`,
-so an overlay writing `"env": null` silently re-enables telemetry the repository turned off
-for everyone. Losing those four together is worth a clause even though losing any one of
-them by name is not.
+objects holding only scalars — `env` and `statusLine` — and what it protects them from is
+whole-subtree erasure, nothing more. `"env": null` aborts; `{"env": {"DISABLE_TELEMETRY":
+"0"}}` merges and deploys, because scalars are unprotected. So an overlay can still turn the
+telemetry defaults back on by naming them, and what it cannot do is drop all four at once
+without naming any. That is the honest scope of the clause: `env` is not a guarded value,
+and losing its members together is worth refusing even though losing one by name is not.
 
 Scalars are unprotected: overriding one loses only the value the overlay named, which is
-what an overlay is for. An **empty** base container — array or object — is unprotected for
-the same reason: replacing `[]` or `{}` erases nothing. That exemption does its work in the
-array clause, where without it seeding a base key with `[]` would abort every host already
-writing that key. It is inert in the object clause, which asks only that an object remain an
-object and is satisfied by `{}` either way — so `agents/bob/shared/settings.base.json` and
-the `mcpServers` object in `agents/bob/shared/mcp.json`, both `{}` today, are unaffected by
-it rather than evidence for it. No base file holds an empty array today, which makes this
-the one protected-set rule with no in-repo instance and the one a test has to construct.
+what an overlay is for. An **empty** base container is unprotected for the same reason, and
+symmetrically for both kinds — replacing `[]` or `{}` erases nothing — so both clauses read
+"non-empty". Objects are where that exemption bites today: `agents/bob/shared/settings.base.json`
+is `{}` and `agents/bob/shared/mcp.json` holds `mcpServers` as `{}`, so an overlay writing
+`{"mcpServers": null}` installs rather than aborting. For arrays it has no in-repo instance
+at all — no base file holds an empty array — which makes it the one part of the protected-set
+rule a test has to construct, and the one that keeps a future seeded `[]` from aborting every
+host already writing that key.
 
 Failure is loud: the install aborts, naming the overlay file and each path it would have
 erased, and saying that the currently deployed settings file is unchanged and may already
