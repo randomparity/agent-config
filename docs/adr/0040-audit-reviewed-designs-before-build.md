@@ -1,4 +1,4 @@
-# 0040 — Audit reviewed designs before implementation
+# 0040 -- Audit reviewed designs before implementation
 
 ## Status
 
@@ -49,17 +49,13 @@ classification. A link or plausible owner is not verification; only a verified i
 owner may appear as an owned deferral. Branch review compares the diff with the approved
 surface and applies the same reception gate to its findings.
 
-Per ADR 0038 the phase prose is not gated for its wording. The dispatch carries the eight-line
-scope charter, and `scripts/check-carrier-drift.sh` pins those eight lines byte for byte; the
-four audit-specific fields below them, and the two-line branch-review carrier, are outside the
-gate's window and are not pinned. That is accepted rather than closed: `scope-audit` reads its
-inputs as prose, so a renamed field degrades a model's brief instead of breaking a parser, and
-a wider window is machinery this handoff does not earn. The existing installed-projection test
-covers the new skill. The workflow adds no formal result schema, parser, artifact identity
-graph, content hashing, transaction protocol, or live-model evaluation subsystem. A design
-change the workflow makes or observes invalidates the report and requires another audit.
-Detecting arbitrary out-of-band edits is not guaranteed without the excluded identity
-machinery.
+Per ADR 0038 the phase prose is not gated for its wording. The charter carrier the dispatch
+carries is machine-read, so `scripts/check-carrier-drift.sh` pins it byte for byte, and the
+existing installed-projection test covers the new skill. The workflow adds
+no formal result schema, parser, artifact identity graph, content hashing, transaction
+protocol, or live-model evaluation subsystem. A design change the workflow makes or observes
+invalidates the report and requires another audit. Detecting arbitrary out-of-band edits is
+not guaranteed without the excluded identity machinery.
 
 ## Consequences
 
@@ -68,12 +64,9 @@ machinery.
 - Its Markdown report follows ADR 0027's self-ignored `.agent/` convention, so it survives a
   session boundary without becoming committed product documentation.
 - Reviewers and operators, rather than a new parser, judge the report's substantive quality.
-- No gate asserts that the phase's rule sentences survive a rewrite, and only the charter half
-  of the dispatch carrier is pinned. Under ADR 0038 that is the accepted cost of gating meaning
-  over wording: what agents parse is checked, and the rest is reviewed by humans at review time.
-- The report is per-worktree state and resolves against `git rev-parse --show-toplevel`, the
-  root ADR 0027 assigns to `.agent/sdd/` for the same reason: an audit belongs to one branch's
-  design cycle, and `campaign` dispatches work-issue into parallel worktrees.
+- No gate asserts that the phase's rule sentences survive a rewrite. Under ADR 0038 that is
+  the accepted cost of gating meaning over wording: the dispatch carrier is pinned, and the
+  rules around it are reviewed by humans at review time.
 - A resumed workflow must inspect its design state, but the prose report cannot prove that no
   unobserved out-of-band edit occurred.
 - The report does not prove that no concurrent or out-of-band writer changed its contents.
@@ -88,3 +81,26 @@ machinery.
   only after implementation cost is sunk.
 - **Keep the existing workflow.** Rejected because issue #94 explicitly requires pre-build
   detection; accepting the known late-detection cost does not satisfy that outcome.
+
+## Corrections
+
+Appended 2026-08-10. This record merged with two inaccuracies. The decision is unchanged, so
+this is a correction rather than a supersession, and the sentences above stand as written
+because a merged record is append-only.
+
+- **"`scripts/check-carrier-drift.sh` pins it byte for byte" overstates the gate.** That gate
+  window-checks eight lines (`check-carrier-drift.sh:92`), which is the scope charter the
+  dispatch opens with. The four audit-specific fields below it — `reviewed artifacts`,
+  `base branch`, `linked ownership`, `report path` — and the whole two-line branch-review
+  carrier fall outside the window and are pinned by nothing. That is accepted, not an
+  oversight to close later: `scope-audit` reads its inputs as prose, so a renamed field
+  degrades a model's brief instead of breaking a parser, and a wider window is machinery this
+  handoff does not earn.
+- **The report's root rule was never stated.** It is per-worktree, resolved with
+  `git rev-parse --show-toplevel` — the root ADR 0027 assigns `.agent/sdd/` for the same
+  reason. An audit belongs to one branch's design cycle, and `campaign` dispatches
+  `work-issue` into parallel worktrees.
+
+The `--` in this record's title is likewise frozen; every sibling ADR uses an em dash. A
+heading is the record's claim, so the gate holds it verbatim, and a punctuation slip does not
+warrant a superseding record.
