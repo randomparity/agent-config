@@ -27,52 +27,55 @@ configuration the comment warns about.
 
 The same function serves three call sites: the Claude settings overlay, the Bob settings
 overlay, and the Bob MCP overlay. Bob's two base files hold no arrays today, so only the
-Claude site is currently exploitable — but "currently" is the whole problem, since the
-guards this protects were themselves added to the base file after the overlay mechanism
-shipped.
+Claude site is currently exploitable and Bob's sites are protected vacuously — but
+"currently" is the whole problem, since the guards this protects were themselves added to
+the base file after the overlay mechanism shipped.
 
 ## Decision
 
-**An overlay may add and it may override a scalar or an object member, but it may not
-replace a non-empty array the base defines. An overlay that would is a hard install failure
-naming the offending paths.**
+**An overlay may add, and it may override a value it names, but it may not erase a value
+it does not name.**
 
-The predicate is arrays and not every base value because of what each loss costs. An
-overlay that overrides a scalar loses only the value it named — `statusLine.command` is
-replaced by the one the author wrote, which is what they asked for. An overlay that
-replaces an array loses siblings it never named and may not know exist. An **empty** base
-array has no such siblings, so it is not protected: replacing `[]` loses nothing, and
-protecting it would turn seeding a base key with an empty default into an install failure
-for every host already writing that key.
+Two clauses enforce that, both **derived from the base file at merge time** rather than
+enumerated in `install.sh`:
 
-The protected set is **derived from the base file at merge time**, not enumerated in
-`install.sh`: every path in the base whose value is a non-empty array is protected, for all
-three call sites, with no per-agent configuration. That derivation is the point. A hardcoded
-list of `hooks` and `permissions.deny` would have to be edited whenever a base file grows
-a new array — which is the drift that produced this defect, since the guards the comment
-protects were added to the base without the merge learning about them. Deriving from the
-base means a new guarded array is protected the moment it is written, in every base file,
-including Bob's two empty ones.
+- a **non-empty array** in the base must be *identical* in the merged output; and
+- an **object** in the base must still be *an object* in the merged output.
+
+The first clause is the reported defect. The second closes the same loss by the other
+route: `*` merges two objects harmlessly, but an overlay writing `"env": null` or
+`"env": "off"` replaces the whole subtree and drops every base member of it, with the
+arrays elsewhere still intact and the check on them still passing. Requiring the base's
+objects to stay objects is sufficient, because once `*` recurses, every base member
+survives unless the overlay names it.
+
+Scalars are unprotected: overriding one loses only the value the overlay named, which is
+what an overlay is for. An **empty** base array is unprotected for the same reason —
+replacing `[]` erases nothing — and that exemption is load-bearing, because it keeps
+seeding a base key with an empty default from breaking every host already writing that key.
+
+Deriving the protected set from the base is the point. A hardcoded list of `hooks` and
+`permissions.deny` would need an edit whenever a base file grew a new container, which is
+the drift that produced this defect: the guards the header comment protects were added to
+the base without the merge learning about them. Derivation means a new guarded value is
+protected the moment it is written, in every base file, with no per-agent configuration.
 
 The check is stated over the merge's *output*, not over the overlay's shape: after
-computing `.[0] * .[1]`, every array path in the base must still hold an identical array
-in the result. That formulation catches every route to the loss with one comparison —
-naming the array path directly, and replacing any ancestor of it with a non-object —
-without `install.sh` having to reason about jq's recursion rules a second time.
+computing `.[0] * .[1]`, each protected base path is compared against the result. That
+formulation catches every route to the loss with one comparison — naming the path directly,
+and replacing any ancestor of it — without `install.sh` restating jq's recursion rules.
 
 Failure is loud: the install aborts, naming the overlay file and each path it would have
-replaced. Every `merge_json_settings` call for an agent runs before that agent's first
-deploy, so the offending agent deploys nothing and no partially merged settings file is
-ever written. Under `--agent all` the agents installed earlier in the sequence — Claude,
-then Codex, then Bob — remain deployed, each from its own base or its own valid overlay.
-The guarantee is per-agent, not per-run, and that is the honest statement of it: what must
-not happen is a settings file that is deployed and unguarded.
+erased, and saying that the currently deployed settings file is unchanged and may already
+be missing those values. Every `merge_json_settings` call for an agent runs before that
+agent's first deploy, so the offending agent deploys nothing and no partially merged
+settings file is ever written. Under `--agent all` the agents installed earlier in the
+sequence remain deployed, each from its own base or its own valid overlay. The guarantee is
+per-agent, not per-run, and that is the honest statement of it: what must not happen is a
+settings file that is deployed and unguarded.
 
-Adding to a protected array is not supported. The rejected alternatives below weigh both
-routes to it — a new overlay grammar, and requiring containment instead of equality — and
-neither is worth its cost here; when a host genuinely needs a host-specific hook, this
-record is the thing to revisit, with a real requirement in hand rather than an anticipated
-one.
+Adding to a protected array is not supported; the rejected alternatives below weigh both
+routes to it.
 
 ## Consequences
 
@@ -84,62 +87,64 @@ one.
   The capability was never actually available — an overlay that tried bought one hook at
   the price of five — so what changes is the honesty of the failure, not the capability.
 - Overriding one member of a protected array is impossible even when the override is
-  benign, for every such array and not just the ones whose contents are guards. Accepted:
-  the base's arrays are public and shared, and a host that needs one of them to differ is
-  asking for a base-file change, not an overlay.
-- **A base file's non-empty arrays are now an out-of-repo compatibility surface.** Adding
-  an array to a base file at a path some host's private overlay already writes aborts that
+  benign. The sharpest case is a **host-private `permissions.deny` entry**: this
+  repository is public, so a deny naming an employer-specific path is exactly what the
+  private-overlay mechanism exists to hold, and under this decision its only route is a
+  change to the public base — publishing the path the operator was trying not to publish.
+  [ADR 0009](0009-native-permission-lists-grant-capabilities.md) records that overlays may
+  add `permissions.allow`; this record makes the restrictive half of that surface
+  non-extendable, and a host needing a private deny entry must publish it or do without.
+- **A base file's non-empty arrays and its objects are now an out-of-repo compatibility
+  surface.** Adding one at a path some host's private overlay already writes aborts that
   host's next install — and overlays are private, so no CI run, no test here, and no
-  reviewer of the base-file change can see it coming. A base-file change that introduces a
-  non-empty array is therefore a contract change and gets called out as one. Seeding a key
-  with `[]` is deliberately not: an empty base array is unprotected, which is what keeps a
-  future `permissions.allow: []` in the base from breaking the documented example-host
-  overlay that [ADR 0009](0009-native-permission-lists-grant-capabilities.md) expects hosts
-  to write.
+  reviewer of the base-file change can see it coming. Such a base-file change is a contract
+  change and gets called out as one. Seeding a key with `[]` is deliberately not, per the
+  empty-array exemption above.
+- **The guarantee covers what the installer writes, not what is already deployed.** A host
+  whose current `settings.json` was produced by a clobbering overlay stays unguarded until
+  the overlay is fixed and the install re-run — and the abort *lengthens* that window,
+  because the run that used to complete now does nothing. The abort message says so, which
+  is the only thing that turns this residual into an operator instruction.
 - The published overlay contract narrows, so `README.md` states it rather than leaving it
   to be inferred from jq's behavior.
-- The merge now reads its input twice — once to merge, once to compare — and the failure
-  path depends on `jq` being present, which `merge_json_settings` already requires.
-- Bob's two base files gain the protection for free and assert nothing today, because
-  neither contains an array. The check costs one jq invocation per merge to say so.
+- The merge reads its input twice — once to merge, once to compare — and the failure path
+  depends on `jq`, which `merge_json_settings` already requires.
 - `merge_toml_config` is untouched and has no equivalent guarantee. Codex's TOML overlay
   concatenates rather than merges, so its failure mode is different and is not addressed
   here.
 
 ## Considered & rejected
 
-- **Deep-merge with array union.** Rejected: it is wrong for arrays that are argument
-  vectors rather than sets. Bob's MCP overlay shape has `"args": ["-y", "<server>"]`, and
-  a union of two such arrays is not a command line anyone wrote. A rule that is right for
-  `permissions.deny` and silently corrupting for `args` trades a loud loss for a quiet
-  one.
-- **Apply the overlay, then reassert the base's protected keys.** Rejected: it keeps the
+- **Deep-merge with array union.** Rejected: `hooks.PreToolUse` is order-bearing and
+  duplicate-sensitive, so unioning the base's real hooks arrays with an overlay's produces
+  a hook list nobody authored. A rule that is defensible for a set like `permissions.deny`
+  and corrupting for an ordered list trades a loud loss for a quiet one.
+- **Apply the overlay, then reassert the base's protected values.** Rejected: it keeps the
   guards but makes the overlay's stated intent vanish without a word, replacing one silent
   failure with another. An operator who writes `hooks.PreToolUse` and sees a clean install
-  has been told their hook is active; it is not.
+  has been told their hook is active; it is not. It does have one advantage the abort
+  lacks — it would *repair* an already-unguarded deployment on the next run rather than
+  leaving it in place — and that is not enough to buy a second silent failure mode.
 - **A hardcoded protected-key list (`hooks`, `permissions.deny`).** Rejected: it protects
-  the arrays someone remembered, not the arrays that exist, and it needs an edit in
-  `install.sh` every time a base file grows one. The defect being fixed is precisely a
-  guarantee that did not keep up with the base file.
-- **Warn and continue.** Rejected: install output is long, the warning would land in the
-  middle of it, and the failure it describes is the silent removal of destructive-operation
-  guards. A warning that can be missed is the status quo with extra text.
+  the values someone remembered, not the values that exist.
 - **Require containment rather than equality** — the merged array must *contain* every
   base element, so a host may write `hooks.PreToolUse` with the base's entries plus its
   own. Rejected, and it is the closest call here: it costs one operator in the same
-  comparison and would close the loss without closing the use case. What sinks it is that
-  it makes every host that customizes an array hold a copy of the base's contents in a
-  private file. That copy goes stale the moment the base gains a guard — which is the
-  event the whole record exists for — and the host learns at its next install, having run
-  unguarded in between. It also buys that cost for a use case no host in this repository
-  has: nobody needs a host-specific hook today.
+  comparison and would close the loss without closing the use cases — host-specific hooks
+  *and* host-private deny entries, both foreclosed above. What sinks it is that it makes
+  every host that customizes an array hold a copy of the base's contents in a private file.
+  That copy goes stale the moment the base gains a guard — which is the event the whole
+  record exists for — and the host learns at its next install, having run unguarded in
+  between.
+- **Warn and continue.** Rejected: install output is long, the warning would land in the
+  middle of it, and the failure it describes is the silent removal of destructive-operation
+  guards. A warning that can be missed is the status quo with extra text.
 - **Do nothing and rely on the header comment.** Rejected: the comment is read by people,
   once, and the file it protects is edited by agents that never open it. The loss has not
   been observed here and only the Claude site is exploitable today, which is a fair
-  argument for a weaker remedy and not for none — the arrays at stake are
+  argument for a weaker remedy and not for none — the values at stake are
   destructive-operation guards, and their loss leaves no trace to find later, so the first
   observation would be the damage.
 - **Support merging into protected arrays via an explicit overlay directive** — an
-  `"append"` marker or a separate `settings.append.json`. Rejected as speculative: no host
-  in this repository needs a host-specific hook, and the directive would add a second
-  overlay grammar to keep correct in exchange for a requirement nobody has stated.
+  `"append"` marker or a separate `settings.append.json`. Rejected as speculative: it adds
+  a second overlay grammar to keep correct in exchange for a requirement nobody has stated.
