@@ -112,12 +112,15 @@ design places its trust in the base file being the authority on guardrails and t
 host-specific decoration, and this change is what makes that trust checkable instead of assumed.
 
 **Shape check before the merge.** The overlay must be exactly one JSON value and that value must be
-an object. The test is `jq -s -e 'length == 1 and (.[0] | type == "object")'`, and it runs **inside
-the overlay-present branch, after `[[ -f "$overlay" ]]`** — not beside `require_command jq`, which
-sits above that branch and would run the check against a path that does not exist on every host
-without a private overlay, i.e. the default configuration.
+an object. Because the failure messages have to tell three cases apart, the check reads two facts
+rather than evaluating one boolean: `jq -s 'length'`, and — when that is 1 — `jq -s '.[0] | type'`.
+A single `jq -s -e 'length == 1 and (.[0] | type == "object")'` yields one bit and cannot
+distinguish an empty file from two documents from an array. The check runs **inside the
+overlay-present branch, after `[[ -f "$overlay" ]]`** — not beside `require_command jq`, which sits
+above that branch and would run the check against a path that does not exist on every host without
+a private overlay, i.e. the default configuration.
 
-Both halves are load-bearing and `jq -e 'type == "object"'` supplies neither reliably: `-e` takes
+Both facts are load-bearing, and a plain `jq -e 'type == "object"'` supplies neither reliably: `-e` takes
 its status from the *last* output value, and jq reads a file as a stream, so an overlay of `[]`
 followed by `{"a":1}` prints `false`, `true`, and exits 0. Without the object half, `jq -s '.[0] *
 .[1]'` raises `object (...) and array ([]) cannot be multiplied`, naming neither the overlay nor
@@ -158,8 +161,10 @@ what it writes, not what happens afterward, and the manifest/prune mechanism alr
 on the next run. Overlay *content* is not validated: an overlay may still add a `permissions.allow`
 entry that widens what Claude Code may do, which is the documented purpose of the mechanism. The
 Codex TOML overlay is not covered; `merge_toml_config` concatenates sections rather than merging
-JSON, so it has a different failure mode, and it is flagged rather than fixed here. Nothing here
-defends against a hostile local user, who has strictly easier paths.
+JSON, so it has a different failure mode, and it is flagged rather than fixed here — issue #123
+owns it, and the README wording names the JSON overlays explicitly so the new contract is not read
+as covering `config.overlay.toml`. Nothing here defends against a hostile local user, who has
+strictly easier paths.
 
 ## Verification
 
@@ -227,10 +232,15 @@ second.
    ships a build where every other assertion still passes — surfacing later as an abort for every
    host, at exactly the moment ADR 0043 declares safe.
 
-7. **Overlay shape.** Two runs, one with an overlay of `[]` and one with two concatenated objects,
-   must each abort naming the overlay path — and for the concatenated pair, the deployed file must
-   not be the one that silently dropped the second document. Assertions 1-6 all use single-document
-   object overlays, so nothing else reaches this branch.
+7. **Overlay shape.** Three runs — an overlay of `[]`, one of two concatenated objects, and a
+   zero-byte file — must each abort naming the overlay path, with the message distinguishing the
+   three cases. The `[]` run needs its message asserted, not just its status: jq already refuses
+   that input with `object (...) and array ([]) cannot be multiplied`, naming the overlay file and
+   exiting non-zero, so a status-only assertion passes against today's code and against an
+   implementation that checks only the document count. Assert that stderr carries the shape-check
+   wording and does *not* carry `cannot be multiplied`, exactly as item 4 excludes jq's traversal
+   error. Assertions 1-6 all use single-document object overlays, so nothing else reaches this
+   branch.
 
 8. **No overlay at all.** A run whose private overlay directory holds no `settings.overlay.json`
    must succeed, report `no private overlay at <path>`, and deploy a `settings.json` equal to

@@ -15,18 +15,24 @@ The spec is the contract; this plan is the order of work. Where they disagree, t
 ## Task 1 — Failing tests first
 
 **Where this fits.** The suite currently proves nothing about base values surviving an overlay, so
-the tests are written and observed failing before `install.sh` changes. Assertions 2, 3, 4, 7 and 10
+the tests are written and observed failing before `install.sh` changes. Assertions 2, 3, 4 and 10
 fail against unmodified `install.sh`; 6 and 9 fail against an over-protecting implementation and
-pass today.
+pass today. Item 7 is a mixed case: its **concatenated-documents** run is red today, while its `[]`
+run already exits non-zero because jq itself refuses (`object (...) and array ([]) cannot be
+multiplied`, naming the overlay file). So item 7's `[]` run bites only on *message* content, not on
+exit status — see the shape note below.
 
 **Files.** `install-test.sh` only.
 
 **Do.**
 
 1. Add a helper that runs one install in isolation: its own `AGENT_CONFIG_PRIVATE_DIR`, its own
-   `CLAUDE_CONFIG_DIR`/`CODEX_CONFIG_DIR`/`BOB_CONFIG_DIR` under `$tmpdir`, capturing status and
-   stderr. Per the spec's isolation rule, nothing new may reuse the suite's exported paths or
-   disturb the existing assertion at `install-test.sh:278`.
+   `CLAUDE_CONFIG_DIR`/`CODEX_CONFIG_DIR`/`BOB_CONFIG_DIR` under `$tmpdir`, capturing the exit
+   status and **stdout and stderr to separate files**. Both streams are needed: the abort messages
+   go to stderr, while `no private overlay at <path>` and `applied private overlay <path>` are
+   existing `printf`s to stdout, so item 8 asserts against captured stdout and items 2, 3, 4 and 7
+   against captured stderr. Per the spec's isolation rule, nothing new may reuse the suite's
+   exported paths or disturb the existing assertion at `install-test.sh:278`.
 2. Add an `assert_json_equal <file-a> <filter-a> <file-b> <filter-b>` helper for comparing a
    deployed subtree against the in-repo base.
 3. Write assertions 1-10 exactly as the spec's Verification section numbers them. Notable shapes:
@@ -35,13 +41,20 @@ pass today.
    - 4 asserts stderr contains `hooks` and **not** `PreToolUse` — outermost-only, and proof the
      message is not jq's `Cannot index string with string "PreToolUse"`;
    - 6 and 9 assert **success**, guarding the empty-array exemption and the result-based rule;
+   - 7's `[]` run asserts stderr contains the shape-check wording and does **not** contain
+     `cannot be multiplied`, mirroring how item 4 excludes jq's traversal error — without that,
+     an implementation dropping the object half of the check ships green. Its zero-byte run
+     asserts the empty-overlay wording specifically;
    - 8 covers the no-overlay default and catches a shape check misplaced above the `-f` guard;
    - 10 installs benignly, re-runs with the clobbering overlay, and asserts the already-deployed
      file still holds the base's `hooks` and `permissions.deny`.
 
-**Acceptance.** `./install-test.sh` fails, and the failures are 2, 3, 4, 7 and 10 — not a syntax
-error and not a helper bug. Record which assertions failed and their messages; that record is the
-evidence the tests bite. Commit the failing tests separately from the fix.
+**Acceptance.** The suite's `fail()` exits on the first failure, so the red set cannot be read from
+one run. Observe it one item at a time: run, record the message, comment out that assertion, repeat
+for 2, 3, 4, 7 and 10 — then **restore every commented assertion and re-read the file** before
+committing, so no disabled assertion reaches the commit. The recorded messages are the evidence the
+tests bite; a reasoned claim that an unobserved assertion would have failed is not. Commit the
+failing tests separately from the fix.
 
 **Rollback.** Revert the commit; nothing outside `install-test.sh` moved.
 
@@ -56,9 +69,11 @@ is derived from each base, so no call site passes a key list.
 
 1. Keep the no-overlay branch exactly as it is (`jq '.'` plus the existing message).
 2. **Inside** the `[[ -f "$overlay" ]]` branch — not beside `require_command jq`, which sits above
-   it — add the shape check `jq -s -e 'length == 1 and (.[0] | type == "object")'`, failing with a
-   message naming the overlay path and distinguishing "not a JSON object" from "more than one JSON
-   value".
+   it — add the shape check. One boolean cannot produce the three messages the spec requires, so
+   read the two facts separately: `jq -s 'length'` and, when that is 1, `jq -s '.[0] | type'`.
+   Branch to three messages, each naming the overlay path — *empty overlay* (length 0), *more than
+   one JSON value* (length > 1), *not a JSON object* (type is not `object`). A zero-byte overlay is
+   the first of those and must not be reported as the second.
 3. Merge into a temp file from `new_temp_file`, not straight to `$output`, so a rejected merge
    writes nothing to the destination.
 4. Compare: for every path in the base whose value is a **non-empty array**, the merged value must
@@ -68,8 +83,10 @@ is derived from each base, so no call site passes a key list.
    **outermost paths only**, suppressing any path whose proper ancestor already mismatched.
 5. On any mismatch: print the operation, the overlay path, each offending base path, and the
    sentence that the currently deployed settings file is unchanged and may already be missing those
-   values. Exit non-zero. On success, `cp` the temp file to `$output` and keep the existing
-   `applied private overlay` message.
+   values. Send it to **stderr** (`>&2`, as `require_command` does) — the function's existing
+   success messages go to stdout, and an abort printed there would fail assertions 2, 3, 4 and 7
+   against an otherwise-correct guard. Exit non-zero. On success, `cp` the temp file to `$output`
+   and keep the existing `applied private overlay` message on stdout.
 
 **Acceptance.** `./install-test.sh` passes, including 6 and 9. `just verify` passes bare. The
 function stays within the repo's complexity baseline; if the jq program grows past readability,
@@ -92,7 +109,10 @@ extract it as a single-purpose helper function rather than inlining a long progr
    add new keys and override scalars and object members; an overlay that *changes* a path the base
    holds as a non-empty array (including by extending it) or replaces a non-empty base object with a
    non-object fails the install and names the path. Do not publish a refusal the installer does not
-   perform.
+   perform. The section lists all three agents' overlay files together, so the contract sentences
+   must **name the JSON overlays explicitly** (Claude `settings.overlay.json`, Bob
+   `settings.overlay.json` and `mcp.overlay.json`) and add one clause saying the Codex
+   `config.overlay.toml` is concatenated and carries no such guarantee — issue #123 owns that gap.
 2. `claude-settings-hooks-test.sh` header: replace "Overlays must leave `hooks` alone" with the fact
    that the installer now enforces it, citing ADR 0043.
 
