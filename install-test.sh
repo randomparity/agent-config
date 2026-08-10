@@ -110,8 +110,8 @@ assert_canonical_skills() {
 		fail "installed skill modes differ from canonical tree: $destination/skills"
 	count="$(find "$destination/skills" ! -path "$destination/skills" \
 		-prune -type d -print | wc -l)"
-	[[ "$count" -eq 35 ]] ||
-		fail "expected 35 canonical skills in $destination/skills, got $count"
+	[[ "$count" -eq 36 ]] ||
+		fail "expected 36 canonical skills in $destination/skills, got $count"
 	assert_file "$destination/skills/simplify-changes/SKILL.md"
 	assert_not_file "$destination/skills/simplify/SKILL.md"
 }

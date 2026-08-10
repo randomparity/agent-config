@@ -16,7 +16,7 @@ or ambiguous user-facing design decision.
 > independently runnable. Intermediate checkpoints — a `$challenge` verdict, a
 > passing guardrail, a green CI run, a `$threat-scan` verdict — are **not** turn
 > boundaries. Do not end your turn at a checkpoint. End your turn only when (a) the
-> PR is green and mergeable (or merged, if the operator authorized it — step 8),
+> PR is green and mergeable (or merged, if the operator authorized it — step 9),
 > or (b) you hit a genuine blocker you have named **and parked per *On a Blocker*
 > below** — naming it is half the obligation; the issue must also carry the state.
 > This matters most when you are a background subagent: reaching `approve` in a
@@ -191,7 +191,7 @@ A governed-small-change proceeds from verified WORK:SCOPE directly to build-tdd 
 <!-- SCOPE-RULE:END:governed-direct-build -->
 
 <!-- SCOPE-ORDER:governed-proof -->
-The first executable action on the abbreviated path is the focused failing test in step 4.
+The first executable action on the abbreviated path is the focused failing test in step 5.
 <!-- SCOPE-ORDER:governed-elaboration -->
 Optional design elaboration may follow that proof but is not a prerequisite.
 
@@ -225,7 +225,87 @@ trivial bugfix or a governed small change that passed the revalidation above.
 above): brainstorm transcripts and spec-review payloads are droppable once these
 hold the design.
 
-## 4. Build With TDD
+<!-- SCOPE-ORDER:work-scope-audit -->
+## 4. Scope Audit
+
+This phase runs only after the full design path. Trivial bugfixes and verified governed small
+changes retain their design-skip paths and do not run it.
+
+<!-- SCOPE-RULE:full-design-scope-audit -->
+Every run that enters the full design path completes scope-audit after reviewed design and before TDD.
+<!-- SCOPE-RULE:END:full-design-scope-audit -->
+
+Ensure the worktree root has the existing self-ignoring `.agent/.gitignore`, verify
+`.agent/scope-audit/` is ignored, and choose a fresh report path there. Dispatch a fresh reviewer
+task with `$scope-audit` and these inputs:
+
+<!-- SCOPE-CARRIER:work-issue-to-scope-audit -->
+interaction: <unchanged root value>
+scope identity: <external scope identity, never reviewed target>
+outcome: <frozen external outcome>
+completion criteria: <frozen external completion criteria>
+provenance: <external source for every outcome, criterion, and user decision>
+exclusions: <frozen external exclusions>
+surface: <frozen permitted surface>
+ambiguities: <frozen ambiguity list>
+reviewed artifacts: <explicit paths to every reviewed ADR, specification, and plan>
+base branch: <base branch for the design-artifact diff>
+linked ownership: <issue, dependency, debt, and tracker evidence relevant to findings>
+report path: <fresh path under the worktree's ignored .agent/scope-audit directory>
+<!-- SCOPE-CARRIER:END:work-issue-to-scope-audit -->
+
+<!-- SCOPE-RULE:fresh-audit-brief -->
+Dispatch a fresh reviewer task without prior verdicts, proposed fixes, or review history in its brief; inherited history is non-authoritative.
+<!-- SCOPE-RULE:END:fresh-audit-brief -->
+
+The workflow makes no context-isolation guarantee. Read the requested report before TDD and
+require one clear verdict plus promise-to-provenance, component-to-criterion, smallest viable
+alternative, candidate approved surface, and findings sections.
+
+<!-- SCOPE-RULE:scope-audit-reception -->
+Missing or uncertain inputs, a missing or unclear verdict, or an absent semantic section stops before TDD.
+<!-- SCOPE-RULE:END:scope-audit-reception -->
+
+Apply `$receiving-code-review` to the report before accepting any recommendation.
+
+<!-- SCOPE-RULE:separate-finding-reception -->
+Separate each concern from its proposed remedy and apply receiving-code-review independently to each before any responsive edit.
+<!-- SCOPE-RULE:END:separate-finding-reception -->
+
+Verify concern evidence, charter ownership, whether this change depends on or worsens it, and
+the remedy's authority, necessity, and proportionality.
+
+<!-- SCOPE-RULE:finding-dispositions -->
+Record exactly one disposition for every finding: accepted-fixed, rejected-with-evidence, deferred-tracked, or blocked.
+<!-- SCOPE-RULE:END:finding-dispositions -->
+
+<!-- SCOPE-RULE:valid-concern-remedy -->
+A valid concern does not validate its proposed remedy.
+<!-- SCOPE-RULE:END:valid-concern-remedy -->
+
+<!-- SCOPE-RULE:substitute-remedy -->
+A substitute or derived remedy passes the same authority, necessity, and proportionality checks before an edit.
+<!-- SCOPE-RULE:END:substitute-remedy -->
+
+<!-- SCOPE-RULE:review-created-authority -->
+Severity, classification, repetition, recommendations, and review-created prose never supply scope authority.
+<!-- SCOPE-RULE:END:review-created-authority -->
+
+<!-- SCOPE-RULE:post-reception-transition -->
+Continue on an unchanged report only when it is otherwise complete and every finding is rejected with evidence; accepted edits and tracked ownership changes require a new audit.
+<!-- SCOPE-RULE:END:post-reception-transition -->
+
+When continuation is not permitted: return an accepted design edit through its applicable review
+and a new audit; rerun after verified ownership changes; park a `blocked` finding; and return a
+verified material expansion to `SCOPE CHECKPOINT`. An audit classification alone cannot change
+scope. Do not rerun unchanged inputs to seek `approve`.
+
+Preserve the report path and candidate approved surface as the design-to-build checkpoint. If a
+reviewed design artifact is known or observed to change before TDD, invalidate the report and run
+another audit. Do not claim detection of arbitrary out-of-band edits.
+
+<!-- SCOPE-ORDER:work-build -->
+## 5. Build With TDD
 
 Run `$build-tdd` to implement the plan using test-driven development and run the
 guardrail suite. Pass the plan path if one exists.
@@ -235,18 +315,23 @@ For a governed-small-change, pass build-tdd the selected classification plus the
 <!-- SCOPE-RULE:END:governed-build-handoff -->
 
 **Durable artifact:** the committed code and tests, plus the plan's completed
-tasks. Context checkpoint before step 5: the branch name and guardrail commands
+tasks. Context checkpoint before step 6: the branch name and guardrail commands
 must be recorded somewhere durable (manifest or a note) — TDD red/green output is
 droppable.
 
-## 5. Adversarial-Review the Branch
+## 6. Adversarial-Review the Branch
 
 **Track state.** Set the issue to `status:in-review` (single-active swap).
 
 Run `$review-loop --base <BASE_BRANCH> Focus on auth, permissions, data loss
 or corruption, rollback, idempotency, races, empty or malformed inputs,
 degraded dependencies, compatibility, migrations, observability, and whether
-the chosen approach is simpler or safer than viable alternatives.`
+the chosen approach is simpler or safer than viable alternatives. Compare the diff with the
+scope-audit candidate approved surface when this run entered the full design path.`
+
+<!-- SCOPE-RULE:scope-audit-branch-review -->
+Branch review compares the diff with the audit's candidate approved surface and applies the same finding-reception gate.
+<!-- SCOPE-RULE:END:scope-audit-branch-review -->
 
 Address every defensible finding. Commit after each accepted fix.
 
@@ -260,7 +345,7 @@ Dispatch it the way `$review-loop` dispatches its reviewer: in a **subagent**,
 with `--json --out <path>` to a scratchpad path outside the repo tree, invoked
 as `$threat-scan --json --out <path> --base <BASE_BRANCH>`. Invoked bare it
 returns full markdown inline, which puts a findings payload into this skill's
-context at step 5 of 8 — the cost `$review-loop`'s dispatch exists to avoid.
+context at step 6 of 9 — the cost `$review-loop`'s dispatch exists to avoid.
 
 Two properties that dispatch depends on, both cheaper here than in
 `$review-loop` because this is single-shot and needs no stability across
@@ -313,14 +398,14 @@ iterations and cycles, and `$threat-scan` is single-shot, but neither cap covers
 the oscillation *between* them: each re-entry to the loop starts a fresh count.
 So allow at most one `$threat-scan` → `$review-loop` → `$threat-scan` round
 trip. If a second would be needed, **do not re-enter and do not park** — carry
-on to step 6 and record the unresolved findings as open in the review summary,
+on to step 7 and record the unresolved findings as open in the review summary,
 so they reach `WORK:REVIEW` and the PR rather than stalling the run. The cap is
 a reporting boundary, not a blocker; an unattended run has no one to notice it
 ping-ponging, and no one to un-park it either.
 
 Record the verdict alongside the review summary either way, including
 `security: not triggered` when it did not run, so the `WORK:REVIEW` annotation
-in step 7 says which arms ran rather than leaving a reader to infer it.
+in step 8 says which arms ran rather than leaving a reader to infer it.
 
 `$threat-scan` is this pipeline's own pass, and it is a weaker instrument than
 the built-in `/security-review` — which a model cannot invoke at all, since a
@@ -329,31 +414,31 @@ operator wants the built-in, `$merge-cleanup`'s hand-off is where a human is
 reliably present to run it.
 
 **Durable artifact:** the `$review-loop` findings file (superseded each iteration)
-and your fix commits. Context checkpoint before step 7: open findings and the
+and your fix commits. Context checkpoint before step 8: open findings and the
 branch/guardrail state must be captured — resolved review iterations are droppable.
 
-## 6. Simplify
+## 7. Simplify
 
 Run `$simplify-changes` to apply reuse, simplification, and efficiency cleanups to the
 branch diff. Re-run the guardrail suite and commit the result. Quality only —
-do not reopen settled design decisions. The step-5 review covered the
+do not reopen settled design decisions. The step-6 review covered the
 *pre-simplify* code, so if `$simplify-changes` makes any change that could alter behavior
 (not a pure rename/format), re-run `$review-loop` (or at minimum `$challenge`) on
 the simplified diff before shipping — guardrails alone only catch what the tests
 already assert.
 
-## 7. Ship It
+## 8. Ship It
 
 Run `$ship-pr <issue-number>` to push the branch, create the PR, and drive it to
 green CI and mergeable state.
 
-**Annotate (github-tracking skill).** The step-5 review produced a verdict, findings count,
+**Annotate (github-tracking skill).** The step-6 review produced a verdict, findings count,
 iteration count, and `$threat-scan` verdict — retain that compact **review summary** as a
 durable artifact (the manifest or a scratch note); only the verbose per-iteration findings
 file is droppable. Immediately after `$ship-pr` creates the PR, post a `WORK:REVIEW` comment
 on the PR from that summary. `$ship-pr` itself does not post it.
 
-## 8. Hand Off or Merge, Then Clean Up
+## 9. Hand Off or Merge, Then Clean Up
 
 Run `$merge-cleanup` to hand off (default) or merge (if operator-authorized),
 then clean up branches and worktrees.

@@ -81,6 +81,17 @@ focus: <review focus, unchanged>"
 	[[ "$block" == "$expected" ]] || fail "$file: carrier $name template mismatch"
 }
 
+assert_scope_audit_carrier() {
+	local file=$1 name=$2 block expected
+	block=$(bounded_block "$file" CARRIER "$name") || return 1
+	expected="$(canonical_carrier_template)
+reviewed artifacts: <explicit paths to every reviewed ADR, specification, and plan>
+base branch: <base branch for the design-artifact diff>
+linked ownership: <issue, dependency, debt, and tracker evidence relevant to findings>
+report path: <fresh path under the worktree's ignored .agent/scope-audit directory>"
+	[[ "$block" == "$expected" ]] || fail "$file: carrier $name template mismatch"
+}
+
 assert_rule() {
 	local file=$1 name=$2 expected=$3 block count
 	block=$(bounded_block "$file" RULE "$name") || return 1
@@ -89,6 +100,14 @@ assert_rule() {
 		fail "$file: rule $name missing instruction: $expected"
 	fi
 	[[ "$count" -eq 1 ]] || fail "$file: rule $name duplicate instruction: $expected"
+}
+
+assert_text_once() {
+	local file=$1 expected=$2 count
+	if ! count=$(rg -c --fixed-strings -- "$expected" "$file"); then
+		fail "$file: missing instruction: $expected"
+	fi
+	[[ "$count" -eq 1 ]] || fail "$file: duplicate instruction: $expected"
 }
 
 skill_path() {
@@ -111,7 +130,7 @@ check_governed_contract() {
 	assert_rule "$work" governed-direct-build \
 		"A governed-small-change proceeds from verified WORK:SCOPE directly to build-tdd without a new spec or plan." || return 1
 	assert_ordered_clause "$work" governed-proof \
-		"The first executable action on the abbreviated path is the focused failing test in step 4." \
+		"The first executable action on the abbreviated path is the focused failing test in step 5." \
 		governed-elaboration \
 		"Optional design elaboration may follow that proof but is not a prerequisite." || return 1
 	assert_rule "$work" post-build-controls \
@@ -128,8 +147,53 @@ check_governed_contract() {
 		"A governed-small-change dispatch carries the triage subtype, decision reference, decision kind, authoritative accepted status, governed behavior, and explicit testable acceptance criteria." || return 1
 }
 
+check_scope_audit_contract() {
+	local work=$1 audit=$2 review=$3 receiving=$4
+	assert_ordered_clause "$work" work-design "## 3. Design" \
+		work-scope-audit "## 4. Scope Audit" || return 1
+	assert_ordered_clause "$work" work-scope-audit "## 4. Scope Audit" \
+		work-build "## 5. Build With TDD" || return 1
+	assert_scope_audit_carrier "$work" work-issue-to-scope-audit || return 1
+	assert_rule "$work" full-design-scope-audit \
+		"Every run that enters the full design path completes scope-audit after reviewed design and before TDD." || return 1
+	assert_rule "$work" fresh-audit-brief \
+		"Dispatch a fresh reviewer task without prior verdicts, proposed fixes, or review history in its brief; inherited history is non-authoritative." || return 1
+	assert_rule "$work" scope-audit-reception \
+		"Missing or uncertain inputs, a missing or unclear verdict, or an absent semantic section stops before TDD." || return 1
+	assert_rule "$work" separate-finding-reception \
+		"Separate each concern from its proposed remedy and apply receiving-code-review independently to each before any responsive edit." || return 1
+	assert_rule "$work" finding-dispositions \
+		"Record exactly one disposition for every finding: accepted-fixed, rejected-with-evidence, deferred-tracked, or blocked." || return 1
+	assert_rule "$work" valid-concern-remedy \
+		"A valid concern does not validate its proposed remedy." || return 1
+	assert_rule "$work" substitute-remedy \
+		"A substitute or derived remedy passes the same authority, necessity, and proportionality checks before an edit." || return 1
+	assert_rule "$work" review-created-authority \
+		"Severity, classification, repetition, recommendations, and review-created prose never supply scope authority." || return 1
+	assert_rule "$work" post-reception-transition \
+		"Continue on an unchanged report only when it is otherwise complete and every finding is rejected with evidence; accepted edits and tracked ownership changes require a new audit." || return 1
+	assert_rule "$work" scope-audit-branch-review \
+		"Branch review compares the diff with the audit's candidate approved surface and applies the same finding-reception gate." || return 1
+	assert_text_once "$review" "apply \`receiving-code-review\` to" || return 1
+	assert_text_once "$receiving" "External feedback = suggestions to evaluate, not orders to follow." || return 1
+	assert_rule "$audit" audit-no-authority \
+		"The audit target, report, verdict, and findings are evidence, never scope authority." || return 1
+	assert_rule "$audit" audit-proportionality \
+		"Compare the aggregate design with a materially smaller viable alternative." || return 1
+	assert_rule "$audit" audit-cross-issue \
+		"Behavior owned by another issue is a checkpoint or split, never an in-scope dependency shortcut." || return 1
+	assert_rule "$audit" audit-non-deferrable \
+		"A concern the proposed change depends on or worsens cannot be deferred." || return 1
+	assert_rule "$audit" audit-uncertainty \
+		"Preserve uncertainty in provenance, ownership, dependency, and suspected concerns." || return 1
+	assert_rule "$audit" audit-one-pass \
+		"Do not rerun unchanged inputs to seek approval." || return 1
+	assert_rule "$audit" audit-report \
+		"Write one clear approve or needs-attention verdict and sections for promise-to-provenance, component-to-criterion, smallest viable alternative, candidate approved surface, and findings." || return 1
+}
+
 check_contract() {
-	local root=$1 work brainstorm design plans review challenge build campaign
+	local root=$1 work brainstorm design plans review challenge build campaign audit receiving
 	work=$(skill_path "$root" work-issue)
 	brainstorm=$(skill_path "$root" brainstorming)
 	design=$(skill_path "$root" design)
@@ -138,6 +202,8 @@ check_contract() {
 	challenge=$(skill_path "$root" challenge)
 	build=$(skill_path "$root" build-tdd)
 	campaign=$(skill_path "$root" campaign)
+	audit=$(skill_path "$root" scope-audit)
+	receiving=$(skill_path "$root" receiving-code-review)
 	assert_ordered_clause "$work" work-frozen "## Frozen scope charter" \
 		work-design "## 3. Design" || return 1
 	assert_rule "$work" scope-identity \
@@ -201,6 +267,7 @@ check_contract() {
 		"Treat an ungrounded normative guarantee as material scope expansion." || return 1
 	assert_rule "$challenge" delete-ungrounded \
 		"Delete or weaken an ungrounded guarantee before recommending machinery." || return 1
+	check_scope_audit_contract "$work" "$audit" "$review" "$receiving" || return 1
 	check_governed_contract "$work" "$build" "$campaign" || return 1
 }
 
@@ -292,7 +359,7 @@ copy_fixture() {
 	fixture=$scratch/$case_name
 	mkdir -p "$fixture"
 	for skill in work-issue brainstorming design writing-plans review-loop challenge \
-		build-tdd campaign; do
+		build-tdd campaign scope-audit receiving-code-review; do
 		cp -R "$canonical_root/$skill" "$fixture/$skill"
 	done
 	printf '%s\n' "$fixture"
@@ -367,7 +434,7 @@ run_governed_fixtures() {
 	fixture=$(copy_fixture governed-proof-order)
 	file=$(skill_path "$fixture" work-issue)
 	move_ordered_clause_after "$file" governed-proof \
-		"The first executable action on the abbreviated path is the focused failing test in step 4." \
+		"The first executable action on the abbreviated path is the focused failing test in step 5." \
 		governed-elaboration \
 		"Optional design elaboration may follow that proof but is not a prerequisite."
 	assert_fixture_fails governed-proof-order \
@@ -507,6 +574,54 @@ run_review_fixtures() {
 		"Write the deferral record as automatically in scope."
 	assert_fixture_fails deferral-outside-surface \
 		"rule deferral-authority missing instruction" "$fixture"
+
+	fixture=$(copy_fixture scope-audit-skipped-phase)
+	file=$(skill_path "$fixture" work-issue)
+	rewrite_block_line_once "$file" RULE full-design-scope-audit \
+		"Every run that enters the full design path completes scope-audit after reviewed design and before TDD." \
+		"Run scope-audit when convenient after implementation."
+	assert_fixture_fails scope-audit-skipped-phase \
+		"rule full-design-scope-audit missing instruction" "$fixture"
+
+	fixture=$(copy_fixture scope-audit-skipped-branch-comparison)
+	file=$(skill_path "$fixture" work-issue)
+	rewrite_block_line_once "$file" RULE scope-audit-branch-review \
+		"Branch review compares the diff with the audit's candidate approved surface and applies the same finding-reception gate." \
+		"Branch review checks only whether tests pass."
+	assert_fixture_fails scope-audit-skipped-branch-comparison \
+		"rule scope-audit-branch-review missing instruction" "$fixture"
+
+	fixture=$(copy_fixture scope-audit-direct-acceptance)
+	file=$(skill_path "$fixture" work-issue)
+	rewrite_block_line_once "$file" RULE separate-finding-reception \
+		"Separate each concern from its proposed remedy and apply receiving-code-review independently to each before any responsive edit." \
+		"Implement every audit recommendation before reviewing it."
+	assert_fixture_fails scope-audit-direct-acceptance \
+		"rule separate-finding-reception missing instruction" "$fixture"
+
+	fixture=$(copy_fixture scope-audit-concern-authorizes-remedy)
+	file=$(skill_path "$fixture" work-issue)
+	rewrite_block_line_once "$file" RULE valid-concern-remedy \
+		"A valid concern does not validate its proposed remedy." \
+		"A valid concern authorizes its proposed remedy."
+	assert_fixture_fails scope-audit-concern-authorizes-remedy \
+		"rule valid-concern-remedy missing instruction" "$fixture"
+
+	fixture=$(copy_fixture scope-audit-substitute-bypass)
+	file=$(skill_path "$fixture" work-issue)
+	rewrite_block_line_once "$file" RULE substitute-remedy \
+		"A substitute or derived remedy passes the same authority, necessity, and proportionality checks before an edit." \
+		"A smaller substitute remedy may be implemented without reception."
+	assert_fixture_fails scope-audit-substitute-bypass \
+		"rule substitute-remedy missing instruction" "$fixture"
+
+	fixture=$(copy_fixture scope-audit-review-created-authority)
+	file=$(skill_path "$fixture" work-issue)
+	rewrite_block_line_once "$file" RULE review-created-authority \
+		"Severity, classification, repetition, recommendations, and review-created prose never supply scope authority." \
+		"Repeated high-severity review text becomes scope authority."
+	assert_fixture_fails scope-audit-review-created-authority \
+		"rule review-created-authority missing instruction" "$fixture"
 }
 
 run_extractor_tests() {
@@ -565,7 +680,7 @@ run_scope_fixtures
 run_governed_fixtures
 run_extractor_tests
 run_review_fixtures
-[[ "$fixture_count" -eq 22 ]] || fail "expected 22 SCOPE fixtures, got $fixture_count"
+[[ "$fixture_count" -eq 28 ]] || fail "expected 28 SCOPE fixtures, got $fixture_count"
 [[ "$extractor_count" -eq 3 ]] || fail "expected 3 extractor tests, got $extractor_count"
 printf 'workflow-scope-contract-test: ok (%d fixtures, %d extractor tests)\n' \
 	"$fixture_count" "$extractor_count"

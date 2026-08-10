@@ -161,7 +161,7 @@ assert_contains 'Keep native settings, instruction files, modes, and MCP files u
 	"$repo_instructions"
 
 output="$(cd "$repo_root" && bash scripts/check-skill-layout.sh)"
-[[ "$output" == 'skills-check: ok (35 canonical skills, 2 project review examples)' ]] || fail "$output"
+[[ "$output" == 'skills-check: ok (36 canonical skills, 2 project review examples)' ]] || fail "$output"
 
 root="$(new_fixture)"
 mkdir -p "$root/content/skills/skill-01/scripts"
