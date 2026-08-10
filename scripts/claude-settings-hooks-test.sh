@@ -151,6 +151,15 @@ assert_blocked "$CLEAN_HOOK" 'git clean hook' 'cd /tmp && git clean -fd --quiet'
 # Shell wrappers are command positions too.
 assert_blocked "$CLEAN_HOOK" 'git clean hook' 'bash -c "git clean -fd"'
 assert_blocked "$CLEAN_HOOK" 'git clean hook' 'eval git clean -fd'
+assert_blocked "$CLEAN_HOOK" 'git clean hook' 'sudo git clean -fdx'
+assert_blocked "$CLEAN_HOOK" 'git clean hook' 'GIT_DIR=/tmp/r/.git git clean -fd'
+assert_blocked "$CLEAN_HOOK" 'git clean hook' 'env GIT_PAGER=cat git clean -fd'
+# A command position survives leading indentation.
+assert_blocked "$CLEAN_HOOK" 'git clean hook' $'if [ -d build ]; then\n  git clean -fd build\nfi'
+# The pathspec separator does not end the argument list.
+assert_blocked "$CLEAN_HOOK" 'git clean hook' 'git clean -fd -- build/'
+assert_blocked "$CLEAN_HOOK" 'git clean hook' 'git clean -fd --'
+assert_blocked "$CLEAN_HOOK" 'git clean hook' 'cd sub && git clean -fd -- .'
 # A preview beside a real delete must not disarm the guard for the delete.
 assert_blocked "$CLEAN_HOOK" 'git clean hook' 'git clean -n && git clean -fd'
 assert_blocked "$CLEAN_HOOK" 'git clean hook' 'git clean -n; git clean -fd'
@@ -171,6 +180,7 @@ assert_allowed "$CLEAN_HOOK" 'git clean hook' 'git clean -id'
 assert_allowed "$CLEAN_HOOK" 'git clean hook' 'git clean --interactive'
 assert_allowed "$CLEAN_HOOK" 'git clean hook' 'git clean -f -n'
 assert_allowed "$CLEAN_HOOK" 'git clean hook' 'git clean -dn'
+assert_allowed "$CLEAN_HOOK" 'git clean hook' 'git clean -n -- build/'
 assert_allowed "$CLEAN_HOOK" 'git clean hook' 'git status --porcelain'
 assert_allowed "$CLEAN_HOOK" 'git clean hook' 'git stash push --include-untracked'
 assert_allowed "$CLEAN_HOOK" 'git clean hook' 'git worktree remove /tmp/wt --force'
@@ -185,6 +195,13 @@ assert_allowed "$CLEAN_HOOK" 'git clean hook' 'git checkout -b cleanup-fix'
 assert_allowed "$CLEAN_HOOK" 'git clean hook' 'rg -n "git clean -fd" docs/'
 
 MASK_HOOK=$(hook_command 'BLOCKED: piping')
+
+# The two hooks share one command-position definition. Drift between the copies would make
+# them disagree about what a command is, silently and in one direction only.
+CLEAN_POS=$(printf '%s' "$CLEAN_HOOK" | sed -n "s/.*POS='\([^']*\)'.*/\1/p")
+MASK_POS=$(printf '%s' "$MASK_HOOK" | sed -n "s/.*POS='\([^']*\)'.*/\1/p")
+[[ -n $CLEAN_POS ]] || fail 'the git clean hook defines no POS pattern'
+[[ $CLEAN_POS == "$MASK_POS" ]] || fail 'the two hooks define different POS patterns'
 
 assert_blocked "$MASK_HOOK" 'masked exit hook' 'just ci | tail'
 assert_blocked "$MASK_HOOK" 'masked exit hook' 'just ci | tail -20'
@@ -221,6 +238,7 @@ assert_blocked "$MASK_HOOK" 'masked exit hook' 'echo set -o pipefail && just ci 
 assert_blocked "$MASK_HOOK" 'masked exit hook' 'timeout 600 just ci | tail'
 assert_blocked "$MASK_HOOK" 'masked exit hook' 'if just ci | tail; then echo ok; fi'
 assert_blocked "$MASK_HOOK" 'masked exit hook' 'just -f Justfile ci | tail'
+assert_blocked "$MASK_HOOK" 'masked exit hook' $'if true; then\n  just ci | tail\nfi'
 
 # tee logging, bare runs, the documented pipefail escape, and unrelated pipelines
 # stay legal.
