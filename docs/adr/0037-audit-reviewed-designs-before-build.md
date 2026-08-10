@@ -26,9 +26,11 @@ change after design review and before TDD. A missing or unresolved expected arti
 against the branch diff and linked work evidence without adding a discovery schema. Uncertain
 completeness remains uncertain and returns `needs-attention`. The audit writes a human-readable
 report as per-worktree state under `.agent/scope-audit/`, with `approve` or `needs-attention`
-inside that report. The pre-minted report path is the sole result; no separate
-returned verdict can disagree with it. Missing, malformed, incomplete, or misdirected output
-stops before TDD.
+inside that report. Before dispatch, the caller verifies that the unique pre-minted path does
+not exist and mints a different path on collision; report paths are never reused. The caller
+accepts only the newly created report at that exact path as the sole result, so no separate
+returned verdict can disagree with it. Missing, stale, malformed, incomplete, or misdirected
+output stops before TDD.
 
 The observable trigger is entry into `work-issue`'s full design path: any run that produces
 or consumes reviewed design artifacts runs the audit before TDD. Existing trivial-bugfix and
