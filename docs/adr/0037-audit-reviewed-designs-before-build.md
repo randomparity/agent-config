@@ -19,10 +19,12 @@ that result constrains later review without creating another policy engine.
 ## Decision
 
 Add a reusable, prose-only `scope-audit` skill. For every non-trivial `work-issue` run, a
-fresh independent agent reads the complete frozen charter, the reviewed ADR/specification,
-the reviewed plan, and linked ownership as one proposed change after design review and before
-TDD. It writes a human-readable report as per-worktree state under
-`.agent/scope-audit/` and returns `approve` or `needs-attention`.
+fresh independent agent reads the complete frozen charter, every reviewed ADR,
+specification, and plan associated with that run, and linked ownership as one proposed
+change after design review and before TDD. A missing or unresolved expected artifact returns
+`needs-attention`; the caller enumerates the set without adding a discovery schema. The audit
+writes a human-readable report as per-worktree state under `.agent/scope-audit/` and returns
+`approve` or `needs-attention`.
 
 The report maps promises to external provenance and components to criteria, compares the
 smallest viable alternative, classifies findings, and records a compact approved surface of
