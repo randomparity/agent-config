@@ -62,10 +62,10 @@ before TDD.
    `.agent/scope-audit/` is ignored, and mint a unique, never-created report pathname there
    without touching the file. The path includes the issue and branch identity so concurrent
    runs do not share a report.
-3. Dispatch one fresh subagent with no inherited conversation where the runtime supports
-   context isolation. Regardless of runtime, instruct the auditor that inherited conversation,
-   prior rationales, and reviewer conclusions are disallowed evidence and non-authoritative.
-   Run `scope-audit` over:
+3. Require a fresh subagent context containing only the audit brief and its declared inputs.
+   If the runtime cannot exclude inherited conversation, prior rationales, and reviewer
+   conclusions from the dispatched context, stop before TDD; a prompt instruction to ignore
+   visible history is not a fallback. Run `scope-audit` over:
    - the unchanged eight-field frozen charter;
    - explicit paths to every reviewed ADR, specification, and plan associated with the run;
    - the base branch needed to inspect the design-artifact diff; and
@@ -137,10 +137,10 @@ another issue, unnecessary persistence/authentication/schema/permission/concurre
 operational contracts, disproportionate components/files/tests/runtime, a materially smaller
 viable approach, and dependencies on exclusions. It uses four classifications:
 
-Freshness is an evidence boundary, not merely a new agent identity. The audit uses only the
-frozen charter, enumerated artifacts, base diff, linked ownership, and repository evidence
-needed to verify that ownership. Any inherited conversation or prior conclusion is ignored and
-cannot justify a promise, component, finding disposition, or verdict.
+Freshness is an evidence boundary, not merely a new agent identity. The dispatched context
+contains only the audit brief, frozen charter, enumerated artifacts, base diff, linked
+ownership, and repository evidence needed to verify that ownership. Inherited conversation or
+prior conclusions make the dispatch ineligible rather than becoming evidence to ignore.
 
 - `in-scope-required`: an apparent expansion is a necessary direct dependency and its
   criterion/provenance mapping demonstrates why;
@@ -220,8 +220,8 @@ Report-envelope mutations cover a pre-existing expected path, a missing or dupli
 missing or reordered headings, an empty section, a sentinel that is absent or not final, and
 output written only to a different path.
 
-A dispatch mutation removes the context-isolation and inherited-evidence boundary from
-`work-issue`; the prompt-contract suite must reject that fixture.
+Dispatch mutations remove the context-isolation prerequisite or weaken its failure into an
+ignore-history prompt; the prompt-contract suite must reject both fixtures.
 
 ## Trust boundaries
 
