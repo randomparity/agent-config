@@ -20,6 +20,8 @@
       "Bash(git push --force*)",
       "Bash(git push *--force*)",
       "Bash(git reset --hard*)",
+      "Bash(git clean -f*)",
+      "Bash(git clean *-f*)",
       "Edit(~/.bashrc)",
       "Edit(~/.zshrc)",
       "Edit(~/.ssh/**)",
@@ -51,6 +53,14 @@
           {
             "type": "command",
             "command": "CMD=$(jq -r '.tool_input.command'); if echo \"$CMD\" | grep -qiE '(^|;[[:space:]]*|&&[[:space:]]*|[|][|][[:space:]]*|[|][[:space:]]*)rm[[:space:]]' && echo \"$CMD\" | grep -qiE '(^|[[:space:]])-[a-zA-Z]*[rR]|--recursive' && echo \"$CMD\" | grep -qiE '(^|[[:space:]])-[a-zA-Z]*[fF]|--force'; then echo 'BLOCKED: Use trash instead of rm -rf' >&2; exit 2; fi"
+          },
+          {
+            "type": "command",
+            "command": "CMD=$(jq -r '.tool_input.command'); if echo \"$CMD\" | grep -qE '(^|;[[:space:]]*|&&[[:space:]]*|[|][|][[:space:]]*|[|][[:space:]]*)git[[:space:]]' && echo \"$CMD\" | grep -qE '(^|[[:space:]])clean([[:space:]]|$)' && echo \"$CMD\" | grep -qE '(^|[[:space:]])-[a-zA-Z]*f|--force'; then echo 'BLOCKED: git clean force-deletes untracked files with no recovery. Use git stash --include-untracked, git restore, git worktree remove, or trash.' >&2; exit 2; fi"
+          },
+          {
+            "type": "command",
+            "command": "CMD=$(jq -r '.tool_input.command'); if echo \"$CMD\" | grep -qE '(^|;[[:space:]]*|&&[[:space:]]*|[|][|][[:space:]]*|[|][[:space:]]*)just[[:space:]]+(ci|verify)[^;&|<>]*([|][[:space:]]*(tail|head|grep)([[:space:]]|$)|[0-9]*&?>[[:space:]]*/dev/null|[|][|][[:space:]]*true([[:space:]]|$))'; then echo 'BLOCKED: piping or redirecting a guardrail run hides its exit code, so a red gate reads as green. Run it bare; pipe to tee if you need a copy of the output.' >&2; exit 2; fi"
           },
           {
             "type": "command",
