@@ -63,14 +63,17 @@ before TDD.
 3. Dispatch one fresh subagent to run `scope-audit` over:
    - the unchanged eight-field frozen charter;
    - explicit paths to every reviewed ADR, specification, and plan associated with the run;
+   - the base branch needed to inspect the design-artifact diff; and
    - linked issue, dependency, debt-record, and tracker ownership relevant to findings.
 4. Read the completed report and disposition its result before TDD.
 5. Preserve the report path and compact approved-surface section as the design-to-build
    context checkpoint.
 
-The caller enumerates the complete expected artifact set; the skill does not invent a
-discovery registry. A missing or unresolved expected artifact produces `needs-attention` and
-stops before TDD.
+The caller enumerates the complete expected artifact set. The independent auditor cross-checks
+that list against changed design-artifact paths in the branch diff and links in the supplied
+work evidence; it does not invent a discovery registry. A missing or unresolved expected
+artifact, an unexplained extra design artifact, or uncertainty about completeness produces
+`needs-attention` and stops before TDD.
 
 The audit is one pass over an unchanged artifact set, not another review loop. An unchanged
 `needs-attention` result is never retried merely to seek approval. A new pass is warranted

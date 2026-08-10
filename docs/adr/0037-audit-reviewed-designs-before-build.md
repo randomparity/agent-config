@@ -22,9 +22,11 @@ Add a reusable, prose-only `scope-audit` skill. For every non-trivial `work-issu
 fresh independent agent reads the complete frozen charter, every reviewed ADR,
 specification, and plan associated with that run, and linked ownership as one proposed
 change after design review and before TDD. A missing or unresolved expected artifact returns
-`needs-attention`; the caller enumerates the set without adding a discovery schema. The audit
-writes a human-readable report as per-worktree state under `.agent/scope-audit/` and returns
-`approve` or `needs-attention`.
+`needs-attention`. The caller enumerates the set, and the independent auditor cross-checks it
+against the branch diff and linked work evidence without adding a discovery schema. Uncertain
+completeness remains uncertain and returns `needs-attention`. The audit writes a human-readable
+report as per-worktree state under `.agent/scope-audit/` and returns `approve` or
+`needs-attention`.
 
 The observable trigger is entry into `work-issue`'s full design path: any run that produces
 or consumes reviewed design artifacts runs the audit before TDD. Existing trivial-bugfix and
