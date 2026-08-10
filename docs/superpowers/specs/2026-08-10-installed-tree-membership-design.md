@@ -67,23 +67,34 @@ references, and one orchestration reference.
 
 ### Enumeration
 
-The tree list is filtered with `-d` before anything else, so only surviving directories reach
-`find`. A declared tree that is absent, or present as a regular file or a symlink, contributes
-no members.
+The tree list is filtered to real directories — `-d` **and not** `-L` — before anything else,
+so only surviving directories reach `find`. `-d` alone would be wrong: `test -d` dereferences,
+so a tree replaced by a symlink to a directory would survive it, and `find` would then print
+the tree path itself as a non-directory entry. Tree paths are passed to `find` without a
+trailing slash, since a trailing slash forces `find` to dereference the argument and changes
+the answer. A declared tree that is absent, or present as a regular file or as a symlink,
+contributes no members, and its declared files therefore report as `missing-member`.
 
 Every entry under a surviving tree that is not a directory is a member: regular files,
 symlinks, and dot-prefixed and ignored files alike, because `cp -pR` copies all of them.
 `find <trees> ! -type d -print0` produces exactly that set and has no ignore logic to defeat,
 which is why it is used here in place of the repository's usual `rg`.
 
-A member that is not a regular file is a finding whatever the manifest says. `cp -pR`
-preserves a symlink rather than dereferencing it, and `find ! -type d` does not descend one,
-so a symlink to a directory would enumerate as a single path while deploying whatever its
-target resolves to on the user's machine — an unbounded subtree admitted by one manifest
-line, including paths outside the configuration directory if the committed link text is
-`../`-relative. Declaring it must not make it acceptable. This follows
+**A member that is not a regular file is additionally a finding, whatever the manifest says.**
+`cp -pR` preserves a symlink rather than dereferencing it, and `find ! -type d` does not
+descend one, so a symlink to a directory would enumerate as a single path while deploying
+whatever its target resolves to on the user's machine — an unbounded subtree admitted by one
+manifest line, including paths outside the configuration directory if the committed link text
+is `../`-relative. Declaring it must not make it acceptable. This follows
 `check-skill-layout.sh`, which refuses symlinks and non-regular files anywhere under the
 skills tree.
+
+The two rules compose as follows, and the suite pins each half. A non-regular entry **is** a
+member for the set comparison, so a declared symlink never reports `missing-member` — the file
+is there, it is just not allowed to be what it is. The regular-file check is an independent
+report over the same enumerated set. So a declared non-regular entry emits one line
+(`non-regular-member`) and an undeclared one emits two (`unexpected-member` and
+`non-regular-member`), each true on its own terms.
 
 The ignored case is reachable where it counts, not only in a dirty working tree: ripgrep
 applies `.gitignore` to *tracked* files too, so a tracked file the repository also ignores is
@@ -94,10 +105,19 @@ of the pushed objects, nor CI on a clean checkout sees it.
 
 ### Comparison and verdicts
 
-Both sides are normalised to NUL-delimited paths and sorted with `LC_ALL=C sort -z`, then
-compared in both directions. A manifest line duplicated by a careless edit is inert: the
-comparison is a membership test, not a line-count difference, so a duplicate must not surface
-as a `missing-member` for a file that is plainly there.
+Both sides are read into Bash associative arrays keyed by repo-relative path — `declared` from
+the manifest, `present` from the NUL-delimited enumeration — and each is then tested for
+membership of the other. Keying makes a manifest line duplicated by a careless edit inert by
+construction rather than by promise: a repeated key is the same key. `comm` was the obvious
+alternative and does not hold that property — `comm -23` emits the surplus occurrence of a
+duplicated entry as file1-only, which is exactly a spurious `missing-member` for a file that
+is plainly there — and it has no NUL mode, so it does not compose with the enumeration either.
+Like the tree-containment rule, the duplicate property is not fixture-reachable, because the
+manifest is a literal in the script; it holds structurally or not at all.
+
+The enumeration completes before any comparison begins, so an enumeration fault (exit 2) is
+reached while no finding yet exists. A fault therefore never suppresses findings that were
+already made, and never emits partial ones.
 
 | status | condition | message |
 |---|---|---|
@@ -110,7 +130,8 @@ as a `missing-member` for a file that is plainly there.
 | 2 | the enumeration itself fails | `deployed-membership: could not enumerate the installed trees` |
 
 Findings and faults go to stderr, the `ok` summary to stdout, matching
-`check-shared-standards.sh`.
+`check-shared-standards.sh`. The suite captures the two streams separately rather than merging
+them as `check-shared-standards-test.sh` does, so this is an assertion and not a description.
 
 A run reports every finding before it exits; it does not stop at the first. This matters in
 the intended use — a wave branch that adds one file and deletes another must be told about
@@ -157,10 +178,18 @@ a reader adding a third tree learns the gate exists.
 ## Suite
 
 `scripts/check-deployed-membership-test.sh`, discovered automatically by `just test`, which
-globs `*-test.sh` from `git ls-files`. It follows the `check-shared-standards-test.sh` shape:
+globs `*-test.sh` from `git ls-files`. It follows the `check-shared-standards-test.sh` shape —
 a `mktemp -d` scratch with a guarded `trap cleanup EXIT`, a `reset_fixture` per case, and
 `assert_passes` / `assert_fails` / `assert_exit_two` helpers that pin the message as well as
-the status.
+the status — with two deliberate departures, each because a guarantee here would otherwise be
+unfalsifiable:
+
+- `run_checker` captures stdout and stderr into separate files instead of merging them, so the
+  stream split is asserted rather than described.
+- an `assert_findings` helper compares the whole stderr finding sequence against an expected
+  list in order, so multiplicity and emission order can fail. `assert_fails` remains for the
+  single-finding rows, and `assert_absent` (also from the sibling suite) pins the lines a case
+  must *not* produce.
 
 The fixture is populated from the **tracked** contents of the three trees — the paths
 `git ls-files -z` reports, copied from the working tree — rather than from synthetic files or
@@ -174,22 +203,32 @@ derived from the repository and deterministic. The consequence to know: a new de
 must be staged before the suite sees it, so adding one and its manifest line without
 `git add` shows up here as a `missing-member` on the pass case.
 
+The same reasoning governs the pass case's summary. Pinning a literal `7 declared members`
+would be the second copy of the manifest this fixture design exists to avoid, and it would make
+adding a deployed file three edits rather than the two ADR 0045 promises — with the third
+arriving as a red suite, which reads as a broken test rather than as the gate working. So the
+suite asserts the summary against the count it enumerated when building the fixture, and
+separately asserts that count is non-zero, which is what keeps an emptied manifest from passing
+vacuously with `0 declared members`.
+
 | case | expectation |
 |---|---|
-| the three trees as tracked | passes, summary pinned to `7 declared members across 3 installed trees` |
+| the three trees as tracked | passes; summary asserted against the count the suite itself enumerated, and asserted non-zero, on stdout |
 | an ordinary file added, once per tree | `unexpected-member` naming it |
 | a dot-prefixed file added | `unexpected-member` naming it |
 | a file added beside an `.ignore` entry that names it | `unexpected-member` naming it |
 | a file added in a new subdirectory | `unexpected-member` naming it |
-| a symlink to an existing member | `non-regular-member` naming it |
-| a symlink to a directory | `non-regular-member` naming it |
-| a declared member replaced by a symlink to it | `non-regular-member`, i.e. declaring it does not admit it |
+| an undeclared symlink to an existing member | `unexpected-member` **and** `non-regular-member`, in that order |
+| an undeclared symlink to a directory | `unexpected-member` **and** `non-regular-member`; no member from behind the link |
+| a declared member replaced by a symlink to it | `non-regular-member` alone; `missing-member` asserted absent |
 | a declared member deleted | `missing-member` naming it |
-| an undeclared file added under one tree **and** a declared member deleted under another | both lines in one run |
+| two undeclared files under one tree | both `unexpected-member` lines, in `LC_ALL=C` path order |
+| an undeclared file under one tree **and** a declared member deleted under another | both lines in one run, unexpected before missing |
 | a file added outside the declared trees | passes |
 | a one-file declared tree removed entirely | `missing-member` naming its declared file, not a fault |
 | a one-file declared tree replaced by a regular file | `missing-member` naming its declared file, not a fault |
-| a declared tree made unreadable | exit 2, `could not enumerate`; skipped when the suite runs as root |
+| a one-file declared tree replaced by a symlink to a directory | `missing-member` naming its declared file, not a fault; the tree path itself is not reported |
+| a declared tree made unreadable | exit 2, `could not enumerate`, with no `missing-member` line for that tree; skipped when the suite runs as root |
 | a second argument | exit 2, `usage:` |
 | a root that does not exist | exit 2, `repository root is not a directory` |
 
