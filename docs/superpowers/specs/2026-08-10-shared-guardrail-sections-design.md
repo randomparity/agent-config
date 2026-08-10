@@ -103,8 +103,8 @@ data model, an architecture — including a toolchain floor such as a minimum su
 compiler version — or a destructive or external write. A question is not a task: answer it
 and stop.
 
-Do authorized follow-up work rather than offering it back. Report what ran, what did not,
-An exhausted review budget without approval is reported as exactly that, never as clean.
+Do authorized follow-up work rather than offering it back. An exhausted review budget
+without approval is reported as exactly that, never as clean.
 <!-- shared-standards:end -->
 ````
 
@@ -118,8 +118,8 @@ number, no bare issue number, no concrete record path. The text above satisfies 
 Every rule the block absorbs is removed from where it was, or the file states it twice.
 Six removals in each of `agents/claude/shared/CLAUDE.md`,
 `agents/codex/shared/AGENTS.md`, and `content/instructions/global-development-standards.md`
-(line numbers are `content/instructions/global-development-standards.md`'s; Claude's copy
-runs two to three lines shorter from its shorter opening bullet):
+(line numbers are `content/instructions/global-development-standards.md`'s: identical in
+Claude's copy for the first four rows, three lines earlier for the last two):
 
 | Removed | Absorbed into |
 |---------|---------------|
