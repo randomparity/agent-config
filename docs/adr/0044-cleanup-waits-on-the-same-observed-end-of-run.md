@@ -62,10 +62,17 @@ instrumented.
 that record 0042 requires for re-dispatch. Merging does not.**
 
 **The merge and the cleanup separate.** Merging is a server-side operation on refs that are
-already pushed; no live agent's working tree is reachable from it. Removing a directory an
-agent is `cd`-ed into is reachable from it, and that is the whole of the observed failure. So
-the precondition guards cleanup alone, and a live agent never delays a merge, a row's
-`merged` status, or the queue behind it.
+already pushed; it reaches no live agent's working tree. Removing a directory an agent is
+`cd`-ed into does reach one, and that is the whole of the observed failure. So the
+precondition guards cleanup alone, and a live agent never delays a merge, a row's `merged`
+status, or the queue behind it.
+
+One nearby step is not covered by that separation and is left where it was. `$merge-cleanup`
+switches to `BASE_BRANCH` before the orchestrator reaches any of this, and a serially
+dispatched worker may share the main checkout, so that switch can happen under a live agent.
+It is unchanged from what the list already did, the remaining hand-off window is `gh` calls
+rather than working-tree work, and gating it would mean gating the base refresh the merges
+themselves depend on.
 
 **The signal is the one 0042 already named**, unchanged: the harness's own end-of-run
 notification for the agent dispatched on that row, or the orchestrator stopping that agent
@@ -224,7 +231,7 @@ re-dispatch, for the same reason.
   right trade — the alternative is `--force`, which deletes the stranded work — but it means
   the deferred list is not only about live agents. It holds three reasons now — end of run not
   observed, worktree not clean, branch did not land — and only the first can resolve itself,
-  so the report states which applied per row rather than listing paths.
+  so the report states which applied per row rather than listing paths alone.
 - Deferral is deliberately not step 6's existing hold. That hold takes the blocker path: a
   `WORK:TRAJECTORY` note, a `status:` label, a `blocked` manifest row. Reusing it here would
   put a status label on an issue the merge just closed and keep the manifest `active` over a
