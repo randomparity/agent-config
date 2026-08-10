@@ -55,10 +55,11 @@ four audit-specific fields below them, and the two-line branch-review carrier, a
 gate's window and are not pinned. That is accepted rather than closed: `scope-audit` reads its
 inputs as prose, so a renamed field degrades a model's brief instead of breaking a parser, and
 a wider window is machinery this handoff does not earn. The existing installed-projection test
-covers the new skill. The workflow adds no formal result schema, parser, artifact identity graph, content hashing, transaction
-protocol, or live-model evaluation subsystem. A design change the workflow makes or observes
-invalidates the report and requires another audit. Detecting arbitrary out-of-band edits is
-not guaranteed without the excluded identity machinery.
+covers the new skill. The workflow adds no formal result schema, parser, artifact identity
+graph, content hashing, transaction protocol, or live-model evaluation subsystem. A design
+change the workflow makes or observes invalidates the report and requires another audit.
+Detecting arbitrary out-of-band edits is not guaranteed without the excluded identity
+machinery.
 
 ## Consequences
 
