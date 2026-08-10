@@ -318,6 +318,9 @@ scan_config_roots() { # results-file rg-argument...
 
 	# Same reason as validate_utf8's sinks: a redirection that cannot be opened fails
 	# the command with 1, which this function reads as "no matches" and reports ok.
+	# The results sink is appended rather than truncated -- two calls share one file --
+	# so the function proves both its own sinks instead of trusting its callers to.
+	: >>"$results"
 	: >"$workspace/rg-error"
 	rg --no-config --text --encoding none -l --hidden --no-ignore "$@" >>"$results" \
 		2>"$workspace/rg-error" || status=$?
