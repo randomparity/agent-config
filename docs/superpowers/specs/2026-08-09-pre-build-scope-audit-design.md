@@ -179,11 +179,12 @@ The caller records one disposition before making any responsive edit:
 
 After all findings are dispositioned, control follows the evidence rather than the original
 verdict. When the inputs and report are otherwise complete and usable, `needs-attention` is due
-only to findings, every finding is `rejected-with-evidence`, and no input changed, the caller
-records the rejection evidence and may continue with the report's candidate approved surface
-without rerunning unchanged inputs to seek `approve`. Missing or uncertain inputs and report
-defects remain blocking. An `accepted-fixed` edit returns through the applicable design review
-and a new audit. A `deferred-tracked` ownership change also requires a new audit. A `blocked`
+only to findings, no input changed, and every finding is either `rejected-with-evidence` or
+`accepted-fixed` because its remedy is already satisfied by the reviewed design, the caller
+records the dispositions and may continue with the report's candidate approved surface without
+rerunning unchanged inputs to seek `approve`. Missing or uncertain inputs and report defects
+remain blocking. An `accepted-fixed` edit returns through the applicable design review and a new
+audit. A `deferred-tracked` ownership change also requires a new audit. A `blocked`
 finding parks the workflow, and a verified material expansion returns to `SCOPE CHECKPOINT`.
 The auditor always supplies a candidate approved surface, including with a `needs-attention`
 verdict, so reception can resolve unsupported findings without inventing one.
@@ -202,8 +203,9 @@ The report's `Approved surface` section is deliberately compact and human-readab
 only components/files, changed contracts, an `S`/`M`/`L` complexity budget with a short
 rationale, exclusions, and verified owned deferrals. It does not duplicate the full design.
 
-The branch review invocation includes that exact summary in its focus and asks the reviewer
-to flag unexplained divergence: new components, contracts, files, tests, runtime behavior, or
+The branch review invocation includes the exact report path and candidate approved surface in
+its focus and asks the reviewer to flag unexplained divergence: new components, contracts,
+files, tests, runtime behavior, or
 complexity that the summary does not account for. The summary does not forbid implementation
 details within an approved component; it makes additions and aggregate growth explainable.
 The diff cannot use its implementation or successful tests as authority to widen the summary.

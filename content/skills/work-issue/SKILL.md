@@ -231,13 +231,30 @@ hold the design.
 This phase runs only after the full design path. Trivial bugfixes and verified governed small
 changes retain their design-skip paths and do not run it.
 
+<!-- SCOPE-RULE:trivial-scope-audit-skip -->
+A trivial bugfix skips scope-audit and proceeds directly to TDD.
+<!-- SCOPE-RULE:END:trivial-scope-audit-skip -->
+
+<!-- SCOPE-RULE:governed-scope-audit-skip -->
+A verified governed-small-change skips scope-audit and proceeds directly to TDD.
+<!-- SCOPE-RULE:END:governed-scope-audit-skip -->
+
 <!-- SCOPE-RULE:full-design-scope-audit -->
 Every run that enters the full design path completes scope-audit after reviewed design and before TDD.
 <!-- SCOPE-RULE:END:full-design-scope-audit -->
 
-Ensure the worktree root has the existing self-ignoring `.agent/.gitignore`, verify
-`.agent/scope-audit/` is ignored, and choose a fresh report path there. Dispatch a fresh reviewer
-task with `$scope-audit` and these inputs:
+Resolve the worktree root. Query whether `.agent/.gitignore` is tracked and distinguish tracked,
+untracked, and unanswerable results. If tracked, never modify it. If untracked and absent, create
+it with `*` using a temporary file in `.agent/`, an exit cleanup, and an atomic same-directory
+rename. Verify from the worktree root that `.agent/scope-audit/` is ignored; stop if the query is
+unanswerable or the path is exposed.
+
+<!-- SCOPE-RULE:scope-audit-state -->
+Never modify a tracked .agent/.gitignore; create an untracked one atomically when absent, then verify .agent/scope-audit is ignored from the worktree root and stop if it is exposed.
+<!-- SCOPE-RULE:END:scope-audit-state -->
+
+Choose a fresh report path there. Dispatch a fresh reviewer task with `$scope-audit` and these
+inputs:
 
 <!-- SCOPE-CARRIER:work-issue-to-scope-audit -->
 interaction: <unchanged root value>
@@ -292,7 +309,7 @@ Severity, classification, repetition, recommendations, and review-created prose 
 <!-- SCOPE-RULE:END:review-created-authority -->
 
 <!-- SCOPE-RULE:post-reception-transition -->
-Continue on an unchanged report only when it is otherwise complete and every finding is rejected with evidence; accepted edits and tracked ownership changes require a new audit.
+Continue on an unchanged complete report only when every finding is rejected with evidence or accepted-fixed because its remedy is already satisfied by the reviewed design; accepted edits and tracked ownership changes require a new audit.
 <!-- SCOPE-RULE:END:post-reception-transition -->
 
 When continuation is not permitted: return an accepted design edit through its applicable review
@@ -327,7 +344,13 @@ Run `$review-loop --base <BASE_BRANCH> Focus on auth, permissions, data loss
 or corruption, rollback, idempotency, races, empty or malformed inputs,
 degraded dependencies, compatibility, migrations, observability, and whether
 the chosen approach is simpler or safer than viable alternatives. Compare the diff with the
-scope-audit candidate approved surface when this run entered the full design path.`
+scope-audit candidate approved surface when this run entered the full design path.` Pass this
+additional focus when a scope audit ran:
+
+<!-- SCOPE-CARRIER:scope-audit-to-branch-review -->
+scope-audit report path: <exact readable report path>
+candidate approved surface: <read and pass the report's exact candidate approved surface>
+<!-- SCOPE-CARRIER:END:scope-audit-to-branch-review -->
 
 <!-- SCOPE-RULE:scope-audit-branch-review -->
 Branch review compares the diff with the audit's candidate approved surface and applies the same finding-reception gate.

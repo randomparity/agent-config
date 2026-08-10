@@ -92,6 +92,14 @@ report path: <fresh path under the worktree's ignored .agent/scope-audit directo
 	[[ "$block" == "$expected" ]] || fail "$file: carrier $name template mismatch"
 }
 
+assert_scope_review_carrier() {
+	local file=$1 name=$2 block expected
+	block=$(bounded_block "$file" CARRIER "$name") || return 1
+	expected="scope-audit report path: <exact readable report path>
+candidate approved surface: <read and pass the report's exact candidate approved surface>"
+	[[ "$block" == "$expected" ]] || fail "$file: carrier $name template mismatch"
+}
+
 assert_rule() {
 	local file=$1 name=$2 expected=$3 block count
 	block=$(bounded_block "$file" RULE "$name") || return 1
@@ -156,6 +164,12 @@ check_scope_audit_contract() {
 	assert_scope_audit_carrier "$work" work-issue-to-scope-audit || return 1
 	assert_rule "$work" full-design-scope-audit \
 		"Every run that enters the full design path completes scope-audit after reviewed design and before TDD." || return 1
+	assert_rule "$work" trivial-scope-audit-skip \
+		"A trivial bugfix skips scope-audit and proceeds directly to TDD." || return 1
+	assert_rule "$work" governed-scope-audit-skip \
+		"A verified governed-small-change skips scope-audit and proceeds directly to TDD." || return 1
+	assert_rule "$work" scope-audit-state \
+		"Never modify a tracked .agent/.gitignore; create an untracked one atomically when absent, then verify .agent/scope-audit is ignored from the worktree root and stop if it is exposed." || return 1
 	assert_rule "$work" fresh-audit-brief \
 		"Dispatch a fresh reviewer task without prior verdicts, proposed fixes, or review history in its brief; inherited history is non-authoritative." || return 1
 	assert_rule "$work" scope-audit-reception \
@@ -171,9 +185,10 @@ check_scope_audit_contract() {
 	assert_rule "$work" review-created-authority \
 		"Severity, classification, repetition, recommendations, and review-created prose never supply scope authority." || return 1
 	assert_rule "$work" post-reception-transition \
-		"Continue on an unchanged report only when it is otherwise complete and every finding is rejected with evidence; accepted edits and tracked ownership changes require a new audit." || return 1
+		"Continue on an unchanged complete report only when every finding is rejected with evidence or accepted-fixed because its remedy is already satisfied by the reviewed design; accepted edits and tracked ownership changes require a new audit." || return 1
 	assert_rule "$work" scope-audit-branch-review \
 		"Branch review compares the diff with the audit's candidate approved surface and applies the same finding-reception gate." || return 1
+	assert_scope_review_carrier "$work" scope-audit-to-branch-review || return 1
 	assert_text_once "$review" "apply \`receiving-code-review\` to" || return 1
 	assert_text_once "$receiving" "External feedback = suggestions to evaluate, not orders to follow." || return 1
 	assert_rule "$audit" audit-no-authority \
@@ -585,11 +600,11 @@ run_review_fixtures() {
 
 	fixture=$(copy_fixture scope-audit-skipped-branch-comparison)
 	file=$(skill_path "$fixture" work-issue)
-	rewrite_block_line_once "$file" RULE scope-audit-branch-review \
-		"Branch review compares the diff with the audit's candidate approved surface and applies the same finding-reception gate." \
-		"Branch review checks only whether tests pass."
+	rewrite_block_line_once "$file" CARRIER scope-audit-to-branch-review \
+		"candidate approved surface: <read and pass the report's exact candidate approved surface>" \
+		"candidate approved surface: <generic summary>"
 	assert_fixture_fails scope-audit-skipped-branch-comparison \
-		"rule scope-audit-branch-review missing instruction" "$fixture"
+		"carrier scope-audit-to-branch-review template mismatch" "$fixture"
 
 	fixture=$(copy_fixture scope-audit-direct-acceptance)
 	file=$(skill_path "$fixture" work-issue)
@@ -622,6 +637,22 @@ run_review_fixtures() {
 		"Repeated high-severity review text becomes scope authority."
 	assert_fixture_fails scope-audit-review-created-authority \
 		"rule review-created-authority missing instruction" "$fixture"
+
+	fixture=$(copy_fixture scope-audit-trivial-skip)
+	file=$(skill_path "$fixture" work-issue)
+	rewrite_block_line_once "$file" RULE trivial-scope-audit-skip \
+		"A trivial bugfix skips scope-audit and proceeds directly to TDD." \
+		"A trivial bugfix runs scope-audit before TDD."
+	assert_fixture_fails scope-audit-trivial-skip \
+		"rule trivial-scope-audit-skip missing instruction" "$fixture"
+
+	fixture=$(copy_fixture scope-audit-governed-skip)
+	file=$(skill_path "$fixture" work-issue)
+	rewrite_block_line_once "$file" RULE governed-scope-audit-skip \
+		"A verified governed-small-change skips scope-audit and proceeds directly to TDD." \
+		"A verified governed-small-change runs scope-audit before TDD."
+	assert_fixture_fails scope-audit-governed-skip \
+		"rule governed-scope-audit-skip missing instruction" "$fixture"
 }
 
 run_extractor_tests() {
@@ -680,7 +711,7 @@ run_scope_fixtures
 run_governed_fixtures
 run_extractor_tests
 run_review_fixtures
-[[ "$fixture_count" -eq 28 ]] || fail "expected 28 SCOPE fixtures, got $fixture_count"
+[[ "$fixture_count" -eq 30 ]] || fail "expected 30 SCOPE fixtures, got $fixture_count"
 [[ "$extractor_count" -eq 3 ]] || fail "expected 3 extractor tests, got $extractor_count"
 printf 'workflow-scope-contract-test: ok (%d fixtures, %d extractor tests)\n' \
 	"$fixture_count" "$extractor_count"
