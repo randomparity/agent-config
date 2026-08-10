@@ -15,7 +15,9 @@ set -euo pipefail
 #   - `just ci | tee log` stays legal even though tee returns its own status;
 #   - a filter reached through a non-tee pass-through (`just ci | cat | tail`) is missed;
 #   - only `just ci` and `just verify` are recognised, since this file ships to every
-#     repository and cannot enumerate one repository's recipe names.
+#     repository and cannot enumerate one repository's recipe names;
+#   - the filter list is tail, head, grep and rg, and the short-circuit list is `true`
+#     and `:`, so `| sed`, `| awk`, `| cat`, `| less` and `|| echo failed` mask freely.
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 SETTINGS="$ROOT/agents/claude/shared/settings.base.json"
@@ -130,6 +132,11 @@ assert_blocked "$CLEAN_HOOK" 'git clean hook' 'git -c clean.requireForce=0 clean
 assert_blocked "$CLEAN_HOOK" 'git clean hook' 'git clean -d'
 assert_blocked "$CLEAN_HOOK" 'git clean hook' 'git clean -x'
 assert_blocked "$CLEAN_HOOK" 'git clean hook' 'git clean'
+assert_blocked "$CLEAN_HOOK" 'git clean hook' 'git clean -f -e node_modules'
+# A preview beside a real delete must not disarm the guard for the delete.
+assert_blocked "$CLEAN_HOOK" 'git clean hook' 'git clean -n && git clean -fd'
+assert_blocked "$CLEAN_HOOK" 'git clean hook' 'git clean -n; git clean -fd'
+assert_blocked "$CLEAN_HOOK" 'git clean hook' $'git clean -n\ngit clean -fd'
 
 # A destructive guard that cannot read its input must not wave the command through.
 assert_fails_closed "$CLEAN_HOOK" 'git clean hook'
@@ -138,6 +145,13 @@ assert_fails_closed "$CLEAN_HOOK" 'git clean hook'
 assert_allowed "$CLEAN_HOOK" 'git clean hook' 'git clean -n'
 assert_allowed "$CLEAN_HOOK" 'git clean hook' 'git clean --dry-run'
 assert_allowed "$CLEAN_HOOK" 'git clean hook' 'git clean -i'
+# The dry-run letter may sit anywhere in a bundle: -nd is the standard preview.
+assert_allowed "$CLEAN_HOOK" 'git clean hook' 'git clean -nd'
+assert_allowed "$CLEAN_HOOK" 'git clean hook' 'git clean -ndx'
+assert_allowed "$CLEAN_HOOK" 'git clean hook' 'git clean -nxd'
+assert_allowed "$CLEAN_HOOK" 'git clean hook' 'git clean -id'
+assert_allowed "$CLEAN_HOOK" 'git clean hook' 'git clean --interactive'
+assert_allowed "$CLEAN_HOOK" 'git clean hook' 'git clean -f -n'
 assert_allowed "$CLEAN_HOOK" 'git clean hook' 'git status --porcelain'
 assert_allowed "$CLEAN_HOOK" 'git clean hook' 'git stash push --include-untracked'
 assert_allowed "$CLEAN_HOOK" 'git clean hook' 'git worktree remove /tmp/wt --force'
@@ -211,14 +225,19 @@ assert_allowed "$MASK_HOOK" 'masked exit hook' 'gh pr checks 1 | grep fail'
 assert_allowed "$MASK_HOOK" 'masked exit hook' 'rg -n "just ci | tail" AGENTS.md'
 # tail/head/grep is a prefix of longer commands that mask nothing.
 assert_allowed "$MASK_HOOK" 'masked exit hook' 'just ci | tailscale-status'
+# The recipe name is matched whole: ci-fast and verify-docs are not the guarded recipes.
+assert_allowed "$MASK_HOOK" 'masked exit hook' 'just ci-fast | tail'
+assert_allowed "$MASK_HOOK" 'masked exit hook' 'just verify-docs | head'
 
-# Accepted false positive, pinned so it is discoverable rather than surprising: grep
-# treats every line of a multi-line command as its own command position, so a banned
-# command appearing inside any multi-line argument blocks too — a heredoc, a
-# `git commit -m` body, a `gh --body`. The hook message names the escape: pass the text
-# through a file instead of quoting it inline.
+# Accepted false positive, pinned so it is discoverable rather than surprising: the hooks
+# read the command as text, so a banned command quoted inside an argument blocks as if it
+# were being run — whenever a newline or a `;`, `&&` or `||` inside the quotes puts it at
+# what looks like a command position. That covers heredocs, `git commit -m` bodies and
+# `gh --body`. The hook message names the escape: pass the text through a file instead of
+# quoting it inline.
 assert_blocked "$CLEAN_HOOK" 'git clean hook' $'cat >note.md <<EOF\ngit clean -fd\nEOF'
 assert_blocked "$CLEAN_HOOK" 'git clean hook' $'git commit -m "note\ngit clean -fd was refused"'
+assert_blocked "$CLEAN_HOOK" 'git clean hook' 'gh issue comment 1 --body "tried && git clean -fd"'
 assert_blocked "$MASK_HOOK" 'masked exit hook' $'cat >note.md <<EOF\njust ci | tail\nEOF'
 
 # The destructive guard fails closed without jq; the advisory one fails open, because a
