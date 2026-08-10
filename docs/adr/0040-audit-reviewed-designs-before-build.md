@@ -81,3 +81,26 @@ not guaranteed without the excluded identity machinery.
   only after implementation cost is sunk.
 - **Keep the existing workflow.** Rejected because issue #94 explicitly requires pre-build
   detection; accepting the known late-detection cost does not satisfy that outcome.
+
+## Corrections
+
+Appended 2026-08-10. This record merged with two inaccuracies. The decision is unchanged, so
+this is a correction rather than a supersession, and the sentences above stand as written
+because a merged record is append-only.
+
+- **"`scripts/check-carrier-drift.sh` pins it byte for byte" overstates the gate.** That gate
+  window-checks eight lines (`check-carrier-drift.sh:92`), which is the scope charter the
+  dispatch opens with. The four audit-specific fields below it — `reviewed artifacts`,
+  `base branch`, `linked ownership`, `report path` — and the whole two-line branch-review
+  carrier fall outside the window and are pinned by nothing. That is accepted, not an
+  oversight to close later: `scope-audit` reads its inputs as prose, so a renamed field
+  degrades a model's brief instead of breaking a parser, and a wider window is machinery this
+  handoff does not earn.
+- **The report's root rule was never stated.** It is per-worktree, resolved with
+  `git rev-parse --show-toplevel` — the root ADR 0027 assigns `.agent/sdd/` for the same
+  reason. An audit belongs to one branch's design cycle, and `campaign` dispatches
+  `work-issue` into parallel worktrees.
+
+The `--` in this record's title is likewise frozen; every sibling ADR uses an em dash. A
+heading is the record's claim, so the gate holds it verbatim, and a punctuation slip does not
+warrant a superseding record.

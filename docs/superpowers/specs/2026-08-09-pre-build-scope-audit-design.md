@@ -225,8 +225,10 @@ are present and operative in the installed prompts and an independent review fin
 proportionate; no live-model quality claim is made.
 
 Each failure mode is addressed by an instruction in `scope-audit` or `work-issue`. Per ADR 0038
-these sentences are not byte-pinned by a gate: the wording is reviewed by humans, and only the
-machine-read charter carrier the dispatch carries is checked by `check-carrier-drift.sh`.
+these sentences are not byte-pinned by a gate: the wording is reviewed by humans. The only
+byte-checked part of this design is the eight-line scope charter inside the dispatch, which
+`check-carrier-drift.sh` covers; the audit-specific fields under it and the branch-review
+carrier fall outside that gate's window.
 
 | Failure mode | Severity | Where the instruction lives |
 |---|---:|---|
