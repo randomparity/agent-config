@@ -353,9 +353,8 @@ creates the PR, post a `WORK:REVIEW` comment on it from that summary --
 Run `$merge-cleanup`. Its default is hand-off: it records the hand-off, tells
 the user the PR is ready to merge, and stops there -- short of its "After a
 merge" list. A `$campaign`-dispatched run always takes that path, so hand-off
-is a terminal stop, not a step to clean up after. Leave the branch and the
-worktree in place for whoever merges; the reclaim is theirs, and the branch
-still being checked out here is what tells them a worktree is waiting.
+is a terminal stop, not a step to clean up after. On that path, leave the
+branch and the worktree in place for whoever merges; the reclaim is theirs.
 
 Cleaning up branches and worktrees belongs to the operator-authorized merge
 path, where `$merge-cleanup` merged and its "After a merge" list applies.
