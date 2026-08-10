@@ -112,6 +112,14 @@ tool rather than in the prose; and `$clean-branches` documents `$merge-cleanup` 
 that "deletes the one branch it just merged, in flow", which a scope here would quietly
 falsify.
 
+What `campaign` replaces in that list is **only** its worktree removal and its branch
+deletion. The rest of `$merge-cleanup` still runs on the orchestrator's path, and two parts of
+it are relied on rather than merely tolerated: the tracking writes and the cleared-dependency
+reconcile, which step 6 does not repeat and which own the `status:blocked → status:ready` edge
+between interdependent rows; and the switch to `BASE_BRANCH` with its fast-forward pull, which
+advances the local base the `BEHIND` refresh merges and moves the orchestrator off a branch it
+is about to delete. Superseding the whole list would have silently dropped all of that.
+
 Two orderings in that list were wrong once the scoping was made explicit, and are corrected
 with it. Worktree removal now precedes branch deletion, because the run's own branch is
 checked out in the run's own worktree and the old order refused every time it mattered. And
