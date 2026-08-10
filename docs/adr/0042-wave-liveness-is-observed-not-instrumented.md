@@ -62,9 +62,9 @@ The two signals answer different questions, and neither substitutes for the othe
 transition, a `WORK:` annotation, a branch push, a pull request, its `WORK:REVIEW`. It
 replaces last-commit age, and it is better where it matters, because it advances at phase
 boundaries rather than at commits and so keeps moving through a design phase that writes
-none. It is not uniformly better: through the TDD build, where `$build-tdd` commits per
-cycle and the tracker says nothing between `WORK:SCOPE` and `status:in-review`, commit
-age is the denser of the two. And those boundaries arrive in three clusters, not five —
+none. It is not uniformly better: the tracker says nothing at all between `WORK:SCOPE` and
+`status:in-review`, so through a build that is committing, commit age is the denser of the
+two. And those boundaries arrive in three clusters, not five —
 start, end of build, ship — so the design phase, the build and the whole review loop each
 sit inside a gap. A healthy row therefore looks stale on most polls. That is not a defect
 of the signal; it is why the signal does not decide anything on its own.
