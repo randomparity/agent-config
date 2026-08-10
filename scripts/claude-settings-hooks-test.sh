@@ -152,6 +152,20 @@ assert_blocked "$CLEAN_HOOK" 'git clean hook' 'cd /tmp && git clean -fd --quiet'
 assert_blocked "$CLEAN_HOOK" 'git clean hook' 'bash -c "git clean -fd"'
 assert_blocked "$CLEAN_HOOK" 'git clean hook' 'eval git clean -fd'
 assert_blocked "$CLEAN_HOOK" 'git clean hook' 'sudo git clean -fdx'
+assert_blocked "$CLEAN_HOOK" 'git clean hook' 'sudo -u dave git clean -fd'
+assert_blocked "$CLEAN_HOOK" 'git clean hook' 'command git clean -fd'
+assert_blocked "$CLEAN_HOOK" 'git clean hook' 'exec git clean -fd'
+assert_blocked "$CLEAN_HOOK" 'git clean hook' 'nice git clean -fd'
+assert_blocked "$CLEAN_HOOK" 'git clean hook' 'ionice -c3 git clean -fd'
+assert_blocked "$CLEAN_HOOK" 'git clean hook' 'stdbuf -o0 git clean -fd'
+assert_blocked "$CLEAN_HOOK" 'git clean hook' 'setsid git clean -fd'
+assert_blocked "$CLEAN_HOOK" 'git clean hook' 'xargs -n1 git clean -fd'
+assert_blocked "$CLEAN_HOOK" 'git clean hook' '! git clean -fd'
+# `git submodule foreach` is the published recipe for cleaning a tree including its
+# submodules, and it deletes: the argument runs in each submodule's working tree.
+assert_blocked "$CLEAN_HOOK" 'git clean hook' 'git submodule foreach git clean -fd'
+assert_blocked "$CLEAN_HOOK" 'git clean hook' "git submodule foreach 'git clean -fd'"
+assert_blocked "$CLEAN_HOOK" 'git clean hook' 'git submodule foreach --recursive git clean -fdx'
 assert_blocked "$CLEAN_HOOK" 'git clean hook' 'GIT_DIR=/tmp/r/.git git clean -fd'
 assert_blocked "$CLEAN_HOOK" 'git clean hook' 'env GIT_PAGER=cat git clean -fd'
 # A command position survives leading indentation.
@@ -181,6 +195,7 @@ assert_allowed "$CLEAN_HOOK" 'git clean hook' 'git clean --interactive'
 assert_allowed "$CLEAN_HOOK" 'git clean hook' 'git clean -f -n'
 assert_allowed "$CLEAN_HOOK" 'git clean hook' 'git clean -dn'
 assert_allowed "$CLEAN_HOOK" 'git clean hook' 'git clean -n -- build/'
+assert_allowed "$CLEAN_HOOK" 'git clean hook' 'git submodule foreach git clean -n'
 assert_allowed "$CLEAN_HOOK" 'git clean hook' 'git status --porcelain'
 assert_allowed "$CLEAN_HOOK" 'git clean hook' 'git stash push --include-untracked'
 assert_allowed "$CLEAN_HOOK" 'git clean hook' 'git worktree remove /tmp/wt --force'
@@ -231,9 +246,14 @@ assert_blocked "$MASK_HOOK" 'masked exit hook' 'just ci 2>&1 | tee /tmp/ci.log |
 # pipefail rescues the pipe, not a discarded or swallowed exit code.
 assert_blocked "$MASK_HOOK" 'masked exit hook' 'set -o pipefail; just ci >/dev/null'
 assert_blocked "$MASK_HOOK" 'masked exit hook' 'set -o pipefail; just ci || true'
-# The escape must occupy a command position, not merely appear in the text.
+# The escape must occupy a command position ahead of the run, and must still be in effect
+# when the pipeline runs. A pipefail that is commented out, echoed, scoped to a subshell
+# that has already closed, or appended after the pipeline changes nothing about the exit
+# code — and the block message names the phrase, so these are the cheapest routes out.
 assert_blocked "$MASK_HOOK" 'masked exit hook' 'just ci | tail # set -o pipefail'
 assert_blocked "$MASK_HOOK" 'masked exit hook' 'echo set -o pipefail && just ci | tail'
+assert_blocked "$MASK_HOOK" 'masked exit hook' '(set -o pipefail); just ci | tail'
+assert_blocked "$MASK_HOOK" 'masked exit hook' 'just ci | tail; set -o pipefail'
 # Wrapper and conditional command positions.
 assert_blocked "$MASK_HOOK" 'masked exit hook' 'timeout 600 just ci | tail'
 assert_blocked "$MASK_HOOK" 'masked exit hook' 'if just ci | tail; then echo ok; fi'
@@ -245,11 +265,9 @@ assert_blocked "$MASK_HOOK" 'masked exit hook' $'if true; then\n  just ci | tail
 assert_allowed "$MASK_HOOK" 'masked exit hook' 'set -o pipefail; just ci | tail -50'
 assert_allowed "$MASK_HOOK" 'masked exit hook' 'set -o pipefail && just ci | tail -50'
 assert_allowed "$MASK_HOOK" 'masked exit hook' 'set -euo pipefail; just ci | tail -50'
+# The subshell that still encloses the pipeline is the honest one.
 assert_allowed "$MASK_HOOK" 'masked exit hook' '(set -o pipefail; just ci | tail -50)'
 assert_allowed "$MASK_HOOK" 'masked exit hook' $'set -euo pipefail\njust ci | tail -50'
-# The escape is anchored to a command position, not ordered against the run: pipefail
-# after the pipeline reads as a deliberate bypass, not a mistake worth blocking.
-assert_allowed "$MASK_HOOK" 'masked exit hook' 'just ci | tail; set -o pipefail'
 assert_allowed "$MASK_HOOK" 'masked exit hook' 'just ci > /tmp/ci.log'
 assert_allowed "$MASK_HOOK" 'masked exit hook' 'just ci | rgx-report'
 assert_allowed "$MASK_HOOK" 'masked exit hook' 'just ci'
