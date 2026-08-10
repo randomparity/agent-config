@@ -47,9 +47,11 @@ invalidates the report and requires another audit.
 
 ## Considered & rejected
 
-- **Embed the check in `work-issue`.** Rejected because the audit would neither be reusable nor
-  independent from the workflow assembling the design.
+- **Embed the check in `work-issue`.** A fresh subagent could still be independent, but the
+  audit would not provide the reusable workflow entry point issue #94 requires.
 - **Build a formal schema and validator.** Rejected because referential identifiers, parsing,
   artifact hashes, and consistency machinery are disproportionate to a prose workflow.
 - **Rely on post-build branch review.** Rejected because it discovers aggregate scope failure
   only after implementation cost is sunk.
+- **Keep the existing workflow.** Rejected because issue #94 explicitly requires pre-build
+  detection; accepting the known late-detection cost does not satisfy that outcome.

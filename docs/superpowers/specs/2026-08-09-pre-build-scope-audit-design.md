@@ -35,9 +35,9 @@ verdict and path. This is the smallest approach that is both reusable and indepe
 
 ### Inline proportionality checklist — rejected
 
-Adding questions directly to `work-issue` would be smaller in file count, but the workflow
-that assembled the design would grade its own aggregate scope. It would also prevent reuse
-from another design workflow.
+Adding questions directly to `work-issue` would be smaller in file count, and it could still
+dispatch a fresh independent agent. It would not provide the reusable audit entry point that
+issue #94 requires for other design workflows.
 
 ### Structured audit protocol — rejected
 
@@ -45,6 +45,12 @@ A machine-validated graph of artifact, promise, criterion, component, and contra
 could detect stale or inconsistent references. It recreates the subsystem-sized failed design
 and is explicitly excluded. A visible artifact edit simply invalidates the prose report and
 causes another audit.
+
+### Keep post-build review only — rejected
+
+This adds no latency or surface, but retains the reported failure: aggregate scope is not
+challenged until implementation cost is sunk. Issue #94 explicitly requires the decision point
+before TDD.
 
 ## Workflow placement and inputs
 
