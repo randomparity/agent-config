@@ -61,10 +61,11 @@ frames carry no decision value, only the terminal states do.
    condition — checks run on the branch head, not the merge result.
 4. Exit only when required checks are green and `mergeStateStatus` is
    `CLEAN` with `mergeable` equal to `MERGEABLE`.
-5. If merge state is `BEHIND`, rebase onto or merge in the latest
-   `BASE_BRANCH`. After resolving, **regenerate any generated docs or
-   snapshots** the base may have moved (a recurring cross-PR conflict zone),
-   rerun guardrails, push, and restart the loop.
+5. If merge state is `BEHIND`, merge the latest `BASE_BRANCH` into the PR
+   branch (a pushed branch cannot be rebased — force-push is denied; rebase is
+   an option only before first push). After resolving, **regenerate any
+   generated docs or snapshots** the base may have moved (a recurring
+   cross-PR conflict zone), rerun guardrails, push, and restart the loop.
 6. If merge state is `DIRTY` or `CONFLICTING`, resolve conflicts, regenerate
    generated artifacts, rerun guardrails, push, and restart the loop. If one
    conflict-resolution pass does not clear it, stop and report the blocker
