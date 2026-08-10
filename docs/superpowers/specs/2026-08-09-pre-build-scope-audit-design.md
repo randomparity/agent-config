@@ -59,8 +59,9 @@ before TDD.
 
 1. Finish the existing design phase, including ADR, specification, and plan reviews.
 2. Ensure the worktree's `.agent/` root is self-ignored under ADR 0027, verify that
-   `.agent/scope-audit/` is ignored, and mint a unique report path there. The path includes
-   the issue and branch identity so concurrent runs do not share a report.
+   `.agent/scope-audit/` is ignored, and mint a unique, never-created report pathname there
+   without touching the file. The path includes the issue and branch identity so concurrent
+   runs do not share a report.
 3. Dispatch one fresh subagent to run `scope-audit` over:
    - the unchanged eight-field frozen charter;
    - explicit paths to every reviewed ADR, specification, and plan associated with the run;
@@ -96,20 +97,25 @@ path and the two skip paths so the exemption cannot expand silently.
 The skill is read-only with respect to reviewed artifacts, Git state, debt records, and
 tracker state. Its sole write is the requested report under `.agent/scope-audit/`. The
 caller owns ADR 0027's fail-closed ignore setup before dispatch; the auditor does not create
-or modify ignore files. The report is Markdown with these human-readable sections:
+or modify ignore files. The report uses this minimal Markdown envelope:
 
-- `Verdict`: exactly `approve` or `needs-attention`;
-- `Promise to provenance`: every normative design guarantee and its external authority or
+- first nonblank line, exactly once: `**Verdict:** approve` or
+  `**Verdict:** needs-attention`;
+- `## Promise to provenance`: every normative design guarantee and its external authority or
   necessary-consequence reasoning;
-- `Component to criterion`: every proposed component, file group, test group, or runtime
+- `## Component to criterion`: every proposed component, file group, test group, or runtime
   behavior and the criterion that needs it;
-- `Smallest viable alternative`: the selected approach compared with a materially smaller
+- `## Smallest viable alternative`: the selected approach compared with a materially smaller
   implementation, including why the smaller option fails or should replace the proposal;
-- `Approved surface`: components, contracts, complexity budget, exclusions, and verified
+- `## Approved surface`: components, contracts, complexity budget, exclusions, and verified
   owned deferrals that branch review must use;
-- `Findings`: evidence, impact, recommendation, uncertainty, and one classification per
+- `## Findings`: evidence, impact, recommendation, uncertainty, and one classification per
   concern; and
-- a completion sentinel so a partial write is visibly incomplete.
+- final nonblank line: `<!-- SCOPE-AUDIT:COMPLETE -->`.
+
+The five headings occur once in that order and each section contains at least one content
+line; `none` is explicit when a section has no entries. A missing, duplicate, or out-of-order
+envelope element, or a sentinel before the final nonblank line, is incomplete and stops.
 
 This is a prose contract, not a formal schema. The caller reads it as a document and does not
 add a result parser or identifier cross-reference engine.
@@ -201,6 +207,10 @@ issue-ownership boundary; the no-repeat cost cap; and PR #92's regression shape 
 request paired with a subsystem-sized plan. The repository does not add an LLM judge. The
 tests prove that deployed prompts retain these requirements, while adversarial review supplies
 the human-readable quality check.
+
+Report-envelope mutations cover a pre-existing expected path, a missing or duplicated verdict,
+missing or reordered headings, an empty section, a sentinel that is absent or not final, and
+output written only to a different path.
 
 ## Trust boundaries
 
