@@ -29,8 +29,8 @@ matched.
    without `gh`, `git symbolic-ref --short refs/remotes/origin/HEAD` and strip the `origin/`.
    Every ancestry test below runs against `origin/<base>` — the ref you just fetched, not a
    local base that may be behind. **Stop if neither resolves** — the fallback exits 128
-   whenever `origin/HEAD` was never set, and the base name is both the only thing protecting
-   the base branch (row 1) and the reference for every ancestry test. Never guess `main`.
+   whenever `origin/HEAD` was never set, and the base name is the reference for every ancestry
+   test as well as row 1's whole test. Never guess `main`.
 3. **Enumerate candidates** — every local branch — with plumbing, not porcelain:
 
    ```bash
@@ -61,12 +61,15 @@ matched.
 5. **List the protected branches**, once, for row 2:
 
    ```bash
-   gh api "repos/{owner}/{repo}/branches?protected=true" --jq '.[].name'
+   gh api --paginate "repos/{owner}/{repo}/branches?protected=true&per_page=100" --jq '.[].name'
    ```
 
-   Without `gh` the set is unknown, not empty. Row 2 then cannot fire, so mark every `merged`
-   line in the plan protection-unverified and read them before confirming; do not guess
-   protection from branch names.
+   Paginate: the default page is 30 branches and truncation is silent, so a repo protecting a
+   `release/*` pattern over more live branches would fail open on the branches row 2 exists to
+   protect. Unless the call **succeeds**, the set is unknown rather than empty — a missing
+   `gh`, a rate limit, a 403, and a non-GitHub `origin` all yield empty stdout. Row 2 then
+   cannot fire, so mark every `merged` line in the plan protection-unverified and read them
+   before confirming; do not guess protection from branch names.
 6. **Map worktrees.** `git worktree list --porcelain` — records separated by blank lines,
    each with a `worktree <path>` and, when a branch is checked out, `branch refs/heads/<name>`.
    A detached worktree emits `detached` instead and never enters the map. The first record is
@@ -93,8 +96,8 @@ unordered table would classify it `merged` and delete it.
 | 4 | never pushed | neither push evidence holds: no `refs/remotes/origin/<branch>` in step 4's set, and no `%(upstream:track)` of `[gone]` whose `%(upstream:short)` is `origin/<branch>` | **skip, never delete** |
 | 5 | dirty worktree | `git status --porcelain` in its worktree is non-empty | skip, name it |
 | 6 | merged | `git merge-base --is-ancestor <branch> origin/<base>` succeeds | delete |
-| 7 | squash-merged | not an ancestor, but `gh pr list --head <branch> --state merged --json number,title --limit 1` returns a PR | delete; the plan line names the PR |
-| 8 | unmerged | neither — no ancestry, no merged PR (or no `gh`/GitHub remote) | **report, never delete** |
+| 7 | squash-merged | not an ancestor, but `gh pr list --head <branch> --state merged --json number,title,headRefOid --limit 1` returns a PR whose `headRefOid` equals `git rev-parse <branch>` | delete; the plan line names the PR |
+| 8 | unmerged | neither — no ancestry, no merged PR at this tip (or no `gh`/GitHub remote) | **report, never delete** |
 
 **Row 2 is new because enumeration is.** Under the old `[gone]` predicate a long-lived
 integration branch was never a candidate. Now it is: merge `release/1.2` into the base with
@@ -112,14 +115,14 @@ of the two paths destroys a directory and still cannot delete the branch.
 worktree it reaches may belong to an agent that is still running.** A dispatched worker's
 pull request merges some way before the worker itself stops, and in that window the branch is
 an ancestor of the base and the worktree is live. Do not run the sweep while a campaign or a
-dispatched worker is in flight. Row 5 catches only the workers that left tracked files behind.
+dispatched worker is in flight. Row 5 catches only the workers that left modified or untracked
+files behind, and a worker that ended cleanly leaves neither.
 
 **Never delete a never-pushed branch.** Row 4 states a rule that used to be an accident of
 enumeration — a branch with no upstream yielded an empty track field and was never a
 candidate. State it positively: a branch is deletable only on *evidence that it was pushed*,
 never on the absence of evidence that it was not. That evidence is a remote head under the
-branch's own name, or a `[gone]` track field naming a head that had the branch's own name; the
-two cover both settings of `deleteBranchOnMerge`.
+branch's own name, or a `[gone]` track field naming a head that had the branch's own name.
 
 Both halves of the `[gone]` clause are load-bearing, because `[gone]` is a fact about
 *whatever the branch tracks*, not about the branch. `git switch -c mine origin/theirs` sets
@@ -133,35 +136,60 @@ An upstream on its own is **not** evidence either. `git checkout -b <branch> ori
 sets one without pushing anything, so testing `%(upstream)` for non-empty would sweep away a
 branch started thirty seconds ago.
 
+**A branch pushed without `-u` in a repo that deletes head branches on merge is skipped
+forever.** The push sets no upstream, so there is no `[gone]` to read, and the merge prunes
+the remote head, so there is nothing left under the branch's own name either. Nothing local
+survives to distinguish it from a branch that was never pushed, and the only remaining witness
+would be a pull request matched by name — which rows 6 and 7 below deliberately refuse as
+deletion evidence. The sweep reports it as `never pushed`, which is wrong but safe; push with
+`-u` (or set `push.autoSetupRemote`) and the sweep collects it.
+
 **Merged but never pushed is a skip, deliberately.** Ancestry proves the commits are in the
 base; it does not prove the branch is residue. This sweep collects the residue of shipped
 work, and a branch that was never pushed shipped nothing — no remote head, no pull request,
 nothing saying the operator was finished with it. A local branch parked at or below the base
 is an ancestor, so ancestry alone would collect every bookmark and just-created branch in the
 checkout. Row 4 reports such a branch as a skip on every sweep and the operator deletes it by
-hand: never-pushed local work is the one thing here that no remote copy can restore.
+hand: never-pushed local work is the one thing here that no remote copy can restore. Name its
+worktree path in the skip line when it has one — `git branch -d` refuses a branch checked out
+anywhere, so the operator has to deal with the worktree first.
 
-**Row 5 is about tracked files only, and removing a worktree destroys the ignored ones.**
-`git status --porcelain` says nothing about `.env`, `node_modules`, or local build state, so a
-worktree holding them reads clean and `git worktree remove` deletes them without `--force`.
-Under the old predicate almost no worktree reached this; now every clean merged branch's does.
-Name the path in the plan and say that ignored files there go with it —
-`git status --porcelain --ignored <path>` lists what would be lost, when the operator asks.
+**Row 5 sees modified and untracked files but not ignored ones, and removing a worktree
+destroys the ignored ones.** `git status --porcelain` says nothing about `.env`,
+`node_modules`, or local build state, so a worktree holding only those reads clean and
+`git worktree remove` deletes them without `--force`. Under the old predicate almost no
+worktree reached this; now every clean merged branch's does. Name the path in the plan and say
+that ignored files there go with it — `git status --porcelain --ignored <path>` lists what
+would be lost, when the operator asks.
 
 **Row 7 costs one `gh` call per branch that reaches it**, and repo-wide enumeration sends more
-branches there than `[gone]` alone did. The row order is the bound: rows 1–6 are local and
-free apart from step 5's single call, so the per-branch call fires only for a branch that was
-pushed and is *not* an ancestor of the base — the set that is either squash-merged or
-genuinely unmerged, small in a working checkout but not bounded in principle. A checkout
-carrying dozens of pushed, unmerged branches is that many serial API calls, and they are the
+branches there than `[gone]` alone did. The row order is the bound: the sweep spends two
+whole-run calls before the table (steps 2 and 5) and rows 1–6 are then local and free, so the
+per-branch call fires only for a branch that was pushed and is *not* an ancestor of the base —
+the set that is either squash-merged or genuinely unmerged, small in a working checkout but
+not bounded in principle. A checkout carrying dozens of pushed, unmerged branches is that many
+serial API calls, and they are the
 sweep's dominant latency and its whole rate-limit cost. Rate-limited or without `gh`, those
 branches fall to row 8 and are reported rather than deleted, so exhaustion costs a missed
 collection, never a wrong deletion.
 
 The squash-merged row exists because a squash or rebase merge rewrites the commits: GitHub
 says merged, git ancestry says not. Without it, this skill would report the same leftovers
-forever in any repo that squashes. A merged PR for that exact head is the evidence — absent
-it, the branch is unmerged and stays.
+forever in any repo that squashes.
+
+**Its evidence is the merged pull request's `headRefOid`, not its branch name.** A name proves
+that *something* called `<branch>` was merged once, and repo-wide enumeration makes that a
+data-loss path: delete a branch after its pull request merges, reuse the name for new work,
+and the old merged pull request answers for the new local commits. Row 6 is safe from this
+because ancestry is a statement about the commits themselves; row 7 has no such property until
+the head sha is compared. Identity also covers the smaller case of commits pushed or made
+after the merge. A branch whose tip does not match falls to row 8 and is reported, which is
+the right answer: it holds work the merged pull request does not.
+
+Both push-evidence clauses are name-level too, which is why row 4 only decides whether a
+branch is *eligible* to be classified. Rows 6 and 7 are what prove the work landed, and both
+test shas. Keep that division — loosening either to a name-level test reopens the hazard
+above.
 
 **Deletion rules:**
 
@@ -186,8 +214,10 @@ it, the branch is unmerged and stays.
   the path, since nothing restores the ignored files that were under it
 - one line per skip, with its reason
 - `nothing to prune — no branch classified merged or squash-merged` when the delete set is
-  empty, and stop there. It is a statement about the *delete* set, not the candidate set:
-  repo-wide enumeration leaves the latter empty only in a repo with no local branches.
+  empty, printed *alongside* the skip lines and the counts, not instead of them. It is a
+  statement about the *delete* set, not the candidate set: repo-wide enumeration leaves the
+  latter empty only in a repo with no local branches, so "nothing deleted, six skipped" is
+  the ordinary outcome in a tidy repo and the skips are most of what the sweep has to say.
 - close with counts: N deleted, M skipped, and the unmerged list if non-empty
 
 ## Hard constraints

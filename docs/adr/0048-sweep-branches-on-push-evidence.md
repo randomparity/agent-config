@@ -48,10 +48,16 @@ Push evidence is either of two facts, both local and free once step 1's pruned f
 - a `[gone]` track field **whose upstream was `origin/<branch>`**, which asserts that a head
   of the branch's own name existed and has been deleted.
 
-The two together cover both settings of `deleteBranchOnMerge`: `false` keeps the head and the
-first fact holds, `true` prunes it and the second does. A branch with neither is classified
-`never pushed` and skipped whatever its ancestry, which makes the rule the skill previously
-only implied into a row of its own.
+A branch with neither is classified `never pushed` and skipped whatever its ancestry, which
+makes the rule the skill previously only implied into a row of its own.
+
+The two facts cover `deleteBranchOnMerge: false` unconditionally, and `true` only for a branch
+that was pushed with `-u`. Push without it in a repository that deletes head branches on
+merge and no upstream is ever set, while the merge prunes the head — so nothing local
+distinguishes that branch from one never pushed at all, and it is skipped forever. That is
+accepted rather than closed: the only remaining witness is a pull request found by branch
+*name*, and the decision below rules name-level evidence out of the deletion path entirely.
+The failure is a missed collection, and `push -u` or `push.autoSetupRemote` avoids it.
 
 **The name scoping on the `[gone]` clause is not decoration.** `[gone]` is a fact about
 whatever the branch tracks, not about the branch: `git switch -c mine origin/theirs` pushes
@@ -73,6 +79,20 @@ branch is reported as a skip on every sweep and deleted by hand.
 **The classification rows are ordered and the first match wins.** Repo-wide enumeration makes
 several rows true of one branch at once, and the base branch is itself an ancestor of
 `origin/<base>`; an unordered table would classify it `merged`.
+
+**Push evidence decides eligibility; only a sha decides that the work landed.** Both evidence
+facts are about the branch's *name*, and a name is reusable. Delete a branch once its pull
+request has merged, start new work under the same name, and — with the head ref kept — the
+name-matched merged pull request answers for commits that exist nowhere else. Ancestry is
+immune, being a statement about the commits; the squash-merged test was not, so it now
+requires the merged pull request's `headRefOid` to equal the branch tip.
+
+Record 0044 endorsed the branch-name lookup as "sound in a repo-wide sweep". That endorsement
+was made about a sweep whose candidates were `[gone]` branches, where a name could not be in
+reuse: the head was deleted. Widening enumeration is what invalidates its premise, so
+tightening the test belongs to the change that widened it rather than to a later one. The
+identity check costs one extra JSON field on a call the row already makes, and it subsumes the
+smaller case of commits added after the merge.
 
 **Widening enumeration admits a category the `[gone]` predicate never reached, so the table
 gains a protected-branch row.** A long-lived integration branch — `release/1.2` merged into
@@ -113,6 +133,11 @@ setting is the signal that does, so the sweep reads it once per run.
   spared only by the new row 2, whose input is a remote setting the sweep may be unable to
   read. Where `gh` cannot supply the protected set, the confirmation is the last guard, so
   the plan says the set was unknown instead of implying it was empty.
+- The squash-merged row is strictly narrower than it was: a branch whose tip has moved since
+  its pull request merged now falls to `unmerged` and is reported instead of deleted. That is
+  the intended reading — the tip holds work the pull request does not — but it means a repo
+  that squashes will accumulate reported leftovers it used to collect, whenever someone pushes
+  to a branch after its merge.
 - Removing a worktree destroys the ignored files under it — `.env`, local build state — and
   `git status --porcelain` cannot see them, so the dirty-worktree row does not spare them.
   Testing `--ignored` there instead was rejected: it would skip every worktree with a
@@ -142,9 +167,15 @@ setting is the signal that does, so the sweep reads it once per run.
   query.** Rejected here as out of scope: it is a change to the `squash-merged` test, which
   0044 endorses as sound, and the per-branch call is only a latency and rate-limit cost whose
   failure mode is already safe. Worth revisiting if a checkout is ever slow enough to notice.
-- **Using the reflog to decide whether a branch was ever pushed.** Rejected: `refs/remotes`
-  answers the question directly and is refreshed by the fetch the sweep already runs, while a
-  reflog is expiring, local, and absent in a fresh clone.
+- **Using the reflog to decide whether a branch was ever pushed.** Rejected on measurement:
+  it does not answer the one case `refs/remotes` cannot, because `git fetch --prune` deletes
+  `.git/logs/refs/remotes/origin/<branch>` along with the ref. It is also expiring, local, and
+  absent in a fresh clone.
+- **Admitting a merged pull request found by branch name as a third evidence source, to close
+  the push-without-`-u` gap above.** Rejected: it is the same name-level inference the
+  `headRefOid` decision just removed from the deletion path, and it would fire an API call for
+  every bookmark in the checkout on every sweep — the largest and safest category, and the one
+  the row ordering exists to keep free.
 - **Dropping the `[gone]` clause entirely and testing only for `refs/remotes/origin/<branch>`.**
   Simpler, and rejected: in a repository with `deleteBranchOnMerge: true` the merge prunes
   that ref, so every branch the sweep was originally written to collect would classify
