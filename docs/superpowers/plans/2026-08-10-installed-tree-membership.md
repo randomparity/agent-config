@@ -68,17 +68,28 @@ Implement every row of the spec's suite table, with the two departures from
 - Guard the `mktemp -d` cleanup by path prefix, as the sibling suite does.
 - The unreadable-tree row must skip when running as root, and **announce the skip on stderr**
   — it is the only executable evidence that a fault never swallows a finding.
+- The order-asserting row must also run under a non-`C` caller locale, with its expected
+  sequence still built under `LC_ALL=C`. Without that, every checker invocation inherits the
+  suite's own `LC_ALL=C` and the gate's export is never what makes the row pass — the pin
+  would ship unfalsified, and Task 3's mutation of it could not redden anything.
 
 **Acceptance:** `./scripts/check-deployed-membership-test.sh` passes; every row present.
 
+Commit Tasks 1 and 2 before Task 3, so Task 3's mutations are revertible.
+
 ## Task 3 — prove the suite bites
 
-Before wiring anything, break the gate deliberately and confirm the suite reddens, then
-revert. At minimum: drop the `! -L` from the tree filter, drop the `export LC_ALL=C`, and
-make the run exit at its first finding. Each must fail a named row. A suite that stays green
-through those is not testing what it claims.
+Tasks 1 and 2 are committed by now, so each mutation is undone with
+`git restore scripts/check-deployed-membership.sh` rather than by hand — an untracked file has
+nothing to restore to, and "reverted" would not be a state anyone could check.
 
-**Acceptance:** each of the three mutations reddens the suite; the tree is clean afterwards.
+Break the gate deliberately and confirm the suite reddens, one mutation at a time: drop the
+`! -L` from the tree filter, drop the `export LC_ALL=C`, and make the run exit at its first
+finding. Each must fail a named row. A suite that stays green through those is not testing
+what it claims.
+
+**Acceptance:** each of the three mutations reddens the suite, naming which row caught it; and
+after the last `git restore`, `git status --short` and `git diff` are both empty.
 
 ## Task 4 — wiring
 
@@ -91,8 +102,12 @@ membership-check:
   ./scripts/check-deployed-membership.sh
 ```
 
-and put `membership-check` in the `verify` dependency list **ahead of**
-`shared-standards-check`, per the spec's ordering reason. Not in `commit-check`.
+and put `membership-check` in the `verify` dependency list **immediately after
+`commit-check`**, ahead of every content gate. Not a relative landmark: `check-skill-layout.sh`
+exits on a missing `content/languages` or `content/references` root and `skills-check` already
+precedes `shared-standards-check`, so placing it only ahead of the latter would still let a
+sibling fault preempt the membership answer for two of the three trees. Not in `commit-check`
+itself.
 
 **Acceptance:** `just membership-check` runs; `just verify` reaches it.
 
@@ -109,8 +124,17 @@ Do not touch `merge_json_settings` or its call sites — issue #110 owns those.
 
 ## Task 6 — full verification
 
-Stage everything first, so `just test` discovers the new suite. Then run `just verify` bare
-and read its exit code. Report the actual result.
+Stage everything first, so `just test` discovers the new suite. Then run `just verify` bare.
+
+An exit code alone cannot show criterion (4) was met: `lint`, `format-check` and `test` all
+discover through `git ls-files`, so staging the gate and the `Justfile` while leaving the
+suite unstaged produces a fully green `just verify` in which the new suite never ran, and
+nothing in the output says so.
+
+**Acceptance:** `git status --short` shows every new and changed file staged; the `just verify`
+output contains the `== scripts/check-deployed-membership-test.sh` line the `test` recipe
+prints; and the run exits 0. Report that line as the evidence for automatic discovery, and
+report the real result whatever it is.
 
 ## Rollback
 

@@ -178,9 +178,10 @@ What this buys is a correct answer from *this* gate, not a fault-free `just veri
 deletions the paragraph above names still make a sibling exit 2, by different mechanisms:
 deleting the rules file trips `check-shared-standards.sh`'s expected-block-site manifest, and
 deleting the references file leaves `check-deployed-references.sh` without a deployment root.
-`membership-check` is therefore ordered ahead of `shared-standards-check` in the `verify`
-chain — the earliest recipe that faults on either deletion — so the membership answer is
-printed before a sibling's fault stops the run.
+`check-skill-layout.sh` is earlier still: it exits on a missing `content/languages` or
+`content/references` root, and `skills-check` precedes `shared-standards-check` in the chain.
+`membership-check` therefore goes immediately after `commit-check`, ahead of every content
+gate, so the membership answer is printed before any sibling's fault stops the run.
 
 There is deliberately no fault for a manifest entry lying under no declared tree. Both lists
 are literals in the same script, so no repository state can trigger it — it would be a lint on
@@ -199,7 +200,7 @@ membership-check:
   ./scripts/check-deployed-membership.sh
 ```
 
-added to the `verify` dependency list ahead of `shared-standards-check`, for the ordering
+added to the `verify` dependency list immediately after `commit-check`, for the ordering
 reason above. Not to `commit-check`: that chain is the pre-commit hook's (record 0039) and
 holds `lint`, `format-check` and `public-safety`, while every content gate — `skills-check`,
 `carrier-check`, `shared-standards-check`, `references-check` — sits in `verify` alone.
@@ -261,6 +262,7 @@ vacuously with `0 declared members`.
 |---|---|
 | the three trees as tracked | passes; the whole summary line asserted on stdout — `<n>` against the count the suite enumerated and asserted non-zero, `<m>` against the number of trees the suite lists — and stderr asserted empty |
 | the three trees as tracked, caller locale not `C` | identical verdict and summary |
+| two undeclared files under one tree, caller locale not `C` | same sequence as the `C` run, so the gate's own pin is what holds it |
 | every declared tree removed | every manifest entry as `missing-member`; no member from outside the trees |
 | an ordinary file added, once per tree | `unexpected-member` naming it |
 | a dot-prefixed file added | `unexpected-member` naming it |
