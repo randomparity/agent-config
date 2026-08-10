@@ -31,10 +31,13 @@ wording of its sentences.
 `content/skills` and requires the eight-line window at each occurrence to equal the
 canonical template byte for byte. A carrier preceded by a `CHARTER` line must carry the
 exact canonical label, because `content/skills/challenge` stops target classification on
-that literal — this is the emitter side of `docs/debt/0005`, preserved. The gate fails
-closed when fewer than two occurrences exist, since drift is unobservable below two and a
-green gate over zero carriers certifies nothing. Discovery by first line means the prose
-needs no markers: quoting the carrier is opting into the check.
+that literal — this is the emitter side of `docs/debt/0005`, preserved. First-line
+discovery alone has a false negative — editing or deleting a copy's first line would make
+that copy invisible to the scan — so the gate also carries an expected-site manifest
+(file, carrier count): every listed file must contain exactly its listed number of
+carriers, and a first-line mutation or deleted block fails the gate naming the file.
+Carriers added to new files are found by the scan and window-checked without a manifest
+edit. The gate fails closed on zero occurrences.
 
 The scope-contract suite is deleted and the `SCOPE-*` markers are stripped from the nine
 `SKILL.md` files that carried them.

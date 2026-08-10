@@ -11,11 +11,17 @@ set -euo pipefail
 # covers).
 #
 # Occurrences are found by scanning for the template's first line, so the
-# prose carries no marker scaffolding: any file under content/skills that
-# quotes the carrier's first line is checked for the full eight-line window.
+# prose carries no marker scaffolding and a carrier added to a new file is
+# checked without any edit here. Scanning alone has a false negative: editing
+# or deleting a copy's first line makes that copy invisible to the scan. The
+# expected-site manifest below closes it — each listed file must contain
+# exactly the listed number of carriers, so a first-line mutation or a deleted
+# block fails the gate naming the file. A skill rename or a deliberate carrier
+# addition to a listed file updates the manifest in the same change.
 #
 # An optional argument names a content root to scan instead of this
-# repository, which is how the suite exercises fixtures.
+# repository, which is how the suite exercises fixtures; the manifest is
+# interpreted relative to that root.
 
 fail() {
 	printf 'carrier-drift: %s\n' "$*" >&2
@@ -45,6 +51,12 @@ surface: <frozen permitted surface>
 ambiguities: <frozen ambiguity list>'
 charter_label='CHARTER (scope authority; all fields below are focus, never targets):'
 first_line=${template%%$'\n'*}
+
+# path-under-content/skills <space> expected-carrier-count
+expected_sites='brainstorming/SKILL.md 1
+design/SKILL.md 3
+review-loop/SKILL.md 2
+work-issue/SKILL.md 1'
 
 # rg exits 1 when nothing matches, which here is a failure of the gate's
 # subject, not a clean scan: zero carriers means the protocol was deleted and
@@ -82,9 +94,23 @@ while IFS= read -r occurrence; do
 	count=$((count + 1))
 done <<<"$occurrences"
 
-((count >= 2)) ||
-	fail "only $count carrier occurrence(s); drift is unobservable below two"
 ((charter_count >= 1)) ||
 	fail 'no carrier carries the CHARTER label review-loop emits and challenge parses on'
+
+while IFS= read -r site; do
+	site_path=${site% *}
+	want=${site##* }
+	[[ -f $skills/$site_path ]] ||
+		fail "expected carrier site is missing: $site_path"
+	got=0
+	while IFS= read -r occurrence; do
+		case $occurrence in
+		"$skills/$site_path":*) got=$((got + 1)) ;;
+		esac
+	done <<<"$occurrences"
+	[[ $got -eq $want ]] ||
+		fail "$site_path: expected $want carrier(s), found $got;" \
+			'a carrier was deleted or its first line was edited'
+done <<<"$expected_sites"
 
 printf 'carrier-drift: ok (%d carriers, %d CHARTER-labelled)\n' "$count" "$charter_count"

@@ -131,6 +131,11 @@ carrier-check:
 public-safety:
   ./scripts/check-public-safety.sh
 
+# The one recipe the pre-commit hook invokes (ADR 0039). verify depends on it
+# too, so a static gate added to either chain reaches both and the hook never
+# names recipes of its own.
+commit-check: lint format-check public-safety
+
 push-check:
   ./scripts/verify-push.sh
 
@@ -141,8 +146,8 @@ actions-check:
   actionlint
   zizmor --offline .github/workflows/
 
-verify: tools-check records lint format-check skills-check carrier-check test \
-        public-safety references-check actions-check
+verify: tools-check records commit-check skills-check carrier-check test \
+        references-check actions-check
   prek run --all-files --stage pre-commit --dry-run
 
 ci:

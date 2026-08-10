@@ -23,15 +23,17 @@ recipe set looks covered and is not.
 
 ## Decision
 
-The pre-commit hook runs the fast static gates directly:
+The pre-commit hook runs one repository-owned recipe:
 
 ```sh
-just lint format-check public-safety
+just commit-check
 ```
 
-These are path-independent, complete for their class, and take seconds. The selector, its
-suite, and the `commit-check` recipe are deleted; the prek hook entry names the three
-recipes itself. This record supersedes ADR 0036.
+`commit-check` depends on `lint`, `format-check`, and `public-safety` — path-independent
+gates, complete for their class, that take seconds — and `verify` depends on
+`commit-check`, so the hook and the full guardrail chain share one definition and a gate
+added to either reaches both. The selector and its suite are deleted. This record
+supersedes ADR 0036.
 
 The proof boundary is unchanged: the pre-push hook still validates ref updates and runs
 `just ci` in an isolated disposable worktree (`scripts/verify-push.sh`), and GitHub CI
@@ -40,8 +42,10 @@ reduced.
 
 ## Consequences
 
-- Commit-time feedback is a fixed, auditable command. There is no mapping to extend when
+- Commit-time feedback is a fixed, auditable recipe. There is no mapping to extend when
   a new surface appears and no way for a path to be classified into too little checking.
+  The hook names only `commit-check`, so the repository's single-guardrail-recipe
+  convention holds: a future static gate is added to the recipe, never to the hook.
 - A commit that touches only prose now pays for shellcheck and shfmt over the whole tree
   (seconds) instead of a records-only subset. Bounded, and it catches what the selector
   never could: a prose commit whose branch also carries uncommitted-adjacent shell
