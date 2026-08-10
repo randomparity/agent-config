@@ -71,8 +71,10 @@ before TDD.
 The audit is one pass over an unchanged artifact set, not another review loop. An unchanged
 `needs-attention` result is never retried merely to seek approval. A new pass is warranted
 only after a design artifact changes through the existing design/review cycle or linked
-ownership changes through a verified disposition. If a reviewed design artifact visibly
-changes after approval and before TDD, `work-issue` reruns the audit.
+ownership changes through a verified disposition. If the workflow changes a reviewed design
+artifact, or observes that one changed after approval and before TDD, `work-issue` reruns the
+audit. The prose workflow does not guarantee detection of arbitrary out-of-band edits; doing
+so would require the excluded artifact-identity machinery.
 
 Trivial bugfixes and governed small changes retain their existing design-skip paths and do
 not run this phase. Every non-trivial run does.
@@ -165,7 +167,7 @@ design proportionate; no live-model quality claim is made.
 | Depended-on or worsened concern is deferred | 5 | Non-deferrable rule and mutation fixture |
 | Suspected concern is stated as verified fact | 4 | Uncertainty-preservation rule and mutation fixture |
 | Incomplete charter or artifact set reaches TDD | 5 | Complete-input and phase-order rules with mutation fixtures |
-| Design changes after audit without another pass | 4 | Visible-change invalidation rule and mutation fixture |
+| A known or observed design change skips another pass | 4 | Change-invalidation rule and mutation fixture |
 | Audit loops on unchanged input | 4 | One-pass latency rule and mutation fixture |
 | Branch diff grows beyond the approved surface | 4 | Branch-review comparison rule and mutation fixture |
 

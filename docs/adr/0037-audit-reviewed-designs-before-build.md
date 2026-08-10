@@ -36,8 +36,9 @@ surface.
 
 The workflow uses prompt-contract tests and the existing installed-projection test. It adds
 no formal result schema, parser, artifact identity graph, content hashing, transaction
-protocol, or live-model evaluation subsystem. A visible change to a reviewed design artifact
-invalidates the report and requires another audit.
+protocol, or live-model evaluation subsystem. A design change the workflow makes or observes
+invalidates the report and requires another audit. Detecting arbitrary out-of-band edits is
+not guaranteed without the excluded identity machinery.
 
 ## Consequences
 
@@ -47,6 +48,8 @@ invalidates the report and requires another audit.
   session boundary without becoming committed product documentation.
 - Reviewers and operators, rather than a new parser, judge the report's substantive quality.
 - Deterministic tests prove the load-bearing prompt contract, not live-model judgment quality.
+- A resumed workflow must inspect its design state, but the prose report cannot prove that no
+  unobserved out-of-band edit occurred.
 
 ## Considered & rejected
 
