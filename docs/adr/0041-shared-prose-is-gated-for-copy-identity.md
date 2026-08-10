@@ -6,117 +6,115 @@ Accepted (2026-08-10)
 
 ## Context
 
-The global development standards exist as four near-identical documents:
+The global development standards exist as four documents:
 `content/instructions/global-development-standards.md` (agent-neutral, not deployed),
-`agents/claude/shared/CLAUDE.md`, `agents/codex/shared/AGENTS.md`, and Bob's shorter
-payload under `agents/bob/shared/`. The first three diverge only where the surface is
-agent-native — the name of a project-local instruction file, a config directory in a
-reference path, whether a skill is invoked by name or by prefix. Every rule they state is
-the same rule.
+`agents/claude/shared/CLAUDE.md`, `agents/codex/shared/AGENTS.md`, and Bob's condensation
+under `agents/bob/shared/rules/global-development-standards.md`. The first three are
+near-identical, diverging only where the surface is agent-native — the name of a
+project-local instruction file, a config directory in a reference path, whether a skill is
+invoked by name or by prefix.
 
-Nothing enforces that. `scripts/check-carrier-drift.sh` scans `content/skills` only;
+The operating rules this change generalizes are spread unevenly across them. Exit-code
+truth, the destructive-git ban, the deletion warning, and the decision-framing rules are in
+the first three and in neither of Bob's two deployed files. The untracked-file check and
+the `git clean` and force-delete bans are in none of them.
+
+Nothing detects unevenness. `scripts/check-carrier-drift.sh` scans `content/skills` only.
 `scripts/check-deployed-references.sh` scans the deployed trees for stale record
-references and never compares them to each other or to the canonical copy. A rule added
-to one copy stays in one copy, which is how three of the repository's operating rules came
-to live in Claude's file alone. Adding a fourth rule the same way reproduces the defect
-rather than fixing it, so the change that generalizes those rules needs a gate that makes
-"every agent got it" checkable.
+references and never compares a copy to another copy or to the canonical one. So writing
+the missing prose into every file fixes the present state and leaves the next rule free to
+land in one copy unnoticed — which is how Bob's copy reached its present state.
 
-Record 0038 is the obstacle and also the answer. It decided that prompt prose is gated for
+Record 0038 is both the obstacle and the answer. It decided that prompt prose is gated for
 the consistency of its machine-read blocks and never for the wording of its sentences,
 after a 571-line suite byte-compared rule sentences against strings hardcoded in the suite
-itself. It named section ordering, rule wording, and headings as things human and model
-readers tolerate rewording of, and relinquished those assertions as not load-bearing. A
-gate asserting that each deployed file contains the literal heading `## CI Verification`
-is that relinquished class, returning under a new name.
+itself. It named headings, section ordering, and rule wording as things readers tolerate
+rewording of. A gate asserting that each file contains the literal heading
+`## CI Verification` is that relinquished class returning under a new name.
 
-Two questions follow. What may a gate assert about prose that is duplicated across copies
-on purpose? And which of Bob's two deployed instruction files is the copy that has to
-carry the shared rules — `agents/bob/shared/AGENTS.md`, which the installer places at the
-root of Bob's config directory, or `agents/bob/shared/rules/global-development-standards.md`,
-which shares the canonical document's name and title?
+Two questions follow. What may a gate assert about prose duplicated on purpose? And which
+of Bob's two deployed instruction files carries the shared rules?
 
 ## Decision
 
 **Prose duplicated across deployed copies by design is gated for the identity of those
 copies against a canonical file in this repository — never against a string held by the
-gate.** Record 0038 stands unchanged; this adds a second gated class beside its
-machine-read blocks and reopens nothing it settled.
-
-The two properties that distinguish this from the class 0038 rejected are the reason it is
-admissible. The gate holds no prose, so rewording is a one-place edit followed by a
-mechanical copy rather than a synchronized edit of a document and a suite. And the
-assertion is exactly the guarantee being claimed — that every agent receives the same
-rules — rather than a proxy for behavior that string matching cannot reach.
+gate.** The prohibition 0038 wrote is untouched: the gate holds no prose and asserts
+nothing about wording.
 
 The mechanism is a `shared-standards` block, opened by `<!-- shared-standards:begin -->`
 and closed by `<!-- shared-standards:end -->`.
 `content/instructions/global-development-standards.md` holds the canonical block.
-`scripts/check-shared-standards.sh` requires exactly one well-formed block in the
-canonical file and in each of the three deployed instruction files, and requires each
-deployed block to equal the canonical block byte for byte. It fails closed on a canonical
-block carrying fewer than three `###` subsections, so a gutted block cannot leave the gate
-green over nothing. It asserts nothing about what those subsections are called or what
-their sentences say.
+`scripts/check-shared-standards.sh` scans four enumerated roots — that file's directory
+and the three `agents/<agent>/shared` trees — for begin markers, and requires every block
+it finds to equal the canonical block byte for byte. Beside the scan it carries an
+expected-site manifest: the canonical file and the three deployed instruction files each
+hold exactly one block, so a deleted or mistyped marker fails naming the file instead of
+disappearing from the scan. The gate fails closed when the canonical block carries fewer
+than three `###` subsections, and reads none of their text.
 
 Block content is agent-neutral: no native config path, no invocation syntax, no
-agent-specific file name. That constraint is what makes byte identity reachable across
-copies whose surrounding prose is deliberately native, and a rule that cannot be stated
-agent-neutrally stays outside the block.
+agent-specific file name. That is what makes byte identity reachable across copies whose
+surrounding prose is deliberately native, and a rule that cannot be stated agent-neutrally
+stays outside the block. Every rule the block absorbs is removed from where it was, so no
+copy states a rule twice.
 
-**Bob's mirror target is `agents/bob/shared/rules/global-development-standards.md`.** It
-carries the canonical document's name and title, which under record 0001 is what a native
-projection of a canonical document looks like; the founding plan's deployed-path manifest
-lists it in the position it gives `CLAUDE.md` for Claude and `AGENTS.md` for Codex; and
-`agents/bob/shared/AGENTS.md` is Bob's orientation file, which Claude and Codex have no
-separate rules directory to need. The rules land in one Bob file, not both: two deployed
-homes for one rule set is the drift this record exists to close.
+**Bob's copy is `agents/bob/shared/rules/global-development-standards.md`**, the file the
+issue names and the one `install.sh` reaches by copying `agents/bob/shared/rules` whole
+into Bob's rules directory. `agents/bob/shared/AGENTS.md` — also deployed, and also titled
+Global Development Standards — goes on summarizing the defaults. One deployed home per
+agent, or the gate has to decide which of Bob's two copies is authoritative and the drift
+returns inside a single agent's tree.
 
 ## Consequences
 
-- A rule added to the shared block reaches every agent or turns `just verify` red naming
-  the file that missed it. That is the machine-checkable form of "generalized to all
-  agents".
-- Editing a shared rule means editing four files. The gate names each drifted file and
-  line, so the sync is mechanical, but it is not free, and it is the price of keeping the
-  copies native everywhere else.
+- A rule added to the block reaches every agent, or `just verify` goes red naming the file
+  that missed it. That is the machine-checkable form of "generalized to all agents".
+- 0038's synchronization cost returns, at four copies rather than two, and the copy is
+  manual: nothing here generates or repairs a mirror. What changed is where the second
+  copy lives — a file a reader can read, not a string inside the suite that asserts it.
 - The canonical copy cannot silently drift from the deployed ones even though it is not
-  itself deployed and not scanned by the deployed-reference gate: it is the comparison
-  source, so an edit there alone fails the gate on all three mirrors.
-- The block's text ships to every agent, so it must satisfy the deployed-reference rules
-  that `content/instructions/` is exempt from — no bare record number, no bare issue
-  number, no concrete record path.
-- The gate does not assert that the three rule sets are named or worded any particular
-  way. It asserts that all four copies say the same thing and that the canonical block has
-  not been reduced below three subsections. A reviewer, not `rg`, is what keeps those
-  subsections worth having — which is the division of labor 0038 chose.
-- Bob's `agents/bob/shared/AGENTS.md` keeps summarizing the defaults without restating
-  them. Its overlap with the rules file is pre-existing and untouched here.
-- The block is an HTML comment pair, invisible in rendered Markdown and inert to every
-  agent that reads the file as instructions.
+  deployed and not scanned by the deployed-reference gate: it is the comparison source, so
+  an edit there alone fails the gate on all three mirrors.
+- The block ships to every agent, so it must satisfy the deployed-reference rules that
+  `content/instructions/` is exempt from — no bare record number, no bare issue number, no
+  concrete record path.
+- Bob's payload stops being a condensation for these rule sets. Accepted: a summarized
+  safety rule is a different rule, and Bob is the agent currently receiving none of them.
+- Whether Bob loads its rules directory without being asked is not established by anything
+  in this repository, which links to the vendor's rules documentation and no further. If it
+  does not, Bob receives the guardrails as a reference rather than as loaded instructions,
+  and moving or mirroring the block into Bob's root file is the follow-up. The same
+  uncertainty applies to the file this record did not choose, so it does not discriminate
+  between them.
+- The gate proves the copies agree, not that they are worth agreeing on. Three empty
+  subsections would satisfy it. Review keeps them worth having, which is the division of
+  labor 0038 chose.
+- A block copied into some other file under a scanned root is found and compared. A new
+  agent tree added with no block at all needs an edit to the roots and the manifest — the
+  same residual 0038 accepts for its carrier sites.
 
 ## Considered & rejected
 
 - **Assert that each deployed file contains the three literal section headings**, as the
-  issue proposed. Rejected: it puts three prose strings inside the gate, which is the
-  class 0038 forbids, and it passes on a file whose section is an empty stub — it would
-  certify the headings while the rules underneath diverged.
+  issue proposed. Rejected: three prose strings inside the gate is the class 0038 forbids.
 - **Require the markers without comparing block contents.** Rejected: the copies stay free
   to say different things, which is the gap the gate exists to close.
-- **Byte-compare the whole file.** Rejected: the copies differ by design where the surface
-  is agent-native, and forcing them identical would either strip the native detail or
-  ship Claude's paths to Codex.
-- **Generate the deployed copies from the canonical file at install time.** Rejected here:
-  record 0001 gives root instruction files to the native payloads and defers a renderer
-  until the boundaries are proven. A four-file copy-paste the gate points at precisely is
-  a smaller thing to own than a transformation layer over every agent's instruction file.
-- **Put the shared rules in `agents/bob/shared/AGENTS.md` instead.** Rejected on the
-  evidence above. The issue's stated reason for the same conclusion — that AGENTS.md is
-  repository-specific — is wrong in the other direction: that file describes itself as
-  public defaults for Bob users, while the rules file is the one carrying this
-  repository's build commands. The conclusion survives its reason.
-- **Add the block to both Bob files.** Rejected: one rule set, one deployed home per
-  agent, or the gate has to choose which copy is authoritative for Bob and the drift
-  returns inside a single agent's tree.
-- **Do nothing and rely on review to keep the copies in step.** Rejected: review is what
-  the repository has now, and it produced three rules that reached one agent out of three.
+- **Byte-compare whole files.** Rejected: the copies differ by design where the surface is
+  agent-native, so this would either strip that detail or ship Claude's paths to Codex.
+- **Deploy `content/instructions/` to every agent through `install_common_content` and
+  link to it from each root instruction file** — one copy, no gate, and the pattern
+  `content/languages` and `content/references` already use. Rejected: the root instruction
+  file is the one an agent loads without being asked. A rule the agent must first decide
+  to open is a reference, not a guardrail, and these rules exist to bind the agent that
+  was about to skip them.
+- **Splice the block into the deployed copies at install time.** Record 0001 permits this
+  — it defers a renderer to a later record rather than forbidding one — and it would
+  remove drift instead of detecting it. Rejected anyway: the source tree would stop
+  carrying what the agent receives, so a reader of `agents/codex/shared/AGENTS.md` would
+  no longer be reading Codex's instructions, and review would cover an artifact that is
+  not the deployed one.
+- **Exempt Bob and gate the two full-length copies.** Rejected: Bob is the copy actually
+  missing the rules, so this would gate the pair that already agree.
+- **Do nothing and rely on review.** Rejected: review is what the repository has now, and
+  Bob's copy is what it produced.
