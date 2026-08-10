@@ -135,7 +135,8 @@ the liveness signal.
 Fetch, sync `BASE_BRANCH` to `origin/BASE_BRANCH`, and create
 `feat/<short-slug>-<issue-number>` off it. Never work on the default branch. If
 a branch for this issue already exists, ask before reusing it unless the issue
-or PR explicitly names it.
+or PR explicitly names it or your dispatch prompt carries the operator's reuse
+decision.
 
 **Worktree placement.** If repo instructions require an isolated worktree (or
 you are a parallel agent that must not share a working tree), create it
