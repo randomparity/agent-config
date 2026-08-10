@@ -27,20 +27,20 @@ configuration the comment warns about.
 
 The same function serves three call sites: the Claude settings overlay, the Bob settings
 overlay, and the Bob MCP overlay. Bob's two base files hold no arrays today, so only the
-Claude site is currently exploitable and Bob's sites are protected vacuously — but
-"currently" is the whole problem, since the guards this protects were themselves added to
-the base file after the overlay mechanism shipped.
+Claude site is exploitable by the reported route — but "currently" is the whole problem,
+since the guards this protects were themselves added to the base file after the overlay
+mechanism shipped.
 
 ## Decision
 
-**An overlay may add, and it may override a value it names, but it may not erase a value
-it does not name.**
+**An overlay may add a path the base does not define, and may override a scalar the base
+defines. It may not write a path the base holds as a non-empty array — extending that array
+included — and it may not replace a base object with a non-object.**
 
-Two clauses enforce that, both **derived from the base file at merge time** rather than
-enumerated in `install.sh`:
-
-- a **non-empty array** in the base must be *identical* in the merged output; and
-- an **object** in the base must still be *an object* in the merged output.
+Both clauses are checked against the merged output, and both are **derived from the base
+file at merge time** rather than enumerated in `install.sh`: after computing `.[0] * .[1]`,
+a non-empty base array must be *identical* in the result, and a base object must still be
+*an object* there.
 
 The first clause is the reported defect. The second closes the same loss by the other
 route: `*` merges two objects harmlessly, but an overlay writing `"env": null` or
@@ -50,20 +50,11 @@ objects to stay objects is sufficient, because once `*` recurses, every base mem
 survives unless the overlay names it.
 
 Scalars are unprotected: overriding one loses only the value the overlay named, which is
-what an overlay is for. An **empty** base array is unprotected for the same reason —
-replacing `[]` erases nothing — and that exemption is load-bearing, because it keeps
-seeding a base key with an empty default from breaking every host already writing that key.
-
-Deriving the protected set from the base is the point. A hardcoded list of `hooks` and
-`permissions.deny` would need an edit whenever a base file grew a new container, which is
-the drift that produced this defect: the guards the header comment protects were added to
-the base without the merge learning about them. Derivation means a new guarded value is
-protected the moment it is written, in every base file, with no per-agent configuration.
-
-The check is stated over the merge's *output*, not over the overlay's shape: after
-computing `.[0] * .[1]`, each protected base path is compared against the result. That
-formulation catches every route to the loss with one comparison — naming the path directly,
-and replacing any ancestor of it — without `install.sh` restating jq's recursion rules.
+what an overlay is for. An **empty** base container — array or object — is unprotected for
+the same reason: replacing `[]` or `{}` erases nothing. That exemption is load-bearing, and
+it is not hypothetical, because `agents/bob/shared/settings.base.json` is `{}` and
+`agents/bob/shared/mcp.json` seeds `mcpServers` as `{}` today. Without it, seeding a base
+key with an empty default would break every host already writing that key.
 
 Failure is loud: the install aborts, naming the overlay file and each path it would have
 erased, and saying that the currently deployed settings file is unchanged and may already
@@ -73,9 +64,6 @@ settings file is ever written. Under `--agent all` the agents installed earlier 
 sequence remain deployed, each from its own base or its own valid overlay. The guarantee is
 per-agent, not per-run, and that is the honest statement of it: what must not happen is a
 settings file that is deployed and unguarded.
-
-Adding to a protected array is not supported; the rejected alternatives below weigh both
-routes to it.
 
 ## Consequences
 
@@ -94,6 +82,7 @@ routes to it.
   [ADR 0009](0009-native-permission-lists-grant-capabilities.md) records that overlays may
   add `permissions.allow`; this record makes the restrictive half of that surface
   non-extendable, and a host needing a private deny entry must publish it or do without.
+  Issue #118 owns closing that gap.
 - **A base file's non-empty arrays and its objects are now an out-of-repo compatibility
   surface.** Adding one at a path some host's private overlay already writes aborts that
   host's next install — and overlays are private, so no CI run, no test here, and no
@@ -126,7 +115,9 @@ routes to it.
   lacks — it would *repair* an already-unguarded deployment on the next run rather than
   leaving it in place — and that is not enough to buy a second silent failure mode.
 - **A hardcoded protected-key list (`hooks`, `permissions.deny`).** Rejected: it protects
-  the values someone remembered, not the values that exist.
+  the values someone remembered, not the values that exist, and needs an edit whenever a
+  base file grows a container. That is the drift that produced this defect — the guards the
+  header comment protects were added to the base without the merge learning about them.
 - **Require containment rather than equality** — the merged array must *contain* every
   base element, so a host may write `hooks.PreToolUse` with the base's entries plus its
   own. Rejected, and it is the closest call here: it costs one operator in the same
@@ -146,5 +137,9 @@ routes to it.
   destructive-operation guards, and their loss leaves no trace to find later, so the first
   observation would be the damage.
 - **Support merging into protected arrays via an explicit overlay directive** — an
-  `"append"` marker or a separate `settings.append.json`. Rejected as speculative: it adds
-  a second overlay grammar to keep correct in exchange for a requirement nobody has stated.
+  `"append"` marker or a separate `settings.append.json`. Not rejected as unwanted: the
+  requirement is real and this record states it above, where a host-private
+  `permissions.deny` entry has no route that does not publish the path. Deferred rather than
+  solved here, because the price is a second overlay grammar to keep correct and this change
+  is a defect fix; issue #118 owns it. Until then the operator publishes the entry in the
+  base or does without, and that is accepted, not overlooked.
