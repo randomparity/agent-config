@@ -300,6 +300,9 @@ assert_contains "$(cat "$github_path")" "$path_home/.cargo/bin"
 hook_bin="$tmpdir/hook-bin"
 hook_home="$tmpdir/hook-home"
 mkdir -p "$hook_bin"
+for utility in bash mkdir chmod cat; do
+	ln -s "$(command -v "$utility")" "$hook_bin/$utility"
+done
 for command_name in jq rg shellcheck shfmt gh actionlint zizmor; do
 	cat >"$hook_bin/$command_name" <<'EOF'
 #!/usr/bin/env bash
@@ -313,7 +316,10 @@ install_dir="$HOME/.cargo/bin"
 mkdir -p "$install_dir"
 case "$*" in
 *"--version 1.57.0"*)
-  printf '#!/usr/bin/env bash\nexit 0\n' >"$install_dir/just"
+  cat >"$install_dir/just" <<'INNER'
+#!/usr/bin/env bash
+printf 'fake just %s\n' "$*"
+INNER
   chmod +x "$install_dir/just"
   ;;
 *"--version 0.4.11"*)
@@ -331,7 +337,7 @@ chmod +x "$hook_bin/cargo"
 
 set +e
 hook_setup_output="$(
-	PATH="$hook_bin:/usr/bin:/bin" \
+	PATH="$hook_bin" \
 		HOME="$hook_home" \
 		AGENT_CONFIG_SKIP_PACKAGE_MANAGER=1 \
 		AGENT_CONFIG_SETUP_HOOKS=1 \
@@ -340,7 +346,7 @@ hook_setup_output="$(
 hook_setup_status="$?"
 set -e
 assert_success "$hook_setup_status" "fallback hook setup"
-assert_contains "$hook_setup_output" "fake prek install"
+assert_contains "$hook_setup_output" "fake just hooks"
 
 existing_bin="$tmpdir/existing-bin"
 existing_home="$tmpdir/existing-home"
@@ -352,6 +358,11 @@ exit 0
 EOF
 	chmod +x "$existing_bin/$command_name"
 done
+cat >"$existing_bin/just" <<'EOF'
+#!/usr/bin/env bash
+printf 'existing just %s\n' "$*"
+EOF
+chmod +x "$existing_bin/just"
 cat >"$existing_bin/prek" <<'EOF'
 #!/usr/bin/env bash
 printf 'existing prek %s\n' "$*"
@@ -366,7 +377,7 @@ existing_setup_output="$(
 		./install-tools.sh 2>&1
 )"
 assert_contains "$existing_setup_output" "all required tools are available"
-assert_contains "$existing_setup_output" "existing prek install"
+assert_contains "$existing_setup_output" "existing just hooks"
 
 check_readonly_output="$(
 	PATH="$existing_bin:/usr/bin:/bin" \
@@ -375,6 +386,6 @@ check_readonly_output="$(
 		./install-tools.sh --check 2>&1
 )"
 assert_contains "$check_readonly_output" "all required tools are available"
-assert_not_contains "$check_readonly_output" "existing prek install"
+assert_not_contains "$check_readonly_output" "existing just hooks"
 
 printf 'install-tools-test: ok\n'

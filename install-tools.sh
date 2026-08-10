@@ -400,12 +400,12 @@ setup_hooks() {
 		return 0
 	fi
 
-	if ! command_exists prek; then
-		printf 'install-tools: cannot set up hooks because prek is unavailable\n' >&2
+	if ! command_exists just; then
+		printf 'install-tools: cannot set up hooks because just is unavailable\n' >&2
 		return 1
 	fi
 
-	prek install
+	just hooks
 }
 
 install_mode() {

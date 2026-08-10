@@ -1,5 +1,7 @@
 set shell := ["bash", "-eu", "-o", "pipefail", "-c"]
 
+test_public_safety_command := "./scripts/check-public-safety-test.sh"
+
 default:
   just --list
 
@@ -7,7 +9,28 @@ setup:
   AGENT_CONFIG_SETUP_HOOKS=1 ./install-tools.sh
 
 hooks:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  marker='# agent-config: managed pre-push hook'
+  hook_dir="$(git rev-parse --git-path hooks)"
+  destination="$hook_dir/pre-push"
+  source='scripts/pre-push-hook'
   prek install
+  mkdir -p "$hook_dir"
+  if [[ -L $destination || ( -e $destination && ! -f $destination ) ]]; then
+    echo "hooks: refusing unsafe pre-push destination: $destination" >&2
+    exit 1
+  fi
+  if [[ -f $destination ]] && ! rg -qxF "$marker" "$destination"; then
+    echo "hooks: refusing foreign pre-push hook: $destination" >&2
+    exit 1
+  fi
+  temporary="$(mktemp "$hook_dir/.pre-push.XXXXXX")"
+  trap 'rm -f "$temporary"' EXIT
+  cp "$source" "$temporary"
+  chmod +x "$temporary"
+  mv -f "$temporary" "$destination"
+  trap - EXIT
 
 tools-check:
   ./install-tools.sh --check
@@ -33,6 +56,7 @@ records:
 # run from its new path (ADR 0025).
 lint:
   shellcheck install.sh install-tools.sh install-test.sh install-tools-test.sh scripts/*.sh \
+    scripts/pre-push-hook \
     .github/scripts/*.sh .github/scripts/profiles/*.sh \
     content/skills/issue/scripts/*.sh \
     content/skills/issue/scripts/testdata/*.sh \
@@ -60,7 +84,8 @@ lint:
 # adaptations), so reformatting them to the repository default would cost that
 # diff for nothing. ADR 0025 gave the suite `-i 2` for the same reason (#57).
 format-check:
-  shfmt -d install.sh install-tools.sh install-test.sh install-tools-test.sh scripts/*.sh
+  shfmt -d install.sh install-tools.sh install-test.sh install-tools-test.sh scripts/*.sh \
+    scripts/pre-push-hook
   shfmt -i 2 -d .github/scripts/*.sh .github/scripts/profiles/*.sh
   shfmt -d content/skills/issue/scripts/*.sh \
     content/skills/issue/scripts/testdata/*.sh
@@ -84,7 +109,8 @@ format-check:
     content/skills/preflight/scripts/testdata/*.sh
 
 format:
-  shfmt -w install.sh install-tools.sh install-test.sh install-tools-test.sh scripts/*.sh
+  shfmt -w install.sh install-tools.sh install-test.sh install-tools-test.sh scripts/*.sh \
+    scripts/pre-push-hook
   shfmt -i 2 -w .github/scripts/*.sh .github/scripts/profiles/*.sh
   shfmt -w content/skills/issue/scripts/*.sh \
     content/skills/issue/scripts/testdata/*.sh
@@ -112,13 +138,18 @@ test:
   ./content/skills/subagent-driven-development/scripts/testdata/sdd-workspace-test.sh
   ./content/skills/preflight/scripts/testdata/architecture-awareness-test.sh
   ./content/skills/github-tracking/assets/testdata/tracker-test.sh
-  ./scripts/check-public-safety-test.sh
+  {{test_public_safety_command}}
   ./scripts/check-deployed-references-test.sh
   ./scripts/check-workflow-scope-contract-test.sh
   ./scripts/check-cleared-dependencies-test.sh
   ./scripts/check-skill-layout-test.sh
   ./scripts/check-suite-coverage-test.sh
   ./scripts/git-fixture-isolation-test.sh
+  ./scripts/select-verification-test.sh
+  ./scripts/verify-push-test.sh
+
+test-public-safety:
+  {{test_public_safety_command}}
 
 skills-check:
   ./scripts/check-skill-layout.sh
@@ -129,6 +160,12 @@ suites-check:
 public-safety:
   ./scripts/check-public-safety.sh
 
+commit-check:
+  ./scripts/select-verification.sh
+
+push-check:
+  ./scripts/verify-push.sh
+
 references-check:
   ./scripts/check-deployed-references.sh
 
@@ -138,6 +175,12 @@ actions-check:
 
 verify: tools-check records lint format-check skills-check suites-check test \
         public-safety references-check actions-check
+  prek run --all-files --stage pre-commit --dry-run
 
-ci: verify
-  prek run --all-files
+ci:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  started=$SECONDS
+  echo 'verification selection: full ci'
+  just verify
+  echo "verification total elapsed seconds: $((SECONDS - started))"
