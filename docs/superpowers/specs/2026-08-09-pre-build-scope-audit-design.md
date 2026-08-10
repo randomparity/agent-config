@@ -178,13 +178,15 @@ The caller records one disposition before making any responsive edit:
 - `blocked`: correctness requires a change for which the workflow lacks authority.
 
 After all findings are dispositioned, control follows the evidence rather than the original
-verdict. If every finding is `rejected-with-evidence` and no input changed, the caller records
-the rejection evidence and may continue with the report's candidate approved surface without
-rerunning unchanged inputs to seek `approve`. An `accepted-fixed` edit returns through the
-applicable design review and a new audit. A `deferred-tracked` ownership change also requires a
-new audit. A `blocked` finding parks the workflow, and a verified material expansion returns to
-`SCOPE CHECKPOINT`. The auditor always supplies a candidate approved surface, including with a
-`needs-attention` verdict, so reception can resolve unsupported findings without inventing one.
+verdict. When the inputs and report are otherwise complete and usable, `needs-attention` is due
+only to findings, every finding is `rejected-with-evidence`, and no input changed, the caller
+records the rejection evidence and may continue with the report's candidate approved surface
+without rerunning unchanged inputs to seek `approve`. Missing or uncertain inputs and report
+defects remain blocking. An `accepted-fixed` edit returns through the applicable design review
+and a new audit. A `deferred-tracked` ownership change also requires a new audit. A `blocked`
+finding parks the workflow, and a verified material expansion returns to `SCOPE CHECKPOINT`.
+The auditor always supplies a candidate approved surface, including with a `needs-attention`
+verdict, so reception can resolve unsupported findings without inventing one.
 
 A valid concern does not validate its proposed remedy. Any substitute or derived remedy must
 pass the same authority, necessity, and proportionality checks and receive a disposition
