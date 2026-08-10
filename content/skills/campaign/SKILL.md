@@ -155,6 +155,14 @@ Each prompt carries:
 
 ## 6. Merge
 
+**Verify before merging.** Green + mergeable says CI passed and Git can fast-forward — neither says the PR contains the work you dispatched. Run `gh pr diff <PR> --name-only` and compare that list against the issue's `File scope` cell from step 4:
+
+- **No overlap** — an empty diff, or one touching nothing in the assigned scope — cannot be carrying that issue's fix. Don't merge it: treat it as a merge-phase blocker (step 8) and keep draining the rest of the queue.
+- **Files outside the scope** are not a failure by themselves. Step 4 assigns scope as a hint, and a correct fix routinely touches one file the plan didn't predict; a check that hard-blocks on any deviation fires on legitimate work and gets routed around. Classify them instead: an extra file is accounted for when the PR body, a commit message, or the subagent's report ties it to the assigned issue or to another tracked issue, and whatever is left over is **unrelated**. Report unrelated files and hold that one merge for the operator's decision, via the same blocker path. Never split, revert, or cherry-pick inside the PR — that surgery is undefined here and risks discarding work.
+- **Overlap present, nothing unrelated** — proceed.
+
+Only the overlap is mechanical. Whether the diff *implements* the issue is a judgment call no file list settles: read the PR body's linked issue, its stated acceptance criteria, and the `WORK:REVIEW` summary. Record which of the two you relied on, rather than letting the file comparison imply more than it checked.
+
 As each issue reaches green + mergeable, run `$merge-cleanup` (you are authorized). Merge one PR, then for each remaining in-flight PR re-check `mergeStateStatus`. If `BEHIND`/`DIRTY`, merge `BASE_BRANCH` into PR branch, regenerate artifacts, rerun guardrails, re-confirm green. If the repo forbids merge commits (linear history) and rebasing a pushed branch is denied, stop with a named blocker.
 
 In parallel mode, subagent is done and worktree may be gone. You own recovery: check out branch in fresh external worktree or re-dispatch subagent with same context. Use step-4 assignments for artifact regeneration.
