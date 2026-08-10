@@ -37,12 +37,13 @@ reassert-after-merge (trades one silent failure for another), a hardcoded protec
 |---|---|
 | No overlay file | Copy the base through `jq '.'`; report that no overlay was applied. Unchanged. |
 | Overlay that adds keys, or overrides scalars and object members | Merge with `.[0] * .[1]`; report that the overlay was applied. Unchanged. |
-| Overlay that adds an array at a path the base does not define | Merged and kept. This is what `permissions.allow` in the example host does. |
-| Overlay that replaces an array the base defines, by naming its path or by replacing an ancestor with a non-object | **Abort the install**, naming the overlay file and every base array path the merge would not have preserved. Write no output. |
+| Overlay that adds an array at a path the base does not define, or replaces an empty base array | Merged and kept. This is what `permissions.allow` in the example host does. |
+| Overlay that replaces a non-empty array the base defines, by naming its path or by replacing an ancestor with a non-object | **Abort the install**, naming the overlay file and every base array path the merge would not have preserved. Write no output. |
 
-The protected set is every path in the base whose value is an array. It is computed from the base
-on each merge, so a base file that grows a new array is protected from that moment, in every base
-file, with no edit to `install.sh`.
+The protected set is every path in the base whose value is a non-empty array. It is computed from
+the base on each merge, so a base file that grows a new array is protected from that moment, in
+every base file, with no edit to `install.sh`. Empty base arrays are excluded because replacing one
+loses no sibling the overlay author did not name, which is the loss the rule exists to prevent.
 
 The check is expressed over the merge output rather than over the overlay's shape: after computing
 `.[0] * .[1]` into a temporary file, every base array path must hold an identical array in the
@@ -53,9 +54,11 @@ All three call sites obtain this from the shared function: the Claude settings o
 settings overlay, and the Bob MCP overlay. Bob's two base files contain no arrays today, so the
 check is satisfied vacuously there; it is not conditioned on the agent.
 
-Failure is total. The install exits non-zero before any file is deployed for that agent, because a
-partially guarded settings file gives the operator no signal that the tree they are working in is
-unguarded. The message names the operation, the overlay path, and each offending base path.
+Failure exits non-zero before any file is deployed *for that agent*, because a partially guarded
+settings file gives the operator no signal that the tree they are working in is unguarded. Under
+`--agent all` the agents installed earlier in the sequence stay deployed, each from a base or a
+valid overlay; the guarantee is per-agent rather than per-run. The message names the operation, the
+overlay path, and each offending base path.
 
 ## Threat model
 
@@ -105,7 +108,8 @@ Two assertions, both against a deployed artifact rather than the in-repo base fi
    message names the offending path. This is the assertion that fails if the fix is reverted —
    against current behavior the install succeeds and the deployed file silently carries one hook
    instead of five. The run must also leave no deployed `settings.json` behind, which is what
-   distinguishes an abort from a partial install.
+   distinguishes an abort from a partial install; Claude is the first agent `--agent all`
+   installs, so for this fixture nothing is deployed at all.
 
 The rejection assertion is the one that bites, so it is written first and observed failing against
 unmodified `install.sh` before the fix lands.
