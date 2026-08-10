@@ -35,8 +35,9 @@ trees reach three agents rather than one.
 `content/skills` is excluded because its unit of delivery is the skill directory, not the
 file, and a per-file manifest over it would gate assets while churning on ordinary work: 96
 files across eleven adding commits, against seven files and one commit in the three covered
-trees. Excluding it leaves a residual rather than covering the tree, in both directions —
-see the Consequences and the directory-granularity entry below. The loose
+trees. That is a cost argument and not a risk one, and it points the other way on risk —
+eleven adding commits is a higher rate of exactly the change the Context describes than one.
+Excluding the tree leaves a residual rather than covering it, in both directions. The loose
 `docs/licenses/superpowers.LICENSE` stays out too: a named file is already a deliberate edit.
 
 **The gate is its own script.** `scripts/check-deployed-membership.sh` holds the manifest,
@@ -54,12 +55,11 @@ merely local concern here, because ripgrep applies `.gitignore` to tracked files
 
 **A disagreement in either direction is a finding, exit 1, and the fault class may never
 swallow one.** A declared file that is absent and an undeclared file that is present are the
-two answers the comparison exists to produce. A declared tree that is not there is therefore
-not a fault either: it contributes no members, so every file declared under it reports as
-missing. That case is reachable — two of the three trees hold exactly one file, and Git does
-not track empty directories, so the commit deleting that file removes the directory from every
-fresh checkout, and a fault would tell CI the gate could not run about the very deletion it
-exists to describe.
+two answers the comparison exists to produce, and a declared tree that is not there is
+therefore not a fault either: it contributes no members, so every file declared under it
+reports as missing. That case is reachable — two of the three trees hold one file, and Git
+does not track empty directories — though not urgent, since `install_managed_path` already
+exits on a missing source, so the installer fails on such a deletion before this gate speaks.
 
 Exit 2 is left with the inputs the gate cannot make sense of at all: a bad argument, an
 unusable repository root, a manifest entry lying under no declared tree, and an enumeration
@@ -80,7 +80,8 @@ scan root; neither compares membership, so for neither is the root's absence its
   `content/skills` skill directory installs to every user with no membership check, and so
   does a whole new top-level skill directory — `check-skill-layout.sh` constrains what a skill
   must look like, and `scripts/reserved-skill-names.txt` is a forbidden list rather than an
-  expected one. That is the larger surface by file count and it is left open here.
+  expected one. It is left open here despite being the surface that moves most — eleven
+  adding commits against one across the three covered trees.
 - Untracked debris under one of the three trees — an editor swap file, a `*.orig` from a
   merge — now turns a local `just verify` red, because the enumeration reads no ignore rules.
   Neither gating environment sees it: `scripts/verify-push.sh` rehearses in a detached
@@ -91,7 +92,9 @@ scan root; neither compares membership, so for neither is the root's absence its
   this manifest, and nothing detects that omission. The manifest is source, so this gate
   cannot defend against edits to itself; comments at the `install_common_content` and Bob
   rules call sites name the manifest, which is the whole of the coupling. Making it detectable
-  is tracked separately.
+  is tracked separately. Every other disagreement this gate finds is red; narrowing the
+  manifest — deleting a tree or a member line while the tree still installs — is the one edit
+  that leaves it green, and it is the edit a red gate invites.
 - The repository now holds two lists of installer-copied roots — this manifest's trees and
   `check-deployed-references.sh`'s `scan_paths` — that mean different things, with nothing
   comparing them.
@@ -110,14 +113,11 @@ scan root; neither compares membership, so for neither is the root's absence its
 - **Gate only `agents/bob/shared/rules`, as the issue frames it.** Rejected for the reason the
   Decision gives; recorded here because the issue's framing is the obvious scope and a reader
   should find it disposed of rather than overlooked.
-- **Declare `content/skills` at directory granularity** — a manifest of the expected top-level
-  skill names, which would gate a whole new skill reaching every user without a per-file list.
-  The churn objection does not apply at this granularity: two commits in the repository's
-  history ever added a top-level skill directory, against 36 directories today. Rejected here
-  on shape rather than cost: this gate compares one flat set of files, and a second tree
-  compared at a different granularity puts two comparison rules in one script. The natural
-  home is `check-skill-layout.sh`, which already enumerates those top-level children and would
-  gain an expected-set assertion beside its shape rules. Tracked as follow-up work.
+- **Declare `content/skills` at directory granularity** — an expected set of top-level skill
+  names, which the churn objection does not touch: two commits ever added one. Rejected here
+  on shape, not cost: this gate compares one flat set of files, and a tree compared at a
+  different granularity puts two comparison rules in one script. `check-skill-layout.sh`
+  already enumerates those children and is the natural home. Tracked as follow-up work.
 - **Extend `scripts/check-shared-standards.sh` and its manifest.** Rejected: that gate's
   subject is the identity of one block across the files that carry it, and its manifest means
   "these files must each hold a block". A second list meaning "these files may exist" would
@@ -144,6 +144,9 @@ scan root; neither compares membership, so for neither is the root's absence its
   Rejected for this change: it is a delivery change rather than a detection one, and the
   manifest would then have no reviewer between it and the user. Detection first; if the
   manifest proves stable, making it the installer's input is the obvious follow-up.
-- **Do nothing and rely on review.** Rejected: 0041 already left this open once on that
-  reasoning, and review is not a machine check — it runs when someone reads, over what they
-  happen to notice.
+- **Do nothing and rely on review.** The base rate is genuinely low — one commit ever added a
+  file to these trees, and no incident has occurred — and the gate is not free: it accepts the
+  false positive in the debris bullet above, on prose files that parallel agent waves edit and
+  conflict in. Rejected on the asymmetry of the harms rather than on their frequency: a local
+  red costs one deletion, while an undeclared file reaches every user's global configuration
+  and need never be edited again to keep acting.
