@@ -74,15 +74,24 @@ not prevent other dependents from being evaluated.
 
 ## After a merge (yours or the user's)
 
-1. Switch to `BASE_BRANCH`.
-2. Fast-forward pull.
-3. Delete the merged local branch.
-4. Prune remote-tracking branches.
-5. Remove any external worktree **this run created** for this issue
+1. `cd` to the main checkout. If you have been working in an external
+   worktree you are standing in the directory step 5 removes, and every
+   step below is wrong from there: `git switch` refuses a branch checked
+   out elsewhere, and `git worktree remove .` succeeds and takes your
+   working directory with it.
+2. Remove any external worktree **this run created** for this issue
    (`git worktree remove`).
-6. Verify the working tree is clean.
+3. Switch to `BASE_BRANCH`.
+4. Fast-forward pull.
+5. Delete the merged local branch.
+6. Prune remote-tracking branches.
+7. Verify the working tree is clean.
 
-**Step 5's scoping is load-bearing, not a formality.** A worktree another agent created
+Worktree removal comes before branch deletion because a branch checked
+out in a worktree cannot be deleted at all — the reverse order refuses
+every time it matters.
+
+**Step 2's scoping is load-bearing, not a formality.** A worktree another agent created
 belongs to that agent, and merging its pull request does not prove it has stopped: a
 `$work-issue` worker stops at hand-off, which comes some way *after* its pull request
 first reads green + mergeable. Removing that directory while its owner is still inside it
@@ -95,5 +104,7 @@ path and the branch it holds. A `$campaign` orchestrator is the caller that can 
 retry. Never `git worktree remove --force` your way past this: the force *is* the failure
 mode, not the way around it, and it discards whatever the agent had not committed.
 
-Step 3 needs no such scoping, because git supplies it: a branch checked out in another
-worktree cannot be deleted, by `-d` or `-D`. Take that refusal as the same deferral.
+Step 5 needs no such scoping, because git supplies it: a branch checked out in another
+worktree cannot be deleted, by `-d` or `-D`. Take *that* refusal — a branch held by a
+worktree you did not create — as the same deferral. A refusal on your own branch, after
+step 2 removed your own worktree, is a different thing entirely and is yours to resolve.

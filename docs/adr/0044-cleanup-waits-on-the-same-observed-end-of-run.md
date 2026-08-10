@@ -112,12 +112,22 @@ tool rather than in the prose; and `$clean-branches` documents `$merge-cleanup` 
 that "deletes the one branch it just merged, in flow", which a scope here would quietly
 falsify.
 
+Two orderings in that list were wrong once the scoping was made explicit, and are corrected
+with it. Worktree removal now precedes branch deletion, because the run's own branch is
+checked out in the run's own worktree and the old order refused every time it mattered. And
+the list now begins by returning to the main checkout: a `$work-issue` run executes it from
+inside the worktree it created, where switching to the base branch fails and removing "the
+worktree this run created" removes the directory the agent is standing in — reproducing this
+record's own failure, self-inflicted.
+
 **The precondition binds to an agent this run dispatched.** Two ordinary rows have no such
 agent and never will: one adopted on resume with its pull request already open, and one whose
 cleanup an earlier run deferred. A notification that cannot arrive is not a precondition, it
-is a permanent leak, so those rows are decided on what is observable instead — no worktree on
-the branch means no holder, and a worktree `git worktree remove` accepts without `--force` was
-not in use.
+is a permanent leak, so those rows are decided on what is observable instead — `git worktree
+list` showing the branch checked out nowhere, and `git status --porcelain` empty inside a
+worktree that does hold it. Both are readable before anything is removed, which the obvious
+alternative — "a worktree `git worktree remove` accepts is one that was not in use" — is not:
+it can only be evaluated by performing the very step it is supposed to authorize.
 
 **The did-it-land check stays required, and stays independent of the liveness check.** It
 answers a different question — whether the branch still carries work the base does not — and
@@ -125,18 +135,30 @@ an observed end of run does not answer it: an agent can end having left a commit
 landed. It was also what kept the observed incident harmless, so it earns its place.
 
 It is an **ancestry** test, not a diff: `git merge-base --is-ancestor <branch>
-origin/<BASE_BRANCH>`, with a merged pull request for that exact head as the fallback where a
-squash or rebase merge rewrote the commits. That is the test `$clean-branches` already uses,
-and the reason matters here more than there. `git diff <BASE_BRANCH> <branch>` is a symmetric
+origin/<BASE_BRANCH>`, which is the test `$clean-branches` already uses, and the reason
+matters here more than there. `git diff <BASE_BRANCH> <branch>` is a symmetric
 tree comparison, so once any *sibling* merges into the base it reports that sibling's changes
 as deletions on a branch that landed perfectly — and deferred rows are by construction the
 ones swept after later merges, so the deferral this record creates would clean nothing. The
 orchestrator that ran `git diff --stat` in the observed incident got a true answer only
 because it was the first merge of the wave.
 
+**The squash fallback is a SHA identity, not a branch-name lookup.** A squash or rebase merge
+rewrites the commits, so ancestry is false for a branch that landed and the test needs a
+second route. `$clean-branches` takes it by asking whether a merged pull request exists for
+that head branch, which is sound in a repo-wide sweep and unsound here: the orchestrator has
+just merged that pull request for that branch, so the lookup hits unconditionally and the
+required check reduces to a no-op — on exactly the case it was written for, since a branch
+that gained a commit *after* the merge still matches by name. The fallback is therefore
+`gh pr view <PR> --json headRefOid` equal to `git rev-parse <branch>`. A branch that moved
+after its merge fails both tests and is deferred, which is what the observed incident would
+have produced.
+
 The order is: satisfy the liveness precondition, confirm the branch landed, remove the
 worktree, then delete the branch. Worktree before branch matches `$clean-branches`, and for
-the same reason: a branch checked out in a worktree cannot be deleted.
+the same reason: a branch checked out in a worktree cannot be deleted. `git branch -d` tests
+against the current `HEAD` rather than `origin/<BASE_BRANCH>`, so it refuses on the squash
+path; `-D` is permitted for the two cases the land check proved merged and for nothing else.
 
 **A worktree that refuses to be removed is a deferral, not a case for `--force`.**
 `git worktree remove` refuses on modified or untracked files, and a finished worker's worktree
@@ -145,8 +167,16 @@ exists to protect, so the refusal joins the same deferred list.
 
 **The corrected premise applies to the branch refresh too.** When a `BEHIND` sibling needs
 `BASE_BRANCH` merged in and its worker is still alive, the orchestrator cannot take the
-branch into a worktree of its own. The row waits for that agent's end of run, or the agent is
-asked to do the refresh — which is the thing it was already doing when this race was found.
+branch into a worktree of its own. The row waits for that agent's end of run — or for
+`git worktree list` to show the branch checked out nowhere, which is the same fact reached
+without a notification — or the agent is asked to do the refresh, which is the thing it was
+already doing when this race was found.
+
+The end of run alone does not release the branch, and the skill must not imply it does. The
+worker never removes its own worktree, so the branch stays checked out there after it stops
+and `git worktree add` still fails. The orchestrator reclaims the worktree first — taking
+over the path or removing it — which is the same reclaim step 5 already performs before a
+re-dispatch, for the same reason.
 
 ## Consequences
 
@@ -160,13 +190,16 @@ asked to do the refresh — which is the thing it was already doing when this ra
   report, while a directory removed from under a running process is not.
 - The fallback owner is the operator, and only the operator. `$clean-branches` looks like the
   standing sweep for this and is not: it enumerates candidates by `%(upstream:track)` equal to
-  `[gone]`, and a campaign branch created from `origin/<base>` tracks the base rather than its
-  own remote head, so the sweep never sees it. The report naming the paths is therefore the
-  whole of the recovery path today. Closing that gap is a change to `$clean-branches`,
-  tracked separately rather than folded in here.
-- Cleanup now depends on a harness notification. A harness that does not deliver one defers
-  all cleanup to the operator — the same degradation 0042 already accepted for re-dispatch,
-  reached the same way.
+  `[gone]`, and one of these branches carries no upstream at all until it is pushed, or one
+  pointing at the base — neither reads `[gone]`, so the sweep passes it over. The report
+  naming the paths is therefore the whole of the recovery path today. Closing that gap is a
+  change to `$clean-branches`, tracked separately rather than folded in here.
+- Cleanup now depends on a harness notification, and the degradation without one is worse than
+  0042's. There, a missing notification cost only automatic re-dispatch. Here it would also
+  cost the `BEHIND` refresh, and a sibling that can never be refreshed is a row that can never
+  merge — so the notification is not the sole route to either. `git worktree list` showing the
+  branch held by nobody carries both, and a harness with no notifications degrades to that
+  plus the operator, rather than to a stuck queue.
 - The branch refresh for a `BEHIND` sibling can now wait on a live worker instead of
   proceeding. Merges of *other* rows are unaffected, since each row's refresh is independent.
 - A worker that hangs after its pull request merges holds one worktree, not the campaign.
@@ -174,8 +207,13 @@ asked to do the refresh — which is the thing it was already doing when this ra
 - A worktree holding untracked or modified files is skipped rather than removed, so a worker
   that leaves scratch files behind leaks its worktree even having ended cleanly. That is the
   right trade — the alternative is `--force`, which deletes the stranded work — but it means
-  the deferred list is not only about live agents, and the report has to say which reason
-  applied.
+  the deferred list is not only about live agents. It holds three reasons now — end of run not
+  observed, worktree not clean, branch did not land — and only the first can resolve itself,
+  so the report states which applied per row rather than listing paths.
+- Deferral is deliberately not step 6's existing hold. That hold takes the blocker path: a
+  `WORK:TRAJECTORY` note, a `status:` label, a `blocked` manifest row. Reusing it here would
+  put a status label on an issue the merge just closed and keep the manifest `active` over a
+  directory on disk. The word is avoided in the skill for that reason.
 - Deciding a resume-adopted row on `git worktree list` rather than a notification is weaker
   than the rule it stands in for: a worktree from a *different* live session would read as
   unheld if that session had committed everything and touched nothing since. The exposure is
