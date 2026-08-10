@@ -85,7 +85,12 @@ facts are about the branch's *name*, and a name is reusable. Delete a branch onc
 request has merged, start new work under the same name, and — with the head ref kept — the
 name-matched merged pull request answers for commits that exist nowhere else. Ancestry is
 immune, being a statement about the commits; the squash-merged test was not, so it now
-requires the merged pull request's `headRefOid` to equal the branch tip.
+requires the branch tip to be contained in the merged pull request's `headRefOid`.
+
+Containment rather than equality, because a local tip *behind* the merged head is ordinary —
+a reviewer committing a suggestion in the web interface advances the remote head, and a plain
+fetch never fast-forwards the local branch — and everything such a tip holds is in the pull
+request. Only a tip carrying commits the pull request does not is refused.
 
 Record 0044 endorsed the branch-name lookup as "sound in a repo-wide sweep". That endorsement
 was made about a sweep whose candidates were `[gone]` branches, where a name could not be in
@@ -133,11 +138,10 @@ setting is the signal that does, so the sweep reads it once per run.
   spared only by the new row 2, whose input is a remote setting the sweep may be unable to
   read. Where `gh` cannot supply the protected set, the confirmation is the last guard, so
   the plan says the set was unknown instead of implying it was empty.
-- The squash-merged row is strictly narrower than it was: a branch whose tip has moved since
-  its pull request merged now falls to `unmerged` and is reported instead of deleted. That is
-  the intended reading — the tip holds work the pull request does not — but it means a repo
-  that squashes will accumulate reported leftovers it used to collect, whenever someone pushes
-  to a branch after its merge.
+- The squash-merged row is narrower than it was: a branch carrying commits its merged pull
+  request does not now falls to `unmerged` and is reported instead of deleted. That is the
+  intended reading, and it costs a repository that squashes a reported leftover whenever
+  someone commits to a branch after its merge.
 - Removing a worktree destroys the ignored files under it — `.env`, local build state — and
   `git status --porcelain` cannot see them, so the dirty-worktree row does not spare them.
   Testing `--ignored` there instead was rejected: it would skip every worktree with a
@@ -163,10 +167,13 @@ setting is the signal that does, so the sweep reads it once per run.
   exactly one confirmation before the first deletion, on purpose, and a per-branch prompt for
   the category most likely to be a deliberate bookmark trains the operator to answer without
   reading. Reporting it as a skip states the same fact and costs no decision.
-- **Batching the pull-request lookup into one `gh pr list --state merged --json headRefName`
-  query.** Rejected here as out of scope: it is a change to the `squash-merged` test, which
-  0044 endorses as sound, and the per-branch call is only a latency and rate-limit cost whose
-  failure mode is already safe. Worth revisiting if a checkout is ever slow enough to notice.
+- **Batching the pull-request lookup into one `gh pr list --state merged --json
+  headRefName,headRefOid` query over the whole repository.** Rejected on cost and complexity
+  rather than on scope: it trades a bounded number of small calls for one unbounded paginated
+  sweep of every merged pull request the repository has ever had, plus the join and the
+  page-exhaustion failure mode, to save latency that only a checkout with dozens of pushed
+  unmerged branches would notice. The per-branch call's failure mode is already safe. Worth
+  revisiting if such a checkout is ever observed.
 - **Using the reflog to decide whether a branch was ever pushed.** Rejected on measurement:
   it does not answer the one case `refs/remotes` cannot, because `git fetch --prune` deletes
   `.git/logs/refs/remotes/origin/<branch>` along with the ref. It is also expiring, local, and
