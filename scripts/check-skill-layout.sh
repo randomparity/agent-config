@@ -185,7 +185,10 @@ validate_portable_tree() {
 # for want of one. --max-count 1 keeps the early exit --quiet used to give. The line
 # goes to a file rather than a command substitution on purpose: the bytes that failed
 # may include a NUL, which bash drops from a substitution with a warning on stderr,
-# and a guardrail should not emit one. sed takes the number and leaves the bytes --
+# and a guardrail should not emit one. --no-filename is what makes that parse safe:
+# rg omits the name for a single file argument today, but the trim cuts at the first
+# colon, so a prefix would put a path where the line number belongs. sed takes the
+# number and leaves the bytes --
 # under LC_ALL=C, because the line it is trimming is by definition not decodable in a
 # UTF-8 locale, and there `.*` stops at the first bad byte and drags it into the
 # message (ADR 0023's defect in a new place).
