@@ -163,9 +163,20 @@ Contract, matching `scripts/check-deployed-references.sh`:
 - `rg` missing, or more than one argument: exit 2. As in the sibling checker, the `rg`
   guard is not exercised by the suite — reproducing it would need PATH manipulation the
   rest of the suite has no use for.
+- An `rg` failure while reading a file is a scan fault, not a content finding: exit 2
+  rather than reporting the file as missing its block.
 - Findings to stderr as `shared-standards: <class>: <file>` or
   `shared-standards: <class>: <file>:<line>`; exit 1.
 - A one-line summary on success, exit 0.
+
+Nothing outside the reviewed source may change the verdict. `RIPGREP_CONFIG_PATH` is
+unset before the first `rg` runs, because ripgrep reads it and a single directive there
+is enough to break the gate open: `--with-filename` turns the parsed line number into a
+path, and `--max-count=1` makes every second marker unfindable, which alone would make
+`duplicate-block` unreachable. Neutralising one flag at a time loses that race, so the
+config is dropped wholesale. The block scan passes `--no-ignore` for the same reason: the
+installer copies these trees whole, so an `.ignore` or `.gitignore` entry beside a
+deployed file would remove it from the scan while the installer still ships it.
 
 Detection follows `scripts/check-carrier-drift.sh`: scan, plus a manifest that closes the
 scan's false negative. The scan checks every block found under the four roots, so a block
@@ -183,7 +194,7 @@ Finding classes and the line each reports:
 | Class | Condition | Line reported |
 |-------|-----------|---------------|
 | `missing-block` | a manifest file has no begin marker | none; file only |
-| `duplicate-block` | a file has a second begin marker | the second begin marker |
+| `duplicate-block` | a file has a second begin marker, or a second end marker | the second marker of whichever kind repeated |
 | `unterminated-block` | a begin marker with no end marker after it | the begin marker |
 | `canonical-shape` | the canonical block has fewer than three `###` subsections | the canonical begin marker |
 | `block-drift` | a block differs from the canonical block by any byte | the drifted file's begin marker |
@@ -223,7 +234,12 @@ block owns the rule; the skill owns the step.
 | A copy's begin marker is mistyped | `missing-block`; the manifest is what catches it, since the scan no longer sees the block |
 | The canonical block is emptied to make the gate pass | `canonical-shape`, reported alone |
 | The block is duplicated by a bad merge | `duplicate-block` names the second marker |
+| A merge leaves a second end marker under one begin marker | `duplicate-block`; without this the surviving arithmetic runs on a two-line value and the run reports ok |
 | An end marker is lost | `unterminated-block` names the begin marker |
+| Blank lines are padded in before an end marker | `block-drift`; the comparison keeps trailing newlines |
+| An ignore file is added beside a deployed carrier | `block-drift` still; the scan does not honour ignore rules |
+| A ripgrep config changes the scan's shape or truncates it | no effect; the config is dropped before the first scan |
+| `rg` fails while reading a file | exit 2 as a scan fault, never a content finding |
 | Agent-native prose outside the block differs | passes; that divergence is the point |
 | A stale block is copied into another file under a scan root | the scan finds it and `block-drift` names it |
 | A scan root is removed or renamed | exit 2, not a silent pass |
@@ -246,13 +262,22 @@ One case per failure-mode row, plus the baseline:
   remains;
 - the canonical file whose block is absent, asserting `missing-block` and that no
   `block-drift` is reported alongside it;
-- duplicated begin marker; begin marker with no end marker;
+- a second whole block; a second begin marker under one end marker; a second end marker
+  under one begin marker; a begin marker with no end marker;
 - canonical block with two subsections;
-- trailing-whitespace-only drift;
+- trailing-whitespace-only drift, and blank-line padding before an end marker;
 - divergent prose outside the block passes;
 - a drifted block in an unlisted file under a scanned tree, which the scan must catch
-  without a manifest entry;
+  without a manifest entry, and the same with an `.ignore` file naming it;
+- the same drift under a ripgrep config carrying `--with-filename`, and again under one
+  carrying `--max-count=1`;
 - a removed scan root, a removed canonical file, and a two-argument invocation all exit 2.
+
+Each assertion pins the finding's class and, where the contract names one, its
+`file:line` — a class-only assertion would let the reported position be anything. The
+exit-2 cases assert the message too, since `rg` exits 2 on its own errors and a checker
+that had lost its precondition checks would otherwise satisfy them. Every guard above was
+confirmed to bite by removing it and watching the suite redden.
 
 Both new scripts are tab-indented, so `scripts/list-shell-sources.sh` gets no edit.
 

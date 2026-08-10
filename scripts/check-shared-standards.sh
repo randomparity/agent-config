@@ -22,6 +22,13 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
+# ripgrep reads RIPGREP_CONFIG_PATH, so a developer's own config would otherwise
+# be an input to this gate's verdict. `--max-count=1` alone makes a second block
+# unfindable and the duplicate-block class unreachable; `--with-filename` turns
+# the line-number field into a path. Neutralising each flag in turn loses that
+# race, so the config is dropped for every ripgrep this script runs.
+unset RIPGREP_CONFIG_PATH
+
 if ! command -v rg >/dev/null 2>&1; then
 	printf 'shared-standards: rg is required\n' >&2
 	exit 2
@@ -93,35 +100,43 @@ count_lines() { # newline-delimited-text
 
 # Line numbers of every occurrence of one marker in one file, newline-delimited
 # and empty when the file has none. rg exits 1 on no match, which is a normal
-# answer here rather than a failure; anything else is a broken scan.
+# answer here rather than a failure; anything else is a scan fault the caller
+# turns into exit 2 rather than a content finding.
 #
-# --no-filename is not redundant with the single-file argument: ripgrep reads
-# RIPGREP_CONFIG_PATH, so a developer whose config sets --with-filename would
-# otherwise turn every line of output into `path:line:text` and make the field
-# below the path instead of the line number.
+# The answer goes into a global instead of stdout because a scan fault has to
+# reach the caller, and a command substitution would swallow both the status and
+# any exit from inside it.
+marker_result=''
 marker_lines() { # absolute-path marker
 	local output rg_status
+	marker_result=''
 	set +e
-	output=$(rg -n --no-filename --fixed-strings -- "$2" "$1")
+	output=$(rg -n --fixed-strings -- "$2" "$1")
 	rg_status=$?
 	set -e
 	case "$rg_status" in
-	0) printf '%s\n' "$output" | sed 's/:.*//' ;;
+	0) marker_result=$(printf '%s\n' "$output" | sed 's/:.*//') ;;
 	1) ;;
-	*) fatal "could not scan $1 (rg exit $rg_status)" ;;
+	*)
+		printf 'shared-standards: could not scan %s (rg exit %s)\n' "$1" "$rg_status" >&2
+		return 1
+		;;
 	esac
 }
 
 # Reads one file's block into block_body and its begin marker's line into
-# block_line. Returns 1 after reporting, when the file has no well-formed block.
+# block_line. Returns 1 after reporting a content finding, and 2 on a scan
+# fault, which is the caller's cue to exit 2 rather than report on the file.
 block_body=''
 block_line=0
 read_block() { # relative-path
 	local relative="$1" absolute="$ROOT/$1"
 	local begins ends begin_count end_count
 
-	begins=$(marker_lines "$absolute" "$begin_marker")
-	ends=$(marker_lines "$absolute" "$end_marker")
+	marker_lines "$absolute" "$begin_marker" || return 2
+	begins=$marker_result
+	marker_lines "$absolute" "$end_marker" || return 2
+	ends=$marker_result
 	begin_count=$(count_lines "$begins")
 	end_count=$(count_lines "$ends")
 
@@ -143,12 +158,22 @@ read_block() { # relative-path
 	fi
 
 	block_line=$begins
-	block_body=$(sed -n "$((begins + 1)),$((ends - 1))p" "$absolute")
+	# The trailing `x` survives command substitution's newline stripping, which
+	# would otherwise make a copy carrying extra blank lines before its end
+	# marker compare equal to one that does not.
+	block_body=$(
+		sed -n "$((begins + 1)),$((ends - 1))p" "$absolute"
+		printf 'x'
+	)
 }
 
-if ! read_block "$canonical"; then
-	exit "$result_status"
-fi
+canonical_status=0
+read_block "$canonical" || canonical_status=$?
+case "$canonical_status" in
+0) ;;
+2) exit 2 ;;
+*) exit "$result_status" ;;
+esac
 canonical_body=$block_body
 canonical_line=$block_line
 
@@ -162,8 +187,13 @@ if ((subsections < 3)); then
 	exit "$result_status"
 fi
 
+# --no-ignore because everything under these roots is deployed: `install.sh`
+# copies the trees wholesale, so a `.gitignore` or `.ignore` entry beside a
+# deployed file would remove it from the scan while the installer still ships
+# it, which is the one way to put divergent instructions in front of an agent
+# with this gate green.
 set +e
-carriers=$(rg -l --fixed-strings --hidden -- "$begin_marker" "${scan_paths[@]}")
+carriers=$(rg -l --fixed-strings --hidden --no-ignore -- "$begin_marker" "${scan_paths[@]}")
 carriers_status=$?
 set -e
 case "$carriers_status" in
@@ -177,7 +207,12 @@ while IFS= read -r absolute; do
 	if [[ "$relative" == "$canonical" ]]; then
 		continue
 	fi
-	if ! read_block "$relative"; then
+	block_status=0
+	read_block "$relative" || block_status=$?
+	if ((block_status == 2)); then
+		exit 2
+	fi
+	if ((block_status != 0)); then
 		continue
 	fi
 	if [[ "$block_body" != "$canonical_body" ]]; then

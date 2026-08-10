@@ -49,6 +49,16 @@ whitespace_block() {
 	canonical_block | sed 's/^first rule$/first rule /'
 }
 
+# Command substitution strips trailing newlines, so a copy padded with blank
+# lines before its end marker compares equal unless the comparison preserves
+# them. Byte-identical has to mean byte-identical.
+padded_block() {
+	printf '%s\n' "$BEGIN"
+	printf '## Guardrails\n\n### One\n\nfirst rule\n\n'
+	printf '### Two\n\nsecond rule\n\n### Three\n\nthird rule\n\n\n'
+	printf '%s\n' "$END"
+}
+
 two_subsection_block() {
 	printf '%s\n' "$BEGIN"
 	printf '## Guardrails\n\n### One\n\nfirst rule\n\n### Two\n\nsecond rule\n'
@@ -62,9 +72,16 @@ duplicated_block() {
 }
 
 # A bad merge that keeps one end marker leaves an unpaired opening, which the
-# end-marker count cannot see.
+# end-marker count cannot see — and the mirror shape, an unpaired close, which
+# the begin-marker count cannot see. Without the second, arithmetic on a
+# two-line "line number" fails inside a call whose errexit is suppressed and the
+# run reports ok.
 duplicated_begin_block() {
 	canonical_block | sed "s|^### Two\$|$BEGIN\n\n### Two|"
+}
+
+duplicated_end_block() {
+	canonical_block | sed "s|^### Two\$|$END\n\n### Two|"
 }
 
 unterminated_block() {
@@ -111,15 +128,22 @@ assert_passes() { # name
 	fi
 }
 
-assert_fails() { # name class
-	local name="$1" class="$2"
+# A location of `path:line` pins the contract's reported position; `path:` on its
+# own pins only the file. Asserting the class alone would let a checker report
+# any position it liked, which is most of what a reader of the finding needs.
+assert_fails() { # name class [location]
+	local name="$1" class="$2" location="${3:-}" needle
 
 	if run_checker; then
 		printf 'not ok - %s should fail\n' "$name" >&2
 		exit 1
 	fi
-	if ! rg -q "shared-standards: $class:" "$SCRATCH/output"; then
-		printf 'not ok - %s should report %s\n' "$name" "$class" >&2
+	needle="shared-standards: $class:"
+	if [[ -n "$location" ]]; then
+		needle="$needle $location"
+	fi
+	if ! rg -qF -- "$needle" "$SCRATCH/output"; then
+		printf 'not ok - %s should report %s\n' "$name" "$needle" >&2
 		sed -n '1,20p' "$SCRATCH/output" >&2
 		exit 1
 	fi
@@ -133,12 +157,19 @@ assert_absent() { # name class
 	fi
 }
 
-assert_exit_two() { # name [extra-argument...]
-	local name="$1" code=0
-	shift
+# The message matters as much as the status: rg exits 2 on its own errors, so a
+# checker that had lost its precondition checks entirely would still exit 2 here.
+assert_exit_two() { # name expected-message [extra-argument...]
+	local name="$1" expected="$2" code=0
+	shift 2
 	"$CHECKER" "$FIXTURE" "$@" >"$SCRATCH/output" 2>&1 || code=$?
 	if ((code != 2)); then
 		printf 'not ok - %s should exit 2, exited %s\n' "$name" "$code" >&2
+		sed -n '1,20p' "$SCRATCH/output" >&2
+		exit 1
+	fi
+	if ! rg -qF -- "$expected" "$SCRATCH/output"; then
+		printf 'not ok - %s should say %s\n' "$name" "$expected" >&2
 		sed -n '1,20p' "$SCRATCH/output" >&2
 		exit 1
 	fi
@@ -152,34 +183,40 @@ assert_passes 'four identical blocks'
 for mirror in "$CLAUDE" "$CODEX" "$BOB"; do
 	reset_fixture
 	write_copy "$mirror" 'Native prose.' drifted_block
-	assert_fails "drift in $mirror" block-drift
+	assert_fails "drift in $mirror" block-drift "$mirror:5"
 done
 
 reset_fixture
 write_copy "$CLAUDE" 'Claude-native prose.' whitespace_block
-assert_fails 'trailing whitespace is drift' block-drift
+assert_fails 'trailing whitespace is drift' block-drift "$CLAUDE:5"
 
-# ripgrep reads RIPGREP_CONFIG_PATH, so a developer's own config can change the
-# shape of the marker scan's output. With --with-filename forced and the
-# checker's --no-filename removed, the line-number field became a path, bash
-# arithmetic failed inside a suppressed-errexit call, and the gate exited 0
-# having compared nothing. Drift has to stay visible whatever that config says.
 reset_fixture
-write_copy "$CODEX" 'Codex-native prose.' drifted_block
-printf -- '--with-filename\n' >"$SCRATCH/rgconfig"
-if (
-	export RIPGREP_CONFIG_PATH="$SCRATCH/rgconfig"
-	"$CHECKER" "$FIXTURE"
-) >"$SCRATCH/output" 2>&1; then
-	printf 'not ok - a ripgrep config must not hide drift\n' >&2
-	sed -n '1,20p' "$SCRATCH/output" >&2
-	exit 1
-fi
-if ! rg -q 'shared-standards: block-drift:' "$SCRATCH/output"; then
-	printf 'not ok - drift under a ripgrep config should report block-drift\n' >&2
-	sed -n '1,20p' "$SCRATCH/output" >&2
-	exit 1
-fi
+write_copy "$CLAUDE" 'Claude-native prose.' padded_block
+assert_fails 'blank lines before the end marker are drift' block-drift "$CLAUDE:5"
+
+# ripgrep reads RIPGREP_CONFIG_PATH, so a developer's own config would otherwise
+# be an input to this gate's verdict. --with-filename turns the line-number field
+# into a path, and bash arithmetic on it fails inside a suppressed-errexit call,
+# leaving the gate exit 0 having compared nothing. --max-count=1 hides every
+# second marker instead. Neither may change the answer.
+for directive in --with-filename --max-count=1; do
+	reset_fixture
+	write_copy "$CODEX" 'Codex-native prose.' drifted_block
+	printf -- '%s\n' "$directive" >"$SCRATCH/rgconfig"
+	if (
+		export RIPGREP_CONFIG_PATH="$SCRATCH/rgconfig"
+		"$CHECKER" "$FIXTURE"
+	) >"$SCRATCH/output" 2>&1; then
+		printf 'not ok - a ripgrep config of %s must not hide drift\n' "$directive" >&2
+		sed -n '1,20p' "$SCRATCH/output" >&2
+		exit 1
+	fi
+	if ! rg -qF -- "shared-standards: block-drift: $CODEX:5" "$SCRATCH/output"; then
+		printf 'not ok - %s should leave block-drift reported\n' "$directive" >&2
+		sed -n '1,20p' "$SCRATCH/output" >&2
+		exit 1
+	fi
+done
 
 reset_fixture
 printf '# Global Development Standards\n\nClaude-native prose.\n' >"$FIXTURE/$CLAUDE"
@@ -200,15 +237,19 @@ assert_absent 'the canonical file lost its block' block-drift
 
 reset_fixture
 write_copy "$CODEX" 'Codex-native prose.' duplicated_block
-assert_fails 'a second block in one file' duplicate-block
+assert_fails 'a second block in one file' duplicate-block "$CODEX:21"
 
 reset_fixture
 write_copy "$CODEX" 'Codex-native prose.' duplicated_begin_block
-assert_fails 'a second begin marker sharing one end marker' duplicate-block
+assert_fails 'a second begin marker sharing one end marker' duplicate-block "$CODEX:12"
+
+reset_fixture
+write_copy "$CODEX" 'Codex-native prose.' duplicated_end_block
+assert_fails 'a second end marker sharing one begin marker' duplicate-block "$CODEX:21"
 
 reset_fixture
 write_copy "$BOB" 'Bob-native prose.' unterminated_block
-assert_fails 'a block with no end marker' unterminated-block
+assert_fails 'a block with no end marker' unterminated-block "$BOB:5"
 
 reset_fixture
 write_copy "$CANONICAL" 'Agent-neutral prose.' two_subsection_block
@@ -228,17 +269,26 @@ assert_passes 'agent-native prose outside the block may differ'
 # manifest never names is still deployed prose claiming to be these rules.
 reset_fixture
 write_copy 'agents/codex/shared/notes.md' 'Codex notes.' drifted_block
-assert_fails 'a drifted block in an unlisted deployed file' block-drift
+assert_fails 'a drifted block in an unlisted deployed file' block-drift \
+	'agents/codex/shared/notes.md:5'
+
+# The installer copies these trees wholesale, so an ignore entry beside a
+# deployed file removes it from the scan while the installer still ships it.
+reset_fixture
+write_copy 'agents/codex/shared/notes.md' 'Codex notes.' drifted_block
+printf 'notes.md\n' >"$FIXTURE/agents/codex/shared/.ignore"
+assert_fails 'an ignore file may not hide a deployed carrier' block-drift \
+	'agents/codex/shared/notes.md:5'
 
 reset_fixture
 rm -R "$FIXTURE/agents/bob/shared"
-assert_exit_two 'a missing scan root'
+assert_exit_two 'a missing scan root' 'scan root is missing: agents/bob/shared'
 
 reset_fixture
 rm "$FIXTURE/$CANONICAL"
-assert_exit_two 'a missing canonical file'
+assert_exit_two 'a missing canonical file' "canonical file is missing: $CANONICAL"
 
 reset_fixture
-assert_exit_two 'a second argument' extra
+assert_exit_two 'a second argument' 'usage:' extra
 
 printf 'shared-standards-test: ok\n'

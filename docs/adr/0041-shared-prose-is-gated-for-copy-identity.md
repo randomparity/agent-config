@@ -89,11 +89,14 @@ authoritative and the drift returns inside a single agent's tree.
 - Bob's payload stops being a condensation for these rule sets. Accepted: a summarized
   safety rule is a different rule, and Bob is the agent currently receiving none of them.
 - Whether Bob loads its rules directory without being asked is not established by anything
-  in this repository, which links to the vendor's rules documentation and no further. If it
-  does not, Bob receives the guardrails as a reference rather than as loaded instructions,
-  and moving or mirroring the block into Bob's root file is the follow-up. The same
-  uncertainty applies to the file this record did not choose, so it does not discriminate
-  between them.
+  in this repository, which links to the vendor's rules documentation and no further. This
+  sits awkwardly beside the rejection above of a linked canonical file, which turns on a
+  root instruction file being the one an agent loads unprompted: if Bob's rules directory
+  is not loaded that way, Bob gets these rules on the weaker footing that argument
+  rejects. The uncertainty applies equally to the file this record did not choose, so it
+  does not decide between them; the issue's naming does. Confirming it against the vendor
+  documentation is tracked as follow-up work, and moving the block to Bob's root file is
+  the remedy if the answer is no.
 - The gate proves the copies agree, not that they are worth agreeing on. Three empty
   subsections would satisfy it. Review keeps them worth having, which is the division of
   labor 0038 chose.
