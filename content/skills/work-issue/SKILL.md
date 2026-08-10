@@ -348,10 +348,16 @@ verbose per-iteration findings file is droppable. Immediately after `$ship-pr`
 creates the PR, post a `WORK:REVIEW` comment on it from that summary --
 `$ship-pr` does not post it.
 
-## 9. Hand Off or Merge, Then Clean Up
+## 9. Hand Off, or Merge if Authorized
 
-Run `$merge-cleanup` to hand off (default) or merge (if operator-authorized),
-then clean up branches and worktrees.
+Run `$merge-cleanup`. Its default is hand-off: it records the hand-off, tells
+the user the PR is ready to merge, and stops there -- short of its "After a
+merge" list. A `$campaign`-dispatched run always takes that path, so hand-off
+is a terminal stop, not a step to clean up after. On that path, leave the
+branch and the worktree in place for whoever merges; the reclaim is theirs.
+
+Cleaning up branches and worktrees belongs to the operator-authorized merge
+path, where `$merge-cleanup` merged and its "After a merge" list applies.
 
 ## On a Blocker -- Park the Issue
 
