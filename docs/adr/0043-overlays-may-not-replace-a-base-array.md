@@ -152,8 +152,14 @@ settings file that is deployed and unguarded.
   base element, so a host may write `hooks.PreToolUse` with the base's entries plus its
   own. Rejected, and it is the closest call here: it costs one operator in the same
   comparison and would close the loss without closing the use cases — host-specific hooks
-  *and* host-private deny entries, both foreclosed above. What sinks it is that it makes
-  every host that customizes an array hold a copy of the base's contents in a private file.
+  *and* host-private deny entries, both foreclosed above. Be precise about what is lost: a
+  host can today write `permissions.deny` as a verbatim copy of the base's 33 entries plus
+  its own and get a working install, and after this change it cannot. That route is the one
+  containment would preserve. It is also the defect wearing a hat — it works only while the
+  copy is hand-synchronized, and the run where it drifts is the silent loss this record
+  exists to stop. What sinks containment is that it makes exactly that arrangement the
+  supported one: every host that customizes an array holds a copy of the base's contents in
+  a private file.
   That copy goes stale the moment the base gains a guard — which is the event the whole
   record exists for — and the host learns at its next install, having run unguarded in
   between.

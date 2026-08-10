@@ -205,10 +205,13 @@ second.
    today's base into a gate that fires the day a base change breaks the documented example — the
    `permissions.allow` case ADR 0009 makes plausible.
 
-6. **The empty-array exemption.** The suite's existing fixture-repo pattern already copies `agents/`
-   into `$tmpdir` and installs from the copy. Plant an empty array in the copied Claude base at a
-   path the base does not otherwise define, and install with an overlay writing a non-empty array
-   there; the run must succeed. This is the only protected-set rule with no in-repo instance, and
+6. **The empty-array exemption.** Implemented as a **second** fixture-repo run — its own copy and
+   its own destination, not an extension of the existing one, which carries unrelated assertions.
+   The suite's fixture-repo pattern already copies `install.sh`, `content/`, `agents/` and
+   `docs/licenses` into `$tmpdir`; plant an empty array in the copied Claude base at a path the base
+   does not otherwise define, and install with an overlay writing a non-empty array there. The run
+   must succeed. One extra install, against a measured ~0.1s each, so this stays within the M
+   budget. This is the only protected-set rule with no in-repo instance, and
    without a constructed one an implementer who drops the word "non-empty" from the array clause
    ships a build where every other assertion still passes — surfacing later as an abort for every
    host, at exactly the moment ADR 0043 declares safe.
