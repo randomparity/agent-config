@@ -62,7 +62,10 @@ before TDD.
    `.agent/scope-audit/` is ignored, and mint a unique, never-created report pathname there
    without touching the file. The path includes the issue and branch identity so concurrent
    runs do not share a report.
-3. Dispatch one fresh subagent to run `scope-audit` over:
+3. Dispatch one fresh subagent with no inherited conversation where the runtime supports
+   context isolation. Regardless of runtime, instruct the auditor that inherited conversation,
+   prior rationales, and reviewer conclusions are disallowed evidence and non-authoritative.
+   Run `scope-audit` over:
    - the unchanged eight-field frozen charter;
    - explicit paths to every reviewed ADR, specification, and plan associated with the run;
    - the base branch needed to inspect the design-artifact diff; and
@@ -133,6 +136,11 @@ The auditor challenges the combined proposal for unsupported guarantees, behavio
 another issue, unnecessary persistence/authentication/schema/permission/concurrency or
 operational contracts, disproportionate components/files/tests/runtime, a materially smaller
 viable approach, and dependencies on exclusions. It uses four classifications:
+
+Freshness is an evidence boundary, not merely a new agent identity. The audit uses only the
+frozen charter, enumerated artifacts, base diff, linked ownership, and repository evidence
+needed to verify that ownership. Any inherited conversation or prior conclusion is ignored and
+cannot justify a promise, component, finding disposition, or verdict.
 
 - `in-scope-required`: an apparent expansion is a necessary direct dependency and its
   criterion/provenance mapping demonstrates why;
@@ -211,6 +219,9 @@ the human-readable quality check.
 Report-envelope mutations cover a pre-existing expected path, a missing or duplicated verdict,
 missing or reordered headings, an empty section, a sentinel that is absent or not final, and
 output written only to a different path.
+
+A dispatch mutation removes the context-isolation and inherited-evidence boundary from
+`work-issue`; the prompt-contract suite must reject that fixture.
 
 ## Trust boundaries
 
