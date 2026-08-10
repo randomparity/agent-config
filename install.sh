@@ -401,8 +401,8 @@ merge_json_settings() {
 		done <<<"$erased"
 		printf 'install: an overlay may add keys and override scalars, but may not change\n' >&2
 		printf 'install:   a non-empty array or replace a non-empty object (ADR 0043).\n' >&2
-		printf 'install: nothing was deployed; the settings file already installed is\n' >&2
-		printf 'install:   unchanged and may already be missing these values.\n' >&2
+		printf 'install: no settings file was deployed for this agent; the one already\n' >&2
+		printf 'install:   installed is unchanged and may already be missing these values.\n' >&2
 		exit 1
 	fi
 	printf 'install: applied private overlay %s\n' "$overlay"

@@ -209,7 +209,7 @@ If an overlay is absent, the installer uses the public base and reports that no
 private overlay was applied. Secrets should stay in environment variables or in
 private overlay files outside this repo.
 
-The two JSON overlays — Claude `settings.overlay.json`, Bob `settings.overlay.json`
+The three JSON overlays — Claude `settings.overlay.json`, Bob `settings.overlay.json`
 and `mcp.overlay.json` — are merged under one rule, stated over the result rather
 than over what the overlay names: an overlay may add new keys and may override
 scalars and object members, but an overlay that *changes* a path the base holds as a
