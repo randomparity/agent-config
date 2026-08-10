@@ -29,9 +29,13 @@ wording of its sentences.
 
 `scripts/check-carrier-drift.sh` finds every occurrence of the carrier's first line under
 `content/skills` and requires the eight-line window at each occurrence to equal the
-canonical template byte for byte. A carrier preceded by a `CHARTER` line must carry the
-exact canonical label, because `content/skills/challenge` stops target classification on
-that literal — this is the emitter side of `docs/debt/0005`, preserved. First-line
+canonical template byte for byte. The review-dispatch carrier — identified by its
+trailing `focus:` line, in `review-loop/SKILL.md` — must be immediately preceded by the
+exact canonical `CHARTER` label, because `content/skills/challenge` stops target
+classification on that literal: an unlabelled dispatch block turns charter paths into
+review targets. The binding is to that specific occurrence, so relocating the label onto
+review-loop's other carrier fails the gate even though every count is preserved — this is
+the emitter side of `docs/debt/0005`, preserved. First-line
 discovery alone has a false negative — editing or deleting a copy's first line would make
 that copy invisible to the scan — so the gate also carries an expected-site manifest
 (file, carrier count): every listed file must contain exactly its listed number of

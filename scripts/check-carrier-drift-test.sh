@@ -111,6 +111,51 @@ replace_first_line "$label_root/content/skills/review-loop/SKILL.md" \
 	'CHARTER (reviewer may restate the fields below):'
 assert_fails 'drifted CHARTER label' "$label_root" 'CHARTER label drifted'
 
+# Relocating the canonical label onto review-loop's other carrier preserves
+# both carrier counts and the label's presence, but leaves the dispatch
+# carrier (the one followed by the focus line) unlabelled. The gate must
+# bind the label to that specific occurrence.
+reloc_root=$tmp_root/reloc
+write_skill "$reloc_root" brainstorming "# Brainstorming
+
+SCOPE CHECKPOINT
+$template
+question: <one design-selecting question>
+why design-changing: <affected scope field or normative guarantee>"
+write_skill "$reloc_root" design "# Design
+
+$template
+
+More prose.
+
+$template
+
+Even more prose.
+
+$template"
+write_skill "$reloc_root" review-loop "# Review loop
+
+$charter_label
+$template
+
+$template
+focus: <review focus, unchanged>"
+write_skill "$reloc_root" work-issue "# Work issue
+
+$template"
+assert_fails 'label relocated to the plain carrier' "$reloc_root" \
+	'review-dispatch carrier lost its canonical CHARTER label'
+
+# Dropping the focus line makes the dispatch carrier unidentifiable even with
+# the label intact; the gate fails closed rather than guessing.
+unmarked_root=$tmp_root/unmarked
+cp -R "$pass_root" "$unmarked_root"
+replace_first_line "$unmarked_root/content/skills/review-loop/SKILL.md" \
+	'focus: <review focus, unchanged>' \
+	'focus: <whatever the reviewer asks about>'
+assert_fails 'unmarked dispatch carrier' "$unmarked_root" \
+	'expected exactly one review-dispatch carrier'
+
 # Editing a carrier's first line makes it invisible to the first-line scan;
 # the site manifest must still catch it.
 anchor_root=$tmp_root/anchor

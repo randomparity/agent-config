@@ -73,7 +73,18 @@ case $status in
 esac
 
 count=0
-charter_count=0
+# The review-dispatch carrier is the one occurrence the CHARTER label belongs
+# to: it is the carrier immediately followed by the dispatch's trailing focus
+# line, and it lives in review-loop's SKILL.md. Identifying it by that suffix
+# rather than by position in a file keeps the binding exact — relocating the
+# canonical label onto review-loop's other carrier leaves the dispatch carrier
+# unlabelled, and the gate fails (challenge stops target classification on the
+# label, so an unlabelled dispatch block turns charter paths into review
+# targets).
+charter_site='review-loop/SKILL.md'
+focus_line='focus: <review focus, unchanged>'
+
+dispatch_count=0
 while IFS= read -r occurrence; do
 	file=${occurrence%%:*}
 	rest=${occurrence#*:}
@@ -81,21 +92,30 @@ while IFS= read -r occurrence; do
 	window=$(sed -n "${line},$((line + 7))p" "$file")
 	[[ $window == "$template" ]] ||
 		fail "$file:$line: carrier drifted from the canonical template"
+	above=
 	if ((line > 1)); then
 		above=$(sed -n "$((line - 1))p" "$file")
 		case $above in
 		CHARTER*)
 			[[ $above == "$charter_label" ]] ||
 				fail "$file:$((line - 1)): CHARTER label drifted from the canonical label"
-			charter_count=$((charter_count + 1))
 			;;
 		esac
+	fi
+	after=$(sed -n "$((line + 8))p" "$file")
+	if [[ $after == "$focus_line" ]]; then
+		dispatch_count=$((dispatch_count + 1))
+		[[ $file == "$skills/$charter_site" ]] ||
+			fail "$file:$line: review-dispatch carrier outside $charter_site"
+		[[ $above == "$charter_label" ]] ||
+			fail "$file:$line: review-dispatch carrier lost its canonical CHARTER label"
 	fi
 	count=$((count + 1))
 done <<<"$occurrences"
 
-((charter_count >= 1)) ||
-	fail 'no carrier carries the CHARTER label review-loop emits and challenge parses on'
+((dispatch_count == 1)) ||
+	fail "expected exactly one review-dispatch carrier (followed by '$focus_line');" \
+		"found $dispatch_count"
 
 while IFS= read -r site; do
 	site_path=${site% *}
@@ -113,4 +133,4 @@ while IFS= read -r site; do
 			'a carrier was deleted or its first line was edited'
 done <<<"$expected_sites"
 
-printf 'carrier-drift: ok (%d carriers, %d CHARTER-labelled)\n' "$count" "$charter_count"
+printf 'carrier-drift: ok (%d carriers, dispatch carrier labelled)\n' "$count"
