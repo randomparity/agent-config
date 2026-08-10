@@ -340,19 +340,72 @@ start_agent() {
 	PRUNED=0
 }
 
+# Every base path the overlay must not have erased, as newline-delimited dotted paths,
+# empty when the merge preserved everything (ADR 0043).
+#
+# jq's `*` recurses into objects and replaces arrays, so an overlay naming a base array
+# drops entries it never mentioned. The rule is stated over the merged result rather
+# than over the overlay's shape: a non-empty base array must come through identical, and
+# a non-empty base object must still be an object. Both are derived from the base on
+# each call, so a base file that grows a guarded value is covered without an edit here.
+#
+# `getpath` raises a type error rather than returning null when an ancestor stopped
+# being indexable — `{"hooks":"x"}` gives `Cannot index string with string "PreToolUse"`
+# — so the lookup is guarded; an unguarded one would abort with jq's message naming
+# neither the overlay nor the path. Only the outermost path of a mismatch is reported,
+# or replacing `hooks` would name every array and object beneath it.
+erased_base_paths() { # base merged
+	jq -rn --slurpfile base "$1" --slurpfile merged "$2" '
+		($base[0]) as $b | ($merged[0]) as $m
+		| [ $b | paths as $p
+		    | select(($b | getpath($p)) as $v
+		             | ($v | type) as $t
+		             | ($t == "array" or $t == "object") and ($v | length) > 0)
+		    | select(($b | getpath($p)) as $v
+		             | (try ($m | getpath($p)) catch null) as $after
+		             | if ($v | type) == "array"
+		               then $after != $v
+		               else ($after | type) != "object"
+		               end)
+		    | $p ] as $bad
+		| $bad
+		| map(select(. as $p
+		             | [ $bad[] | select((length < ($p | length)) and ($p[0:length] == .)) ]
+		             | length == 0))
+		| map(map(tostring) | join("."))
+		| .[]
+	'
+}
+
 merge_json_settings() {
 	local base="$1"
 	local overlay="$2"
 	local output="$3"
+	local erased
+	local erased_path
 
 	require_command jq
-	if [[ -f "$overlay" ]]; then
-		jq -s '.[0] * .[1]' "$base" "$overlay" >"$output"
-		printf 'install: applied private overlay %s\n' "$overlay"
-	else
+	if [[ ! -f "$overlay" ]]; then
 		jq '.' "$base" >"$output"
 		printf 'install: no private overlay at %s\n' "$overlay"
+		return 0
 	fi
+
+	jq -s '.[0] * .[1]' "$base" "$overlay" >"$output"
+	erased="$(erased_base_paths "$base" "$output")"
+	if [[ -n "$erased" ]]; then
+		printf 'install: private overlay %s would erase values %s defines:\n' \
+			"$overlay" "$base" >&2
+		while IFS= read -r erased_path; do
+			printf 'install:   %s\n' "$erased_path" >&2
+		done <<<"$erased"
+		printf 'install: an overlay may add keys and override scalars, but may not change\n' >&2
+		printf 'install:   a non-empty array or replace a non-empty object (ADR 0043).\n' >&2
+		printf 'install: nothing was deployed; the settings file already installed is\n' >&2
+		printf 'install:   unchanged and may already be missing these values.\n' >&2
+		exit 1
+	fi
+	printf 'install: applied private overlay %s\n' "$overlay"
 }
 
 emit_root_settings() {
