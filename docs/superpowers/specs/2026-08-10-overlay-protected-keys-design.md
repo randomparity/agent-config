@@ -41,13 +41,16 @@ and warn-and-continue.
 | Overlay that adds an array at a path the base does not define, or replaces an empty base container (`[]` or `{}`) | Merged and kept. This is what `permissions.allow` in the example host does. |
 | Overlay that writes a path the base holds as a non-empty array — **extending it included** — or turns a base object into a non-object, by naming its path or by replacing an ancestor | **Abort the install**, naming the overlay file and every base path the merge would not have preserved. Write no output. |
 
-The protected set is computed from the base on each merge, in two clauses: every path whose value
-is a **non-empty array** must be identical in the merged output, and every path whose value is an
-**object** must still hold an object there. The second clause is what stops `"env": null` from
-dropping the base's whole `env` subtree while the array check still passes. Scalars and empty base
-containers are unprotected, because replacing either erases nothing the overlay author did not
-name; `agents/bob/shared/settings.base.json` (`{}`) and `mcpServers` in `agents/bob/shared/mcp.json`
-(`{}`) sit on that exemption today.
+The rule is normative over the merged result, in two clauses computed from the base on each merge:
+every path whose value is a **non-empty array** must be identical in the merged output, and every
+path whose value is an **object** must still hold an object there. The second clause's unique
+contribution is the scalar-only objects — `env` and `statusLine` — since any object with a
+protected array beneath it already fails the first clause; it is what stops `"env": null` from
+silently re-enabling the telemetry the base disables. Scalars and empty base containers are
+unprotected, because replacing either erases nothing the overlay author did not name;
+`agents/bob/shared/settings.base.json` (`{}`) and `mcpServers` in `agents/bob/shared/mcp.json`
+(`{}`) sit on that exemption today. An overlay that reproduces a base array verbatim passes, and
+aborts at the next base change.
 
 The check is expressed over the merge output rather than over the overlay's shape: after computing
 `.[0] * .[1]` into a temporary file, each protected base path is compared against the result. One

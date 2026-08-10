@@ -33,21 +33,31 @@ mechanism shipped.
 
 ## Decision
 
-**An overlay may add a path the base does not define, and may override a scalar the base
-defines. It may not write a path the base holds as a non-empty array — extending that array
-included — and it may not replace a base object with a non-object.**
+**A non-empty array the base defines must survive the merge unchanged, and an object the
+base defines must still be an object after it. An overlay that breaks either is a hard
+install failure.**
 
-Both clauses are checked against the merged output, and both are **derived from the base
-file at merge time** rather than enumerated in `install.sh`: after computing `.[0] * .[1]`,
-a non-empty base array must be *identical* in the result, and a base object must still be
-*an object* there.
+The rule is normative over the *merged result*, not over what the overlay may write,
+because the result is what the installer can check and what an assertion against a deployed
+file can verify. Both clauses are **derived from the base file at merge time** rather than
+enumerated in `install.sh`: after computing `.[0] * .[1]`, a non-empty base array must be
+identical in the result, and a base object must still be an object there.
 
-The first clause is the reported defect. The second closes the same loss by the other
-route: `*` merges two objects harmlessly, but an overlay writing `"env": null` or
-`"env": "off"` replaces the whole subtree and drops every base member of it, with the
-arrays elsewhere still intact and the check on them still passing. Requiring the base's
-objects to stay objects is sufficient, because once `*` recurses, every base member
-survives unless the overlay names it.
+In practice that means an overlay must not write a path the base holds as a non-empty array
+— extending it included, since a longer array is not an identical one. An overlay that
+reproduces the base's array *verbatim* does pass, and will abort the first time the base
+changes: that is the stale-copy failure the containment alternative is rejected for below,
+reached only by a host that chose to hold the copy.
+
+The first clause is the reported defect. The second is narrower than it looks, and worth
+being precise about: any base object with a non-empty array beneath it is *already* covered
+by the first clause, since `"hooks": null` makes `hooks.PreToolUse` absent from the result
+and the array check fails. What the second clause uniquely protects, in today's base, is the
+objects holding only scalars — `env` and `statusLine`. That is deliberate. `env` carries
+`DISABLE_TELEMETRY`, `DISABLE_ERROR_REPORTING` and `CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY`,
+so an overlay writing `"env": null` silently re-enables telemetry the repository turned off
+for everyone. Losing those four together is worth a clause even though losing any one of
+them by name is not.
 
 Scalars are unprotected: overriding one loses only the value the overlay named, which is
 what an overlay is for. An **empty** base container — array or object — is unprotected for
@@ -87,8 +97,10 @@ settings file that is deployed and unguarded.
   surface.** Adding one at a path some host's private overlay already writes aborts that
   host's next install — and overlays are private, so no CI run, no test here, and no
   reviewer of the base-file change can see it coming. Such a base-file change is a contract
-  change and gets called out as one. Seeding a key with `[]` is deliberately not, per the
-  empty-array exemption above.
+  change and gets called out as one. Seeding a key with `[]` is deliberately not — but it is
+  the first half of a two-step break, because hosts start writing the path while it is empty
+  and every one of them aborts when the base puts its first real entry there. That later
+  edit is the contract change, and it is the one to call out.
 - **The guarantee covers what the installer writes, not what is already deployed.** A host
   whose current `settings.json` was produced by a clobbering overlay stays unguarded until
   the overlay is fixed and the install re-run — and the abort *lengthens* that window,
@@ -104,10 +116,23 @@ settings file that is deployed and unguarded.
 
 ## Considered & rejected
 
-- **Deep-merge with array union.** Rejected: `hooks.PreToolUse` is order-bearing and
-  duplicate-sensitive, so unioning the base's real hooks arrays with an overlay's produces
-  a hook list nobody authored. A rule that is defensible for a set like `permissions.deny`
-  and corrupting for an ordered list trades a loud loss for a quiet one.
+- **Deep-merge with array *union*** — combine both sides as sets. Rejected on set semantics
+  specifically: `hooks.PreToolUse` is order-bearing and duplicate-sensitive, so reordering
+  and de-duplicating it produces a hook list nobody authored.
+- **Base-first *concatenation*** — where the base holds a non-empty array and the overlay
+  writes that path, emit the base's elements in order followed by the overlay's. This is a
+  genuinely different option from union and the strongest one here: the guards are preserved
+  structurally rather than by a check a refactor could skip, no host holds a copy of the base
+  so nothing goes stale, no second overlay grammar is added, and it would close the
+  host-private deny gap now deferred to #118. Rejected on two grounds that apply to it and
+  not to union. First, it answers an overlay that writes a guarded path — an author who
+  believes they are replacing — by silently appending instead, so the operator's mistaken
+  intent produces a settings file they did not write and no message says so; this record's
+  complaint against the status quo is silence, and quiet reinterpretation is a poorer trade
+  than the loud stop. Second, strictness is the reversible direction: abort can be loosened
+  to concatenation on a real request without breaking any host, while concatenation cannot
+  later be tightened without breaking every host that came to rely on appending. It also
+  does not address the object route, so the second clause would be needed regardless.
 - **Apply the overlay, then reassert the base's protected values.** Rejected: it keeps the
   guards but makes the overlay's stated intent vanish without a word, replacing one silent
   failure with another. An operator who writes `hooks.PreToolUse` and sees a clean install
