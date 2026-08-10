@@ -5,6 +5,10 @@ set -euo pipefail
 # them: the hook body is read out of settings.base.json and fed a tool_input JSON
 # object on standard input. Both directions are asserted — a hook that blocks
 # legitimate work is worked around, which is worse than no hook at all.
+#
+# Settings overlays replace arrays rather than merging them, so a private
+# settings.overlay.json that defines hooks.PreToolUse drops every hook asserted here.
+# Overlays must leave `hooks` alone.
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 SETTINGS="$ROOT/agents/claude/shared/settings.base.json"
@@ -71,6 +75,11 @@ assert_blocked "$CLEAN_HOOK" 'git clean hook' 'git --no-pager clean -fd'
 assert_blocked "$CLEAN_HOOK" 'git clean hook' $'git status\ngit clean -fd'
 assert_blocked "$CLEAN_HOOK" 'git clean hook' '(git clean -fd)'
 assert_blocked "$CLEAN_HOOK" 'git clean hook' '{ git clean -fd; }'
+assert_blocked "$CLEAN_HOOK" 'git clean hook' 'for d in a b; do git clean -fd; done'
+assert_blocked "$CLEAN_HOOK" 'git clean hook' 'git status & git clean -fd'
+# git accepts any unambiguous abbreviation of --force.
+assert_blocked "$CLEAN_HOOK" 'git clean hook' 'git clean --f -d'
+assert_blocked "$CLEAN_HOOK" 'git clean hook' 'cd /tmp; git clean --fo'
 
 # Forms that cannot force-delete stay legal.
 assert_allowed "$CLEAN_HOOK" 'git clean hook' 'git clean -n'
@@ -109,13 +118,24 @@ assert_blocked "$MASK_HOOK" 'masked exit hook' 'just ci | rg -n error'
 assert_blocked "$MASK_HOOK" 'masked exit hook' 'just ci 2>&1 | tail -20'
 assert_blocked "$MASK_HOOK" 'masked exit hook' 'just ci 2>&1 | grep -i error'
 assert_blocked "$MASK_HOOK" 'masked exit hook' 'just verify 2>&1 | head'
+assert_blocked "$MASK_HOOK" 'masked exit hook' 'just ci >>/dev/null'
+assert_blocked "$MASK_HOOK" 'masked exit hook' 'just ci >&/dev/null'
+assert_blocked "$MASK_HOOK" 'masked exit hook' 'just ci || :'
+# tee is legal, but a filter after it masks exactly as much as one without it.
+assert_blocked "$MASK_HOOK" 'masked exit hook' 'just ci | tee /tmp/ci.log | grep -i error'
+assert_blocked "$MASK_HOOK" 'masked exit hook' 'just ci 2>&1 | tee /tmp/ci.log | tail -20'
 # pipefail rescues the pipe, not a discarded or swallowed exit code.
 assert_blocked "$MASK_HOOK" 'masked exit hook' 'set -o pipefail; just ci >/dev/null'
 assert_blocked "$MASK_HOOK" 'masked exit hook' 'set -o pipefail; just ci || true'
+# The escape must occupy a command position ahead of the run, not appear anywhere.
+assert_blocked "$MASK_HOOK" 'masked exit hook' 'just ci | tail # set -o pipefail'
+assert_blocked "$MASK_HOOK" 'masked exit hook' 'just ci | tail; set -o pipefail'
+assert_blocked "$MASK_HOOK" 'masked exit hook' 'echo set -o pipefail && just ci | tail'
 
 # tee logging, bare runs, the documented pipefail escape, and unrelated pipelines
 # stay legal.
 assert_allowed "$MASK_HOOK" 'masked exit hook' 'set -o pipefail; just ci | tail -50'
+assert_allowed "$MASK_HOOK" 'masked exit hook' 'set -o pipefail && just ci | tail -50'
 assert_allowed "$MASK_HOOK" 'masked exit hook' 'just ci > /tmp/ci.log'
 assert_allowed "$MASK_HOOK" 'masked exit hook' 'just ci | rgx-report'
 assert_allowed "$MASK_HOOK" 'masked exit hook' 'just ci'
@@ -128,5 +148,11 @@ assert_allowed "$MASK_HOOK" 'masked exit hook' 'gh pr checks 1 | grep fail'
 assert_allowed "$MASK_HOOK" 'masked exit hook' 'rg -n "just ci | tail" AGENTS.md'
 # tail/head/grep is a prefix of longer commands that mask nothing.
 assert_allowed "$MASK_HOOK" 'masked exit hook' 'just ci | tailscale-status'
+
+# Accepted false positive, pinned so it is discoverable rather than surprising: grep
+# treats every line of a multi-line command as its own command position, so banned text
+# inside a heredoc blocks too. Write such files with the editor tool, not a heredoc.
+assert_blocked "$CLEAN_HOOK" 'git clean hook' $'cat >note.md <<EOF\ngit clean -fd\nEOF'
+assert_blocked "$MASK_HOOK" 'masked exit hook' $'cat >note.md <<EOF\njust ci | tail\nEOF'
 
 printf 'claude-settings-hooks-test: ok\n'
