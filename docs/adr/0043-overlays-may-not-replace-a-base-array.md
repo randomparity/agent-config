@@ -61,10 +61,13 @@ them by name is not.
 
 Scalars are unprotected: overriding one loses only the value the overlay named, which is
 what an overlay is for. An **empty** base container — array or object — is unprotected for
-the same reason: replacing `[]` or `{}` erases nothing. That exemption is load-bearing, and
-it is not hypothetical, because `agents/bob/shared/settings.base.json` is `{}` and
-`agents/bob/shared/mcp.json` seeds `mcpServers` as `{}` today. Without it, seeding a base
-key with an empty default would break every host already writing that key.
+the same reason: replacing `[]` or `{}` erases nothing. That exemption does its work in the
+array clause, where without it seeding a base key with `[]` would abort every host already
+writing that key. It is inert in the object clause, which asks only that an object remain an
+object and is satisfied by `{}` either way — so `agents/bob/shared/settings.base.json` and
+the `mcpServers` object in `agents/bob/shared/mcp.json`, both `{}` today, are unaffected by
+it rather than evidence for it. No base file holds an empty array today, which makes this
+the one protected-set rule with no in-repo instance and the one a test has to construct.
 
 Failure is loud: the install aborts, naming the overlay file and each path it would have
 erased, and saying that the currently deployed settings file is unchanged and may already
