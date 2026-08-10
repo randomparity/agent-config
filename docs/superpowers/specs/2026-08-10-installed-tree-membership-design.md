@@ -21,10 +21,12 @@ say. A file dropped into one of these directories therefore installs into every 
 agent configuration with nothing asking whether it belongs. Record 0041 disclosed this as an
 open residual.
 
-`content/skills` is already shape-gated by `check-skill-layout.sh`: every child must be a
-skill directory, symlinks and non-regular files are forbidden anywhere under it, and path
-components are constrained. It is also the tree whose growth is routine. It stays out of this
-design; the other three are in.
+`content/skills` stays out of this design, on the grounds recorded in 0045: its growth is the
+routine act, and `check-skill-layout.sh` covers part of the surface — every *top-level* child
+must be a skill directory, and a whole-tree walk forbids symlinks and non-regular files and
+constrains every path component. It does not ask which files may exist inside a skill
+directory, so a file added there still deploys unchecked. That residual is recorded, not
+closed.
 
 ## Goal
 
@@ -35,8 +37,9 @@ if a manifest declares it, and `just verify` is red until that is true in both d
 
 - Changing what `install.sh` deploys, or how. This adds detection only.
 - Gating `content/skills` membership, or the contents of any listed file.
-- Detecting a *new* wholesale-installed tree added to `install.sh` and not to the manifest.
-  Nothing can, short of parsing the installer; a comment at each call site is the coupling.
+- Detecting a *new* wholesale-installed tree added to `install.sh` and not to the manifest. A
+  comment at each call site is the coupling; making it detectable is its own design decision
+  and has its own issue.
 
 ## The gate
 
@@ -47,7 +50,9 @@ script's own, which is how the suite points it at a fixture — the same contrac
 
 ### Data
 
-Two literals in the script:
+Two literals in the script — inline rather than in a data file beside it, following
+`check-shared-standards.sh`, because the lists are short and mean nothing apart from the
+comparison that consumes them:
 
 - the declared trees, repo-relative: `agents/bob/shared/rules`, `content/languages`,
   `content/references`;
@@ -59,9 +64,16 @@ references, and one orchestration reference.
 ### Enumeration
 
 Every entry under a declared tree that is not a directory is a member: regular files,
-symlinks, and dot-prefixed and gitignored files alike, because `cp -pR` copies all of them.
+symlinks, and dot-prefixed and ignored files alike, because `cp -pR` copies all of them.
 `find <trees> ! -type d -print0` produces exactly that set and has no ignore logic to defeat,
 which is why it is used here in place of the repository's usual `rg`.
+
+The ignored case is reachable where it counts, not only in a dirty working tree: ripgrep
+applies `.gitignore` to *tracked* files too, so a tracked file the repository also ignores is
+shipped by `cp -pR` and skipped by a default ripgrep scan, in CI as much as locally. The cost
+of reading no ignore rules is that untracked local debris under one of the three trees turns
+a local `just verify` red — neither `verify-push.sh`, which rehearses in a detached worktree
+of the pushed objects, nor CI on a clean checkout sees it.
 
 ### Comparison and verdicts
 
