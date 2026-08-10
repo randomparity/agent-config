@@ -255,6 +255,17 @@ assert_package_case() {
 	assert_fails "$expected" "$root"
 }
 
+assert_invalid_utf8() { # label bytes
+	local label="$1"
+	local bytes="$2"
+	local root
+
+	root="$(new_fixture)"
+	printf 'malformed %s: %b\n' "$label" "$bytes" \
+		>>"$root/content/skills/skill-01/SKILL.md"
+	assert_fails 'content/skills/skill-01/SKILL.md: file must be valid UTF-8' "$root"
+}
+
 for inventory_name in 'content/skills:skill-01' \
 	'examples/project-review-skills:accessibility-reviewer'; do
 	inventory="${inventory_name%%:*}"
@@ -265,6 +276,79 @@ for inventory_name in 'content/skills:skill-01' \
 		assert_package_case "$package_case" "$inventory" "$name"
 	done
 done
+
+# The `invalid-utf8` package case above is one byte the grammar rejects. These are
+# the classes a hand-written acceptor gets wrong: admit any of them and the gate is
+# weaker than the `iconv` call it replaced (issue #101). Written as octal escapes
+# because the rule is about bytes -- a surrogate or an overlong encoding has no
+# character to write literally. Each goes in the body of an otherwise-valid skill,
+# so the case fails on the UTF-8 rule rather than on frontmatter it also broke.
+assert_invalid_utf8 'lone continuation byte' '\0200'
+assert_invalid_utf8 'unexpected continuation after ASCII' 'a\0277'
+assert_invalid_utf8 'truncated two-byte sequence' '\0303'
+assert_invalid_utf8 'truncated three-byte sequence' '\0342\0200'
+assert_invalid_utf8 'truncated four-byte sequence' '\0360\0237\0232'
+assert_invalid_utf8 'bad continuation byte' '\0342\0200\0101'
+assert_invalid_utf8 'overlong two-byte solidus' '\0300\0257'
+assert_invalid_utf8 'overlong two-byte lead' '\0301\0277'
+assert_invalid_utf8 'overlong three-byte solidus' '\0340\0200\0257'
+assert_invalid_utf8 'overlong four-byte solidus' '\0360\0200\0200\0257'
+assert_invalid_utf8 'lone high surrogate U+D800' '\0355\0240\0200'
+assert_invalid_utf8 'lone low surrogate U+DFFF' '\0355\0277\0277'
+assert_invalid_utf8 'first scalar above U+10FFFF' '\0364\0220\0200\0200'
+assert_invalid_utf8 'lead byte outside the grammar' '\0365\0200\0200\0200'
+assert_invalid_utf8 'byte that never appears in UTF-8' '\0376\0377'
+
+# rg stops reading at the first NUL unless it is told the input is text, and a file
+# whose scan ended early reports as well-formed. The bad byte sits after the NUL, so
+# this passes for any validator that lets binary detection cut the scan short.
+root="$(new_fixture)"
+{
+	printf '%b\n' '---\nname: skill-01\ndescription: "Test skill."\n---'
+	printf '%b\n' '# Body\0000 then \0377 after the NUL'
+} >"$root/content/skills/skill-01/SKILL.md"
+assert_fails 'content/skills/skill-01/SKILL.md: file must be valid UTF-8' "$root"
+
+# rg transcodes a UTF-16 file on sight of its BOM, and the transcoded text is
+# well-formed by construction -- so without BOM sniffing turned off the validator
+# reads UTF-16 as valid UTF-8. Whole-file, because a BOM only counts at offset 0.
+root="$(new_fixture)"
+printf '%b' '\0377\0376h\0000e\0000l\0000l\0000o\0000' \
+	>"$root/content/skills/skill-01/SKILL.md"
+assert_fails 'content/skills/skill-01/SKILL.md: file must be valid UTF-8' "$root"
+
+# The case the replaced gate could not hold green: Apple's iconv CLI rejected a
+# valid UTF-8 skill file by position rather than by content, and the workaround was
+# to strip that file back to ASCII (issue #101, PR #99). Every well-formed width
+# has to pass -- including the 4-byte sequences no skill file carries yet, and the
+# two scalars at the edges of the grammar.
+utf8_root="$(new_fixture)"
+{
+	printf '%b\n' 'caf\0303\0251 \0342\0200\0224 dash \0342\0206\0222 arrow'
+	printf '%b\n' 'CJK \0344\0270\0255\0346\0226\0207 emoji \0360\0237\0232\0200'
+	printf '%b\n' 'first \0302\0200 last \0364\0217\0277\0277'
+} >>"$utf8_root/content/skills/skill-01/SKILL.md"
+output="$(cd "$utf8_root" && bash scripts/check-skill-layout.sh)"
+[[ "$output" == 'skills-check: ok (1 canonical skills, 1 project review examples)' ]] ||
+	fail "valid multi-byte UTF-8 must pass: $output"
+
+# rg applies RIPGREP_CONFIG_PATH before the arguments it is given, so a developer's
+# personal config decides what the UTF-8 pattern means: under `--fixed-strings` the
+# grammar becomes a literal that matches no line, every line reads as malformed, and
+# the gate rejects skill files that are fine -- and the config-root patterns become
+# literals that match nothing, so a real violation reports clean. Both directions are
+# pinned: a flag that only holds one of them would not be worth carrying.
+rg_config="$tmpdir/ripgreprc"
+printf '%s\n' '--fixed-strings' >"$rg_config"
+export RIPGREP_CONFIG_PATH="$rg_config"
+output="$(cd "$utf8_root" && bash scripts/check-skill-layout.sh)"
+[[ "$output" == 'skills-check: ok (1 canonical skills, 1 project review examples)' ]] ||
+	fail "a personal rg config must not fail a clean tree: $output"
+case_count=$((case_count + 1))
+root="$(new_fixture)"
+printf '%s\n' 'Use ~/.codex/skills here.' >>"$root/content/skills/skill-01/SKILL.md"
+assert_fails 'installed config-root reference is forbidden' "$root"
+unset RIPGREP_CONFIG_PATH
 
 # Both rules below are ranges rewritten as explicit ASCII enumerations. Under a
 # territory UTF-8 locale the range forms admit accented letters, so these two
@@ -360,13 +444,29 @@ if [[ "$EUID" -ne 0 ]]; then
 	chmod 644 "$root/content/languages/unreadable.md"
 fi
 
+# Every command the gate runs apart from rg. `iconv` is deliberately absent: the
+# UTF-8 rule stopped shelling out to it in issue #101, and the case below is what
+# stops it coming back -- a PATH holding exactly the declared prerequisites has to
+# validate multi-byte content, not fail closed on a tool nobody installs.
+shim_tools=(dirname mktemp find sed jq wc tr sort cut uniq rm)
+
+utf8_shim="$tmpdir/utf8-shim-bin"
+mkdir -p "$utf8_shim"
+for shim_tool in "${shim_tools[@]}" rg; do
+	ln -s "$(command -v "$shim_tool")" "$utf8_shim/$shim_tool"
+done
+output="$(cd "$utf8_root" && PATH="$utf8_shim" "$BASH" scripts/check-skill-layout.sh)"
+[[ "$output" == 'skills-check: ok (1 canonical skills, 1 project review examples)' ]] ||
+	fail "gate must validate UTF-8 with only its declared prerequisites: $output"
+case_count=$((case_count + 1))
+
 # An absent rg has to be an error too: `if rg -Fxq` reads exit 127 as "not a
 # reserved name" and the config-root scan read it as "no matches". The shim
 # directory holds every other command the gate runs, so the failure below is the
 # rg guard rather than whichever tool PATH happened to drop first.
 shim_bin="$tmpdir/shim-bin"
 mkdir -p "$shim_bin"
-for shim_tool in dirname mktemp find iconv sed jq wc tr sort cut uniq rm; do
+for shim_tool in "${shim_tools[@]}"; do
 	ln -s "$(command -v "$shim_tool")" "$shim_bin/$shim_tool"
 done
 root="$(new_fixture)"

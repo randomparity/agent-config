@@ -6,6 +6,13 @@ set -euo pipefail
 # reserved", and the config-root scan took it for "no matches". An absent rg
 # would therefore pass this gate rather than fail it, so refuse up front the way
 # check-deployed-references.sh does.
+#
+# Present is not enough, so every rg call below also carries --no-config: rg reads
+# RIPGREP_CONFIG_PATH before its own arguments, and a developer's personal config
+# then decides what these rules match. `--fixed-strings` alone breaks the gate in
+# both directions at once -- the UTF-8 grammar becomes a literal that matches no
+# line, so every skill file reads as malformed, and the config-root patterns become
+# literals that match nothing, so a real violation reports clean.
 if ! command -v rg >/dev/null 2>&1; then
 	printf 'skills-check: rg is required\n' >&2
 	exit 2
@@ -23,6 +30,36 @@ fi
 ascii_lower_digit='abcdefghijklmnopqrstuvwxyz0123456789'
 ascii_alnum="ABCDEFGHIJKLMNOPQRSTUVWXYZ$ascii_lower_digit"
 readonly ascii_lower_digit ascii_alnum
+
+# The UTF-8 rule below used to shell out to `iconv -f UTF-8 -t UTF-8`. Apple's CLI
+# reads its input in fixed-size chunks and batches conversions across them, and
+# rejects some well-formed files by where their multi-byte characters land rather
+# than by what those characters are: the macOS leg failed a skill file that GNU
+# iconv, `isutf8` and Python all accept, under a message naming the wrong cause
+# (issue #101). `iconv` was an undeclared prerequisite besides. rg decides it
+# instead -- this script already refuses to run without rg, `install-tools.sh`
+# declares it, and both CI legs install the same binary, so the rule now costs no
+# dependency the gate did not already have and answers the same on either.
+#
+# Unicode table 3-7 written as bytes, one alternative per well-formed sequence.
+# The narrow lead and trail ranges are the substance, not decoration: they are what
+# rejects overlong encodings (no \xC0-\xC1; \xE0 needs \xA0-\xBF; \xF0 needs
+# \x90-\xBF), UTF-16 surrogates (\xED stops at \x9F) and scalars above U+10FFFF
+# (\xF4 stops at \x8F; no \xF5-\xFF). GNU iconv accepts that last class, so a
+# faithful port of the old behaviour would have been laxer than its own message.
+utf8_scalar='[\x00-\x7F]'
+utf8_scalar+='|[\xC2-\xDF][\x80-\xBF]'
+utf8_scalar+='|\xE0[\xA0-\xBF][\x80-\xBF]'
+utf8_scalar+='|[\xE1-\xEC][\x80-\xBF]{2}'
+utf8_scalar+='|\xED[\x80-\x9F][\x80-\xBF]'
+utf8_scalar+='|[\xEE-\xEF][\x80-\xBF]{2}'
+utf8_scalar+='|\xF0[\x90-\xBF][\x80-\xBF]{2}'
+utf8_scalar+='|[\xF1-\xF3][\x80-\xBF]{3}'
+utf8_scalar+='|\xF4[\x80-\x8F][\x80-\xBF]{2}'
+# `(?-u)` is what lets the classes name raw bytes; the anchors make the match the
+# whole line rather than some well-formed run inside it.
+utf8_line="(?-u)^(?:$utf8_scalar)*\$"
+readonly utf8_scalar utf8_line
 
 skill_error() {
 	local path="$1"
@@ -132,6 +169,33 @@ validate_portable_tree() {
 	[[ -z "$duplicate" ]] || skill_error "$inventory" 'ASCII case-fold path collision'
 }
 
+# rg splits on the line terminator before matching, and a terminator byte cannot
+# occur inside a well-formed sequence -- so "every line is a run of well-formed
+# sequences" is exactly "the file is well-formed UTF-8", and a sequence truncated at
+# end of line fails the anchors instead of running into the next line.
+#
+# --encoding none turns off the BOM sniffing that would otherwise transcode a UTF-16
+# file and report its bytes as valid UTF-8. --text disables binary detection, which
+# rg documents as stopping the search at the first NUL: a file explicitly named on
+# the command line is scanned to the end today whatever the flag says, so this pins
+# the guarantee rather than the current behaviour -- a NUL byte ahead of a malformed
+# sequence must not end the scan and report the file clean. `check-skill-layout-test.sh`
+# covers the NUL case, and it passes either way; that is why the flag stays.
+validate_utf8() {
+	local file="$1"
+	local relative="$2"
+	local status=0
+
+	rg --text --encoding none --no-config --invert-match --quiet \
+		-- "$utf8_line" "$file" 2>"$workspace/utf8-error" || status=$?
+	# 0 = a line that is not well-formed, 1 = every line is, 2+ = no scan happened.
+	case "$status" in
+	0) skill_error "$relative" 'file must be valid UTF-8' ;;
+	1) ;;
+	*) skill_error "$relative" "UTF-8 scan failed: $(<"$workspace/utf8-error")" ;;
+	esac
+}
+
 validate_frontmatter() {
 	local skill_dir="$1"
 	local inventory="$2"
@@ -142,8 +206,7 @@ validate_frontmatter() {
 
 	[[ -f "$file" && ! -L "$file" ]] ||
 		skill_error "$relative" 'required regular file is missing'
-	iconv -f UTF-8 -t UTF-8 "$file" >/dev/null 2>&1 ||
-		skill_error "$relative" 'file must be valid UTF-8'
+	validate_utf8 "$file" "$relative"
 	line1="$(sed -n '1p' "$file")"
 	line2="$(sed -n '2p' "$file")"
 	line3="$(sed -n '3p' "$file")"
@@ -158,7 +221,7 @@ validate_frontmatter() {
 	printf '%s' "$description" | jq -e \
 		'type == "string" and length >= 1 and length <= 1024' >/dev/null 2>&1 ||
 		skill_error "$relative" 'description must contain 1-1024 Unicode scalars'
-	sed -n '5,$p' "$file" | rg -q '[^[:space:]]' ||
+	sed -n '5,$p' "$file" | rg --no-config -q '[^[:space:]]' ||
 		skill_error "$relative" 'non-empty Markdown must follow frontmatter'
 }
 
@@ -171,7 +234,7 @@ validate_skill() {
 		"$name" == *--* || ${#name} -gt 64 ]]; then
 		skill_error "$inventory/$name" 'invalid skill name'
 	fi
-	if rg -Fxq "$name" "$reserved"; then
+	if rg --no-config -Fxq "$name" "$reserved"; then
 		skill_error "$inventory/$name" 'reserved skill name'
 	fi
 	validate_frontmatter "$skill_dir" "$inventory"
@@ -213,7 +276,8 @@ scan_config_roots() { # results-file rg-argument...
 	local status=0
 	shift
 
-	rg -l --hidden --no-ignore "$@" >>"$results" 2>"$workspace/rg-error" || status=$?
+	rg --no-config -l --hidden --no-ignore "$@" >>"$results" 2>"$workspace/rg-error" ||
+		status=$?
 	# 0 = matches, 1 = no matches, anything else = the scan did not happen.
 	[[ "$status" -le 1 ]] ||
 		skill_error 'content' "config-root scan failed: $(<"$workspace/rg-error")"
