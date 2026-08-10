@@ -294,12 +294,18 @@ validate_inventory() {
 # reports clean. Every file these roots deliver today is text, so the flag only costs
 # reading an asset that would otherwise be skipped -- the direction a gate should err
 # in, since the alternative is a delivery the scan never saw.
+#
+# --encoding none closes the same hole through the other door. rg sniffs a leading
+# UTF-16 BOM and transcodes on the strength of two bytes, so a UTF-8 file that merely
+# begins \xFF\xFE is decoded as UTF-16, and the reference the scan is looking for
+# comes out as mojibake that matches nothing. Reading raw bytes is also what
+# validate_utf8 does, so both rules now see the file the installer will copy.
 scan_config_roots() { # results-file rg-argument...
 	local results="$1"
 	local status=0
 	shift
 
-	rg --no-config --text -l --hidden --no-ignore "$@" >>"$results" \
+	rg --no-config --text --encoding none -l --hidden --no-ignore "$@" >>"$results" \
 		2>"$workspace/rg-error" || status=$?
 	# 0 = matches, 1 = no matches, anything else = the scan did not happen.
 	[[ "$status" -le 1 ]] ||

@@ -309,9 +309,12 @@ assert_fails \
 	'content/skills/skill-01/SKILL.md: file must be valid UTF-8 (first malformed line 7)' \
 	"$root"
 
-# rg stops reading at the first NUL unless it is told the input is text, and a file
-# whose scan ended early reports as well-formed. The bad byte sits after the NUL, so
-# this passes for any validator that lets binary detection cut the scan short.
+# rg documents binary detection as ending the search at the first NUL, and a file whose
+# scan ended early reports as well-formed. A file named explicitly on the command line
+# is read to the end today whichever way --text is set, so this case passes either way:
+# it pins the guarantee the flag buys, not a defect the flag currently fixes. The
+# config-root scan above is where the same detection does bite, because it walks a
+# directory rather than naming a file.
 root="$(new_fixture)"
 {
 	printf '%b\n' '---\nname: skill-01\ndescription: "Test skill."\n---'
@@ -348,17 +351,25 @@ output="$(cd "$utf8_root" && bash scripts/check-skill-layout.sh)"
 # the gate rejects skill files that are fine -- and the config-root patterns become
 # literals that match nothing, so a real violation reports clean. Both directions are
 # pinned: a flag that only holds one of them would not be worth carrying.
+#
+# One option per run, not both in one file. `--fixed-strings` reaches the three calls
+# that pass a regex; `--invert-match` reaches the reserved-name check, which already
+# passes -F and so cannot notice that one. Together they cancel on the Markdown-body
+# check -- inverted, every line lacks the literal `[^[:space:]]`, so the rule answers
+# correctly by accident and the flag can be deleted from it with the suite still green.
 rg_config="$tmpdir/ripgreprc"
-printf '%s\n' '--fixed-strings' >"$rg_config"
-export RIPGREP_CONFIG_PATH="$rg_config"
-output="$(cd "$utf8_root" && bash scripts/check-skill-layout.sh)"
-[[ "$output" == 'skills-check: ok (1 canonical skills, 1 project review examples)' ]] ||
-	fail "a personal rg config must not fail a clean tree: $output"
-case_count=$((case_count + 1))
-root="$(new_fixture)"
-printf '%s\n' 'Use ~/.codex/skills here.' >>"$root/content/skills/skill-01/SKILL.md"
-assert_fails 'installed config-root reference is forbidden' "$root"
-unset RIPGREP_CONFIG_PATH
+for rg_option in '--fixed-strings' '--invert-match'; do
+	printf '%s\n' "$rg_option" >"$rg_config"
+	export RIPGREP_CONFIG_PATH="$rg_config"
+	output="$(cd "$utf8_root" && bash scripts/check-skill-layout.sh)"
+	[[ "$output" == 'skills-check: ok (1 canonical skills, 1 project review examples)' ]] ||
+		fail "rg config $rg_option must not fail a clean tree: $output"
+	case_count=$((case_count + 1))
+	root="$(new_fixture)"
+	printf '%s\n' 'Use ~/.codex/skills here.' >>"$root/content/skills/skill-01/SKILL.md"
+	assert_fails 'installed config-root reference is forbidden' "$root"
+	unset RIPGREP_CONFIG_PATH
+done
 
 # Both rules below are ranges rewritten as explicit ASCII enumerations. Under a
 # territory UTF-8 locale the range forms admit accented letters, so these two
@@ -448,6 +459,13 @@ assert_fails "$repo_state_error" "$root"
 # gate printed ok. The scan reads it as text now; this is what keeps it doing so.
 root="$(new_fixture)"
 printf '%b' 'lead\0000\nUse ~/.claude/skills here.\n' >"$root/content/languages/binary.md"
+assert_fails 'installed config-root reference is forbidden' "$root"
+
+# The same hole through the other door: two leading bytes that look like a UTF-16 BOM
+# make rg transcode a file that is really UTF-8, and the reference comes out as
+# mojibake matching nothing. The content after the prefix is deliberately ordinary.
+root="$(new_fixture)"
+printf '%b' '\0377\0376Use ~/.claude/skills here.\n' >"$root/content/languages/bom.md"
 assert_fails 'installed config-root reference is forbidden' "$root"
 
 # rg exits 2 for any scan it could not complete, and the gate used to read that
