@@ -67,10 +67,23 @@ references, and one orchestration reference.
 
 ### Enumeration
 
-Every entry under a declared tree that is not a directory is a member: regular files,
+The tree list is filtered with `-d` before anything else, so only surviving directories reach
+`find`. A declared tree that is absent, or present as a regular file or a symlink, contributes
+no members.
+
+Every entry under a surviving tree that is not a directory is a member: regular files,
 symlinks, and dot-prefixed and ignored files alike, because `cp -pR` copies all of them.
 `find <trees> ! -type d -print0` produces exactly that set and has no ignore logic to defeat,
 which is why it is used here in place of the repository's usual `rg`.
+
+A member that is not a regular file is a finding whatever the manifest says. `cp -pR`
+preserves a symlink rather than dereferencing it, and `find ! -type d` does not descend one,
+so a symlink to a directory would enumerate as a single path while deploying whatever its
+target resolves to on the user's machine — an unbounded subtree admitted by one manifest
+line, including paths outside the configuration directory if the committed link text is
+`../`-relative. Declaring it must not make it acceptable. This follows
+`check-skill-layout.sh`, which refuses symlinks and non-regular files anywhere under the
+skills tree.
 
 The ignored case is reachable where it counts, not only in a dirty working tree: ripgrep
 applies `.gitignore` to *tracked* files too, so a tracked file the repository also ignores is
@@ -81,31 +94,45 @@ of the pushed objects, nor CI on a clean checkout sees it.
 
 ### Comparison and verdicts
 
-The enumerated set and the manifest are both sorted under `LC_ALL=C` and compared in both
-directions.
+Both sides are normalised to NUL-delimited paths and sorted with `LC_ALL=C sort -z`, then
+compared in both directions. A manifest line duplicated by a careless edit is inert: the
+comparison is a membership test, not a line-count difference, so a duplicate must not surface
+as a `missing-member` for a file that is plainly there.
 
 | status | condition | message |
 |---|---|---|
 | 0 | the two sets are equal | `deployed-membership: ok (<n> declared members across <m> installed trees)` |
 | 1 | present, not declared | `deployed-membership: unexpected-member: <repo-relative path>` |
 | 1 | declared, not present | `deployed-membership: missing-member: <repo-relative path>` |
+| 1 | present, not a regular file | `deployed-membership: non-regular-member: <repo-relative path>` |
 | 2 | more than one argument | `usage: check-deployed-membership.sh [repository-root]` |
 | 2 | the root argument is not a usable directory | `deployed-membership: repository root is not a directory: <arg>` |
-| 2 | a manifest entry lies under no declared tree | `deployed-membership: manifest entry is outside every declared tree: <entry>` |
 | 2 | the enumeration itself fails | `deployed-membership: could not enumerate the installed trees` |
 
-Every finding is reported before the script exits; a run does not stop at the first one.
+Findings and faults go to stderr, the `ok` summary to stdout, matching
+`check-shared-standards.sh`.
+
+A run reports every finding before it exits; it does not stop at the first. This matters in
+the intended use — a wave branch that adds one file and deletes another must be told about
+both, not sent round the loop twice. Emission order is fixed so the suite can assert it: all
+`unexpected-member` lines, then all `non-regular-member` lines, then all `missing-member`
+lines, each in `LC_ALL=C` path order.
 
 A declared tree that is not a directory is deliberately **not** a fault. It contributes no
 members, so every file the manifest declares under it reports as `missing-member`. That case
 is reachable: `agents/bob/shared/rules` and `content/references` hold one file each, Git does
 not track empty directories, and so the commit deleting that file removes the directory from
-every fresh checkout — CI and the detached worktree `verify-push.sh` rehearses in included. A
-fault there would report the gate as unable to run, about the deletion it exists to describe.
+every fresh checkout. A fault there would report the gate as unable to run, about the deletion
+it exists to describe. Since the `-d` filter runs first, a missing tree can never make the
+enumeration fail; the exit-2 enumeration fault is left for a real failure, such as an
+unreadable directory.
 
-Only trees that exist are passed to `find`, so a missing one cannot make the enumeration
-fail; the exit-2 enumeration fault is left for a real failure, such as an unreadable
-directory.
+There is deliberately no fault for a manifest entry lying under no declared tree. Both lists
+are literals in the same script, so no repository state can trigger it — it would be a lint on
+source that no fixture could exercise — and such an entry already reports as `missing-member`,
+which is loud and correct. Containment is still defined where it is used: an entry belongs to
+a tree when it begins with `<tree>/`, so `content/languages-archive/x.md` does not belong to
+`content/languages`.
 
 Exit 1 is a difference the comparison found. Exit 2 is an input the gate cannot make sense of
 at all. This is where the gate parts company with `check-shared-standards.sh` and
@@ -135,29 +162,45 @@ a `mktemp -d` scratch with a guarded `trap cleanup EXIT`, a `reset_fixture` per 
 `assert_passes` / `assert_fails` / `assert_exit_two` helpers that pin the message as well as
 the status.
 
-The fixture is built by copying the three real trees into the scratch repository, not by
-writing synthetic files. A synthetic fixture would have to restate the manifest, so the suite
-would assert the checker against a second copy of its own data and would go stale on every
-manifest edit. Copying makes the pass case "the repository as it stands agrees with its
-manifest" and every other case a delta on top.
+The fixture is populated from the **tracked** contents of the three trees — the paths
+`git ls-files -z` reports, copied from the working tree — rather than from synthetic files or
+a plain directory copy. A synthetic fixture would have to restate the manifest, so the suite
+would assert the checker against a second copy of its own data and go stale on every manifest
+edit. A plain working-tree copy would drag in the gate's own accepted false positive: untracked
+debris under a covered tree would make the fixture disagree with the manifest before any case
+ran, so every case would fail for a reason unrelated to what it tests, and the suite's result
+would depend on the developer's untracked files. Reading the tracked set keeps the fixture
+derived from the repository and deterministic. The consequence to know: a new deployed file
+must be staged before the suite sees it, so adding one and its manifest line without
+`git add` shows up here as a `missing-member` on the pass case.
 
 | case | expectation |
 |---|---|
-| the three trees as they are | passes, with the summary line |
+| the three trees as tracked | passes, summary pinned to `7 declared members across 3 installed trees` |
 | an ordinary file added, once per tree | `unexpected-member` naming it |
 | a dot-prefixed file added | `unexpected-member` naming it |
 | a file added beside an `.ignore` entry that names it | `unexpected-member` naming it |
 | a file added in a new subdirectory | `unexpected-member` naming it |
-| a symlink added to an existing member | `unexpected-member` naming it |
+| a symlink to an existing member | `non-regular-member` naming it |
+| a symlink to a directory | `non-regular-member` naming it |
+| a declared member replaced by a symlink to it | `non-regular-member`, i.e. declaring it does not admit it |
 | a declared member deleted | `missing-member` naming it |
+| an undeclared file added under one tree **and** a declared member deleted under another | both lines in one run |
 | a file added outside the declared trees | passes |
 | a one-file declared tree removed entirely | `missing-member` naming its declared file, not a fault |
+| a one-file declared tree replaced by a regular file | `missing-member` naming its declared file, not a fault |
+| a declared tree made unreadable | exit 2, `could not enumerate`; skipped when the suite runs as root |
 | a second argument | exit 2, `usage:` |
 | a root that does not exist | exit 2, `repository root is not a directory` |
 
-The per-tree repetition is deliberate: a gate that enumerated only the first tree would pass
-the other two. The `.ignore` and dot-prefix cases pin the enumeration against a later
-refactor to `rg`, where they are the two cases that silently narrow the scan.
+Several of these exist to defeat a specific shortcut. The per-tree repetition catches a gate
+that enumerated only the first tree. The `.ignore` and dot-prefix cases pin the enumeration
+against a later refactor to `rg`, where they are the two cases that silently narrow the scan.
+The two-delta case catches a checker that reports the first disagreement and exits, which
+every single-delta case above would otherwise accept. The unreadable-tree case catches a
+checker that lets a `find` failure fall through as an empty enumeration — which would report
+every declared file as missing and pass a suite without it, the fault class swallowing a
+finding in the direction the record forbids.
 
 ## Security posture
 
@@ -167,6 +210,12 @@ the gate's own: its verdict must not be alterable by a file placed in the reposi
 checks. `.gitignore`, `.ignore` and `RIPGREP_CONFIG_PATH` are all inputs that can narrow a
 ripgrep scan, and `find` reads none of them — that is the control, and the suite's `.ignore`
 and dot-prefix cases are its test. The gate reads file names and never file contents.
+
+The second boundary is what a declared member may be. A symlink is committed source whose
+target resolves on the user's machine at read time, so admitting one by manifest line would
+let a single declaration deploy an arbitrary subtree, including one reached by a `../`-relative
+path out of the configuration directory. Refusing every non-regular member is the control, and
+it cannot be waived by declaring the path.
 
 ## Verification
 

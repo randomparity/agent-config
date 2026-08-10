@@ -53,6 +53,13 @@ copies all of them. `find` is total by construction: it reads no ignore file and
 `RIPGREP_CONFIG_PATH`, so there are no flags for a later edit to drop. Ignore rules are not a
 merely local concern here, because ripgrep applies `.gitignore` to tracked files too.
 
+**A member that is not a regular file is a finding whatever the manifest says.** Enumerating
+symlinks is not the same as permitting them: `cp -pR` preserves a symlink and `find` does not
+descend one, so a link to a directory would pass as a single declared path while deploying
+whatever its target resolves to on the user's machine. Declaring a path may not admit an
+unbounded subtree behind it. `check-skill-layout.sh` refuses non-regular files under the
+skills tree for the same reason.
+
 **A disagreement in either direction is a finding, exit 1, and the fault class may never
 swallow one.** A declared file that is absent and an undeclared file that is present are the
 two answers the comparison exists to produce, and a declared tree that is not there is
@@ -62,8 +69,8 @@ does not track empty directories — though not urgent, since `install_managed_p
 exits on a missing source, so the installer fails on such a deletion before this gate speaks.
 
 Exit 2 is left with the inputs the gate cannot make sense of at all: a bad argument, an
-unusable repository root, a manifest entry lying under no declared tree, and an enumeration
-that fails on a tree that is present. Here the gate parts company with
+unusable repository root, and an enumeration that fails on a tree that is present. Here the
+gate parts company with
 `check-shared-standards.sh` and `check-deployed-references.sh`, which both fault on a missing
 scan root; neither compares membership, so for neither is the root's absence itself an answer.
 
