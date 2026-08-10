@@ -97,8 +97,8 @@ scan root; neither compares membership, so for neither is the root's absence its
   construction when the conflict is there, so avoiding it is not open to the developer.
 - A new wholesale-installed tree added to `install.sh` is not covered until it is added to
   this manifest, and nothing detects that omission. The manifest is source, so this gate
-  cannot defend against edits to itself; comments at the `install_common_content` and Bob
-  rules call sites name the manifest, which is the whole of the coupling. Making it detectable
+  cannot defend against edits to itself; a comment in `install_common_content` and one at the
+  Bob rules call site name the manifest, which is the whole of the coupling. Making it detectable
   is tracked separately. Every other disagreement this gate finds is red; narrowing the
   manifest — deleting a tree or a member line while the tree still installs — is the one edit
   that leaves it green, and it is the edit a red gate invites.

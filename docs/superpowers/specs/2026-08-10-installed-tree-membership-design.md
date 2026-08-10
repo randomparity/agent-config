@@ -121,7 +121,7 @@ already made, and never emits partial ones.
 
 | status | condition | message |
 |---|---|---|
-| 0 | the two sets are equal | `deployed-membership: ok (<n> declared members across <m> installed trees)` |
+| 0 | the two sets are equal | `deployed-membership: ok (<n> declared members across <m> installed trees)` — `<n>` is the declared-member count, `<m>` the number of declared trees that survived the `-d`/`! -L` filter |
 | 1 | present, not declared | `deployed-membership: unexpected-member: <repo-relative path>` |
 | 1 | declared, not present | `deployed-membership: missing-member: <repo-relative path>` |
 | 1 | present, not a regular file | `deployed-membership: non-regular-member: <repo-relative path>` |
@@ -137,23 +137,31 @@ A run reports every finding before it exits; it does not stop at the first. This
 the intended use — a wave branch that adds one file and deletes another must be told about
 both, not sent round the loop twice. Emission order is fixed so the suite can assert it: all
 `unexpected-member` lines, then all `non-regular-member` lines, then all `missing-member`
-lines, each in `LC_ALL=C` path order.
+lines, each in `LC_ALL=C` path order. The script pins that collation itself, at the sort that
+produces the order: the associative arrays it compares iterate in hash order, so a sort is
+mandatory, and an unpinned one would take `LC_COLLATE` from the caller — `Zig.md` sorts before
+`a.md` under `C` and after it under `en_US.UTF-8`. The suite pins it the same way wherever it
+builds an expected sequence.
 
 A declared tree that is not a directory is deliberately **not** a fault. It contributes no
 members, so every file the manifest declares under it reports as `missing-member`. That case
 is reachable: `agents/bob/shared/rules` and `content/references` hold one file each, Git does
 not track empty directories, and so the commit deleting that file removes the directory from
 every fresh checkout. A fault there would report the gate as unable to run, about the deletion
-it exists to describe. Since the `-d` filter runs first, a missing tree can never make the
+it exists to describe. Since the tree filter runs first, a missing tree can never make the
 enumeration fail; the exit-2 enumeration fault is left for a real failure, such as an
 unreadable directory.
+
+What this buys is a correct answer from *this* gate, not a fault-free `just verify`: both
+deletions the paragraph above names also remove a scan root that `check-deployed-references.sh`
+and `check-shared-standards.sh` fault on, so the developer sees an exit 2 from a sibling
+either way. `membership-check` is therefore ordered ahead of `shared-standards-check` in the
+`verify` chain, so the membership answer is printed before a sibling's fault stops the run.
 
 There is deliberately no fault for a manifest entry lying under no declared tree. Both lists
 are literals in the same script, so no repository state can trigger it — it would be a lint on
 source that no fixture could exercise — and such an entry already reports as `missing-member`,
-which is loud and correct. Containment is still defined where it is used: an entry belongs to
-a tree when it begins with `<tree>/`, so `content/languages-archive/x.md` does not belong to
-`content/languages`.
+which is loud and correct.
 
 Exit 1 is a difference the comparison found. Exit 2 is an input the gate cannot make sense of
 at all. This is where the gate parts company with `check-shared-standards.sh` and
@@ -167,13 +175,15 @@ membership-check:
   ./scripts/check-deployed-membership.sh
 ```
 
-added to the `verify` dependency list. Not to `commit-check`: that chain is the pre-commit
-hook's (record 0039) and holds `lint`, `format-check` and `public-safety`, while every
-content gate — `skills-check`, `carrier-check`, `shared-standards-check`,
-`references-check` — sits in `verify` alone.
+added to the `verify` dependency list ahead of `shared-standards-check`, for the ordering
+reason above. Not to `commit-check`: that chain is the pre-commit hook's (record 0039) and
+holds `lint`, `format-check` and `public-safety`, while every content gate — `skills-check`,
+`carrier-check`, `shared-standards-check`, `references-check` — sits in `verify` alone.
 
-`install.sh` gets one comment at each of the two wholesale call sites naming the manifest, so
-a reader adding a third tree learns the gate exists.
+`install.sh` gets a comment naming the manifest in each of the two regions that pass a covered
+tree: `install_common_content`, whose two calls deliver `content/languages` and
+`content/references`, and the `agents/bob/shared/rules` call in `install_bob`. Two comments,
+three calls — so a reader adding a fourth directory source learns the gate exists.
 
 ## Suite
 
@@ -191,17 +201,22 @@ unfalsifiable:
   single-finding rows, and `assert_absent` (also from the sibling suite) pins the lines a case
   must *not* produce.
 
-The fixture is populated from the **tracked** contents of the three trees — the paths
-`git ls-files -z` reports, copied from the working tree — rather than from synthetic files or
-a plain directory copy. A synthetic fixture would have to restate the manifest, so the suite
-would assert the checker against a second copy of its own data and go stale on every manifest
-edit. A plain working-tree copy would drag in the gate's own accepted false positive: untracked
-debris under a covered tree would make the fixture disagree with the manifest before any case
-ran, so every case would fail for a reason unrelated to what it tests, and the suite's result
-would depend on the developer's untracked files. Reading the tracked set keeps the fixture
-derived from the repository and deterministic. The consequence to know: a new deployed file
-must be staged before the suite sees it, so adding one and its manifest line without
-`git add` shows up here as a `missing-member` on the pass case.
+The fixture is populated from the **index**, not the working tree:
+`git -C "$ROOT" ls-files -z -- <trees>` piped into
+`git -C "$ROOT" checkout-index --prefix="$FIXTURE/" -z --stdin -f`, rather than from synthetic
+files or a directory copy. Enumerating the index and then reading the working tree would leave
+the determinism claim half true — a tracked path deleted locally, or an interrupted rebase,
+would abort the fixture build with a copy error rather than produce any of the verdicts the
+suite asserts. Checking the content out of the index too makes it hold as written.
+
+The two rejected sources explain the choice. A synthetic fixture would have to restate the
+manifest, so the suite would assert the checker against a second copy of its own data and go
+stale on every manifest edit. A directory copy would drag in the gate's own accepted false
+positive: untracked debris under a covered tree would make the fixture disagree with the
+manifest before any case ran, so every case would fail for a reason unrelated to what it
+tests, and the suite's result would depend on the developer's untracked files. The consequence
+to know: a new deployed file must be staged before the suite sees it, so adding one and its
+manifest line without `git add` shows up here as a `missing-member` on the pass case.
 
 The same reasoning governs the pass case's summary. Pinning a literal `7 declared members`
 would be the second copy of the manifest this fixture design exists to avoid, and it would make
@@ -216,7 +231,7 @@ vacuously with `0 declared members`.
 | the three trees as tracked | passes; summary asserted against the count the suite itself enumerated, and asserted non-zero, on stdout |
 | an ordinary file added, once per tree | `unexpected-member` naming it |
 | a dot-prefixed file added | `unexpected-member` naming it |
-| a file added beside an `.ignore` entry that names it | `unexpected-member` naming it |
+| a file added under a tree, named by an `.ignore` at the fixture root | `unexpected-member` naming it |
 | a file added in a new subdirectory | `unexpected-member` naming it |
 | an undeclared symlink to an existing member | `unexpected-member` **and** `non-regular-member`, in that order |
 | an undeclared symlink to a directory | `unexpected-member` **and** `non-regular-member`; no member from behind the link |
@@ -228,18 +243,23 @@ vacuously with `0 declared members`.
 | a one-file declared tree removed entirely | `missing-member` naming its declared file, not a fault |
 | a one-file declared tree replaced by a regular file | `missing-member` naming its declared file, not a fault |
 | a one-file declared tree replaced by a symlink to a directory | `missing-member` naming its declared file, not a fault; the tree path itself is not reported |
-| a declared tree made unreadable | exit 2, `could not enumerate`, with no `missing-member` line for that tree; skipped when the suite runs as root |
+| a declared tree made unreadable | exit 2, `could not enumerate`, with no `missing-member` line for that tree; skipped when the suite runs as root, announcing the skip and its reason on stderr |
 | a second argument | exit 2, `usage:` |
 | a root that does not exist | exit 2, `repository root is not a directory` |
 
 Several of these exist to defeat a specific shortcut. The per-tree repetition catches a gate
 that enumerated only the first tree. The `.ignore` and dot-prefix cases pin the enumeration
 against a later refactor to `rg`, where they are the two cases that silently narrow the scan.
-The two-delta case catches a checker that reports the first disagreement and exits, which
-every single-delta case above would otherwise accept. The unreadable-tree case catches a
-checker that lets a `find` failure fall through as an empty enumeration — which would report
-every declared file as missing and pass a suite without it, the fault class swallowing a
-finding in the direction the record forbids.
+The `.ignore` sits at the fixture root rather than inside a tree, so it defeats an rg-based
+enumeration — ripgrep applies a parent `.ignore` to descendants — while leaving each covered
+tree holding exactly one planted member, which keeps the expected sequence short. The
+two-delta case catches a checker that reports the first disagreement and exits, which every
+single-delta case above would otherwise accept. The unreadable-tree case catches a checker
+that lets a `find` failure fall through as an empty enumeration — which would report every
+declared file as missing and pass a suite without it, the fault class swallowing a finding in
+the direction the record forbids. It is the only executable evidence for that rule, so its
+root skip announces itself: a run that did not prove the invariant must be distinguishable
+from one that did. GitHub-hosted runners are non-root, so CI exercises it.
 
 ## Security posture
 
