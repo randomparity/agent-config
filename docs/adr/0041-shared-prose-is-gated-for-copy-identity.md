@@ -97,6 +97,13 @@ authoritative and the drift returns inside a single agent's tree.
   does not decide between them; the issue's naming does. Confirming it against the vendor
   documentation is tracked as follow-up work, and moving the block to Bob's root file is
   the remedy if the answer is no.
+- That follow-up is done and the answer is yes. The vendor's custom-rules documentation
+  (<https://bob.ibm.com/docs/ide/configuration/rules>, retrieved 2026-08-10) says global
+  rules "Apply automatically across all your projects", gives their location as
+  `~/.bob/rules/`, and lists them first among the sources Bob combines. `install.sh` copies
+  `agents/bob/shared/rules` into that same directory, so Bob receives the block unprompted
+  and the remedy the bullet above holds in reserve is not needed. The rejection of a linked
+  canonical file keeps the footing it argued from, for Bob as for the other two agents.
 - The gate proves the copies agree, not that they are worth agreeing on. Three empty
   subsections would satisfy it. Review keeps them worth having, which is the division of
   labor 0038 chose.
