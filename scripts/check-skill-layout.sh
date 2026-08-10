@@ -195,6 +195,13 @@ validate_utf8() {
 	local status=0
 	local bad_line
 
+	# Prove the sinks before trusting the status. A redirection bash cannot open makes
+	# the command fail without running it, and it fails with 1 -- the same 1 that means
+	# "every line is well-formed", so an unwritable workspace would report every skill
+	# file valid. `: >` under set -e turns that into an abort, and is the idiom the
+	# config-root results files already use below.
+	: >"$workspace/utf8-bad"
+	: >"$workspace/utf8-error"
 	rg --text --encoding none --no-config --invert-match --line-number --max-count 1 \
 		--no-filename -- "$utf8_line" "$file" \
 		>"$workspace/utf8-bad" 2>"$workspace/utf8-error" || status=$?
@@ -299,15 +306,19 @@ validate_inventory() {
 # validate_utf8 does, so both rules now see the file the installer will copy.
 #
 # That is a trade, not a free win: a file under these roots that really is UTF-16 was
-# transcoded and scanned before and is opaque to this rule now. Nothing gates the
-# encoding of `content/languages` or `content/references` -- only SKILL.md is checked
-# -- so neither reading is safe for a genuine UTF-16 delivery, and the spoof is the
-# reachable half. Issue #127 tracks giving those roots an encoding rule of their own.
+# transcoded and scanned before and is opaque to this rule now. Only SKILL.md has its
+# encoding checked, so this covers all three scanned roots -- `content/languages`,
+# `content/references`, and every non-SKILL.md file `content/skills` delivers. Neither
+# reading is safe for a genuine UTF-16 delivery, and the spoof is the reachable half.
+# Issue #127 tracks giving the scanned payload an encoding rule of its own.
 scan_config_roots() { # results-file rg-argument...
 	local results="$1"
 	local status=0
 	shift
 
+	# Same reason as validate_utf8's sinks: a redirection that cannot be opened fails
+	# the command with 1, which this function reads as "no matches" and reports ok.
+	: >"$workspace/rg-error"
 	rg --no-config --text --encoding none -l --hidden --no-ignore "$@" >>"$results" \
 		2>"$workspace/rg-error" || status=$?
 	# 0 = matches, 1 = no matches, anything else = the scan did not happen.
