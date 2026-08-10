@@ -46,7 +46,8 @@ Classify the work:
 - **Trivial bugfix** — clear acceptance criteria; no API, schema, auth,
   permission, concurrency, migration, dependency, persistence, or
   external-service change; one or two files; no new public contract.
-- **Governed small change** — one accepted decision governs every changed
+- **Governed small change (`governed-small-change`)** — one accepted decision
+  governs every changed
   contract and normative behavior; the criteria are explicit and testable; no
   design-changing ambiguity; one independently testable slice with no
   cross-task sequencing; no new architecture, schema, dependency, persistence,
@@ -92,7 +93,7 @@ Record all eight fields:
 
 Also retain the tracking metadata (blast radius, risk flags, complexity,
 decompose verdict, classification — plus the decision evidence and acceptance
-criteria for a governed small change) and read everything back before
+criteria for a `governed-small-change`) and read everything back before
 proceeding.
 
 Keep every public annotation to the minimum its fields need: public-safe source
@@ -183,7 +184,7 @@ exist.
 ## 4. Build With TDD
 
 Run `$build-tdd` to implement the plan and run the guardrail suite, passing the
-plan path if one exists. For a governed small change, pass the classification
+plan path if one exists. For a `governed-small-change`, pass the classification
 and the revalidated decision evidence (reference, kind, accepted status,
 governed behavior, acceptance criteria) — and no plan path.
 
@@ -243,12 +244,12 @@ operator to skim.
 
 Run the scan **after** the `$review-loop` fixes, so it sees the code that
 ships. If closing a security finding changes behavior, re-run `$review-loop` on
-the result — its review did not cover the fix. **Cap that alternation at one
-round trip:** each loop bounds itself, but neither bound covers the oscillation
-between them. If a second round trip would be needed, do not re-enter and do
-not park — carry on to step 6 and record the unresolved findings as open in
-the review summary, so they reach `WORK:REVIEW` and the PR. The cap is a
-reporting boundary, not a blocker.
+the result (its review did not cover the fix) and then run `$threat-scan` once
+more: at most one `$threat-scan` → `$review-loop` → `$threat-scan` round trip.
+If a second round trip would be needed, do not re-enter and do not park —
+carry on to step 6 and record the unresolved findings as open in the review
+summary, so they reach `WORK:REVIEW` and the PR. The cap is a reporting
+boundary, not a blocker.
 
 Record the verdict in the review summary either way, including
 `security: not triggered` when the pass did not run, so `WORK:REVIEW` says
