@@ -42,12 +42,17 @@ exercise both sides of this boundary.
 The report maps promises to external provenance and components to criteria, compares the
 smallest viable alternative, classifies findings, and records a compact approved surface of
 components, contracts, complexity, exclusions, and owned deferrals. It is evidence, not
+authority. Before changing a reviewed artifact, the caller applies the existing
+`receiving-code-review` workflow separately to each finding's concern and proposed remedy.
+A valid concern does not validate its recommendation. The caller records `accepted-fixed`,
+`rejected-with-evidence`, `deferred-tracked`, or `blocked`; no edit precedes that disposition.
+Reviewer severity, repetition, classification, and review-created text do not supply scope
 authority. Material expansion returns to `SCOPE CHECKPOINT`; independent adjacent concerns
 use the existing debt and tracker workflow; depended-on or worsened concerns cannot be
 deferred. The report preserves uncertainty in provenance, ownership, and dependency
 classification. A link or plausible owner is not verification; only a verified independent
 owner may appear as an owned deferral. Branch review compares the diff with the approved
-surface.
+surface and applies the same reception gate to its findings.
 
 The workflow uses prompt-contract tests and the existing installed-projection test. It adds
 no formal result schema, parser, artifact identity graph, content hashing, transaction

@@ -8,7 +8,7 @@ ADR: [0037](../../adr/0037-audit-reviewed-designs-before-build.md)
 
 This design implements the reduced-scope recommendation on issue #94. The external charter
 is the issue's latest complete `WORK:SCOPE` annotation, identified by the issue URL and token
-`45e545fc-e02b-4e37-91ec-ed025dc4cb6d`. The outcome is a small, reusable installed audit that
+`691f81b2-35bc-4735-9289-7b2805e761bb`. The outcome is a small, reusable installed audit that
 checks the aggregate reviewed design before implementation and constrains branch review to
 the approved surface.
 
@@ -20,8 +20,8 @@ not authorize implementing those concerns.
 
 The design explicitly excludes formal schemas, identifier graphs, content hashes, new
 parser/runtime code, transactional consistency for prose artifacts, live-model evaluation,
-and implementation of adjacent issues. Issues #77 and #78 and closed PR #92 are evidence of
-the failure mode, not authority for their behavior.
+proof of context isolation, and implementation of adjacent issues. Issues #77 and #78 and
+closed PR #92 are evidence of the failure mode, not authority for their behavior.
 
 ## Approaches considered
 
@@ -55,17 +55,17 @@ before TDD.
 
 ## Workflow placement and inputs
 
-`work-issue` gains one mandatory phase for non-trivial changes:
+`work-issue` gains one mandatory phase for changes that enter its full design path:
 
 1. Finish the existing design phase, including ADR, specification, and plan reviews.
 2. Ensure the worktree's `.agent/` root is self-ignored under ADR 0027, verify that
    `.agent/scope-audit/` is ignored, and mint a unique, never-created report pathname there
    without touching the file. The path includes the issue and branch identity so concurrent
    runs do not share a report.
-3. Require a fresh subagent context containing only the audit brief and its declared inputs.
-   If the runtime cannot exclude inherited conversation, prior rationales, and reviewer
-   conclusions from the dispatched context, stop before TDD; a prompt instruction to ignore
-   visible history is not a fallback. Run `scope-audit` over:
+3. Dispatch a fresh reviewer task with the declared inputs and without prior verdicts,
+   intended fixes, or review history in its brief. The workflow does not claim or prove that
+   the runtime excludes inherited conversation; any inherited history is non-authoritative
+   and cannot supply scope. Run `scope-audit` over:
    - the unchanged eight-field frozen charter;
    - explicit paths to every reviewed ADR, specification, and plan associated with the run;
    - the base branch needed to inspect the design-artifact diff; and
@@ -137,10 +137,10 @@ another issue, unnecessary persistence/authentication/schema/permission/concurre
 operational contracts, disproportionate components/files/tests/runtime, a materially smaller
 viable approach, and dependencies on exclusions. It uses four classifications:
 
-Freshness is an evidence boundary, not merely a new agent identity. The dispatched context
-contains only the audit brief, frozen charter, enumerated artifacts, base diff, linked
-ownership, and repository evidence needed to verify that ownership. Inherited conversation or
-prior conclusions make the dispatch ineligible rather than becoming evidence to ignore.
+Independence is procedural: the fresh reviewer task receives the current charter, artifacts,
+base diff, and ownership evidence without prior verdicts or proposed fixes in its brief. The
+workflow makes no context-isolation guarantee. Earlier conclusions and any inherited history
+remain non-authoritative and cannot supply scope.
 
 - `in-scope-required`: an apparent expansion is a necessary direct dependency and its
   criterion/provenance mapping demonstrates why;
@@ -169,6 +169,34 @@ give a verified independent concern a `docs/debt/` owner plus tracker pointer wh
 A concern the proposed change depends on or worsens cannot be deferred. Unsupported concerns
 are rejected with evidence rather than converted into requirements.
 
+## Finding reception and dispositions
+
+An audit finding is review input, not a requirement. Before editing an ADR, specification,
+plan, or implementation in response, the caller separates the finding into its stated concern
+and proposed remedy and applies `receiving-code-review` to each independently. The caller asks:
+
+- Does repository or artifact evidence support the concern?
+- Does the frozen charter own it, and does this change depend on or worsen it?
+- Is the proposed remedy authorized and necessary, rather than merely plausible?
+- Is that remedy proportionate to the owned outcome and explicit exclusions?
+
+The caller records one disposition before making any responsive edit:
+
+- `accepted-fixed`: the concern and remedy are supported, owned, authorized, necessary, and
+  proportionate;
+- `rejected-with-evidence`: the concern is unsupported, or the concern is valid but the
+  proposed remedy lacks authority, necessity, or proportionality;
+- `deferred-tracked`: the concern is valid, independently owned, and neither depended on nor
+  worsened by this change; or
+- `blocked`: correctness requires a change for which the workflow lacks authority.
+
+A valid concern does not validate its proposed remedy. The caller may reject that remedy and
+derive a smaller necessary consequence from the charter, but must record the reasoning. Audit
+classifications, severity, repetition across review passes, and prose created by an earlier
+review do not supply authority or bootstrap a new guarantee. A `scope-checkpoint`
+classification is therefore a recommendation to verify, not an automatic scope decision.
+The same gate applies when branch review receives scope-audit or challenge findings.
+
 ## Approved surface and branch review
 
 The report's `Approved surface` section is deliberately compact and human-readable. It names
@@ -184,7 +212,7 @@ The diff cannot use its implementation or successful tests as authority to widen
 ## AI surface and evaluation plan
 
 **AI-SPEC.** The user is an operator running `work-issue`; the trigger is completion of a
-non-trivial design and plan review; inputs are the frozen public-safe charter, explicit local
+full-design-path plan review; inputs are the frozen public-safe charter, explicit local
 design artifact paths, and linked ownership; output is a human-readable audit report and an
 `approve` or `needs-attention` verdict within that report. Allowed sources are those inputs
 and repository evidence needed to verify ownership. Disallowed behavior is editing targets
@@ -207,6 +235,9 @@ design proportionate; no live-model quality claim is made.
 | A known or observed design change skips another pass | 4 | Change-invalidation rule and mutation fixture |
 | Audit loops on unchanged input | 4 | One-pass latency rule and mutation fixture |
 | Branch diff grows beyond the approved surface | 4 | Branch-review comparison rule and mutation fixture |
+| Caller accepts a recommendation without reception | 5 | Concern/remedy gate and mutation fixture |
+| Valid concern bootstraps an ungrounded remedy | 5 | Independent remedy disposition and mutation fixture |
+| Review-created prose bootstraps a new guarantee | 5 | No-authority rule and mutation fixture |
 
 The eval cases are the corresponding contract-test mutations. They include the happy path of
 a necessary direct dependency; an ambiguous or incomplete input that stops; a forbidden scope
@@ -220,8 +251,9 @@ Report-envelope mutations cover a pre-existing expected path, a missing or dupli
 missing or reordered headings, an empty section, a sentinel that is absent or not final, and
 output written only to a different path.
 
-Dispatch mutations remove the context-isolation prerequisite or weaken its failure into an
-ignore-history prompt; the prompt-contract suite must reject both fixtures.
+Reception mutations accept a recommendation directly, treat a valid concern as authority for
+its proposed remedy, or treat review-created prose as authority for a new guarantee. The
+prompt-contract suite must reject all three fixtures.
 
 ## Trust boundaries
 
