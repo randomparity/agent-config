@@ -308,3 +308,5 @@ parked. The label is the only thing that says *parked*.
 If a `$campaign` dispatched you, you still own this write  -  the orchestrator
 does not duplicate it. Report the blocker in your completion report too, so the
 orchestrator records its manifest row and keeps draining the queue.
+
+###########################################################################################################################################################################— control —
