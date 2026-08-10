@@ -10,7 +10,7 @@ set -euo pipefail
 # settings.overlay.json that defines hooks.PreToolUse drops every hook asserted here.
 # Overlays must leave `hooks` alone.
 #
-# Three accepted limits of the masked-exit hook, all consequences of scoping it to the
+# Four accepted limits of the masked-exit hook, all consequences of scoping it to the
 # known-masking targets rather than to any pipe of a guardrail command:
 #   - `just ci | tee log` stays legal even though tee returns its own status;
 #   - a filter reached through a non-tee pass-through (`just ci | cat | tail`) is missed;
@@ -112,7 +112,7 @@ assert_deny_entry 'Bash(git clean *-f*)'
 
 CLEAN_HOOK=$(hook_command 'BLOCKED: git clean')
 
-# Combined and space-separated force flags, in either order, with or without -d.
+# The flag forms the issue names, combined and space-separated, in either order.
 assert_blocked "$CLEAN_HOOK" 'git clean hook' 'git clean -fd'
 assert_blocked "$CLEAN_HOOK" 'git clean hook' 'git clean -df'
 assert_blocked "$CLEAN_HOOK" 'git clean hook' 'git clean -f -d'
@@ -133,7 +133,7 @@ assert_blocked "$CLEAN_HOOK" 'git clean hook' '{ git clean -fd; }'
 assert_blocked "$CLEAN_HOOK" 'git clean hook' 'for d in a b; do git clean -fd; done'
 assert_blocked "$CLEAN_HOOK" 'git clean hook' 'git status & git clean -fd'
 assert_blocked "$CLEAN_HOOK" 'git clean hook' 'timeout 60 git clean -fd'
-# git accepts any unambiguous abbreviation of --force.
+# git accepts any unambiguous abbreviation, so --f and --fo are --force.
 assert_blocked "$CLEAN_HOOK" 'git clean hook' 'git clean --f -d'
 assert_blocked "$CLEAN_HOOK" 'git clean hook' 'cd /tmp; git clean --fo'
 # clean.requireForce=false, inline or already in the repository config, deletes with no
