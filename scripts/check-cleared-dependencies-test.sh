@@ -3,6 +3,10 @@ set -euo pipefail
 
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 tracking=$repo_root/content/skills/github-tracking/SKILL.md
+triage=$repo_root/content/skills/triage-issues/SKILL.md
+printf -v type_label '\140type:\140'
+printf -v blocked_candidate_contract \
+	'**Blocked candidates** — open, non-\140epic\140 issues carrying \140status:blocked\140.'
 
 fail() {
 	printf 'cleared-dependencies-test: %s\n' "$*" >&2
@@ -233,7 +237,16 @@ assert_text "$repo_root/content/skills/merge-cleanup/SKILL.md" \
 	'reconcile_cleared_dependencies apply'
 assert_text "$repo_root/content/skills/recover-orphans/SKILL.md" \
 	'reconcile_cleared_dependencies plan'
-assert_text "$repo_root/content/skills/triage-issues/SKILL.md" \
-	'manual reassessment fallback'
+assert_text "$triage" 'A sweep produces two populations for step 4:'
+assert_text "$triage" \
+	'When none are supplied, sweep untriaged and blocked open issues.'
+assert_text "$triage" '**Untriaged**'
+assert_text "$triage" "$blocked_candidate_contract"
+assert_text "$triage" "regardless of whether they carry a $type_label label"
+assert_text "$triage" 'Union and deduplicate the two populations before step 4.'
+assert_text "$triage" \
+	'Do not stop when the untriaged count is zero if blocked candidates remain.'
+assert_text "$triage" 'cleared-dependency check only'
+assert_text "$triage" 'manual reassessment fallback'
 
 printf 'cleared-dependencies-test: pass\n'

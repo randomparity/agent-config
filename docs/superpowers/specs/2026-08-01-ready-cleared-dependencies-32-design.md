@@ -67,8 +67,11 @@ the recipe for each confirmed eligible issue. It does not restore the old blanke
 all blocked issues are human-owned: only blocked issues without a fully cleared canonical
 dependency set remain held.
 
-`triage-issues` retains its explicit/manual fallback. It may reassess a cleared dependency,
-but is no longer described as the required release mechanism.
+`triage-issues` retains a manual fallback. Its sweep selects both untriaged issues for full
+taxonomy analysis and all open, non-epic `status:blocked` issues for cleared-dependency
+analysis only, regardless of whether they are already triaged. The two populations are
+deduplicated before analysis. This sweep may reassess a cleared dependency, but is not the
+required release mechanism.
 
 One run resolves at most 500 distinct blocker issues and caches each result across all
 dependents. When that budget is exhausted, unresolved dependents stay blocked and the report
@@ -99,7 +102,9 @@ as executable shell. It proves:
 - a dependent beyond one result page is evaluated, and a changed pre-write snapshot cancels
   the edit while a conflicting post-write status is reported;
 - plan mode emits the same eligible set without writing, and confirmed apply performs the
-  repair.
+  repair;
+- triage sweeps continue to the cleared-dependency check for already-triaged blocked issues,
+  including when the untriaged population is empty.
 
 `just verify` remains the aggregate local gate and CI continues to run it through `just ci`.
 

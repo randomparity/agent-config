@@ -10,7 +10,8 @@ offer to bootstrap one. The skill is **add-only** except within the
 single-value dimensions `priority:`, `status:`, and `risk:`, where it swaps the
 existing value. It never closes an issue and never edits an issue body.
 
-Input: use the user-supplied issue numbers, or sweep untriaged open issues when none are supplied.
+Input: use the user-supplied issue numbers.
+When none are supplied, sweep untriaged and blocked open issues.
 
 Execute every step below in order. Both writes to GitHub (creating labels,
 applying labels) are gated behind a single explicit confirmation each — do not
@@ -95,46 +96,68 @@ it, so no swap arises there.
 3. **Select issues.** If the arguments contain issue numbers, use exactly those —
    fetching labels for them, since the epic drop below needs label data. Otherwise
    sweep: run
-   `gh issue list --repo <owner/name> --state open --json number,labels --limit 500`,
-   then keep client-side only the issues carrying no `type:*` label and no adopted
-   equivalent ("untriaged"). On both paths, drop `epic`-labeled issues — epics sit
-   outside the `status:` machine (see the `github-tracking` epic rule).
-   Report `fetched N, untriaged M`, and — when the available label set holds all three
-   `risk:` values — also name **every** open, non-`epic` issue carrying **no `risk:`
-   value**, as `unjudged for risk: #a #b #c`, whatever its `status:`. **The selection
-   predicate itself is unchanged**: these issues are reported, not swept in. An issue
-   triaged before the dimension existed carries a `type:` label and so is never
-   "untriaged", which is why reporting is the path that reaches it — the operator passes
-   those numbers on an explicit run. Do **not** narrow this to `status:ready`: `$epic`'s
-   sub-issues are born `status:blocked` or `status:needs-triage`, which is the population
-   the `$issue` carried-confirmation carve-out deliberately leaves unassigned, and a
-   birth-blocked issue taken by `$work-issue` goes straight to `status:in-progress` without
-   ever passing through `ready`. Narrowing would make this report miss precisely the issues
-   it exists to surface. On the sweep path the report costs nothing (a second filter over `number,labels`
-   already fetched); on the explicit path it costs one
+   `gh issue list --repo <owner/name> --state open --json number,labels --limit 500`.
+   A sweep produces two populations for step 4:
+
+   - **Untriaged** — issues carrying no `type:*` label and no adopted equivalent. These
+     receive full taxonomy analysis.
+   - **Blocked candidates** — open, non-`epic` issues carrying `status:blocked`.
+     They qualify regardless of whether they carry a `type:` label. These receive the
+     cleared-dependency check only unless they are also untriaged.
+
+   On both paths, drop `epic`-labeled issues — epics sit outside the `status:` machine (see
+   the `github-tracking` epic rule). Union and deduplicate the two populations before step 4.
+   Preserve each issue's population membership so step 4 can choose the correct analysis.
+   Do not stop when the untriaged count is zero if blocked candidates remain. Report
+   `fetched N, untriaged M, blocked candidates B, selected S`.
+
+   When the available label set holds all three `risk:` values, also name **every** open,
+   non-`epic` issue carrying **no `risk:` value**, as `unjudged for risk: #a #b #c`, whatever
+   its `status:`. Risk-unjudged issues are reported, not added to either population solely
+   because they lack a `risk:` value. An issue triaged before the dimension existed carries
+   a `type:` label and so is never untriaged, which is why reporting is the path that reaches
+   it — the operator passes those numbers on an explicit run. Do **not** narrow this report
+   to `status:ready`: `$epic`'s sub-issues are born `status:blocked` or
+   `status:needs-triage`, which is the population the `$issue` carried-confirmation carve-out
+   deliberately leaves unassigned, and a birth-blocked issue taken by `$work-issue` goes
+   straight to `status:in-progress` without ever passing through `ready`. Narrowing would
+   make this report miss precisely the issues it exists to surface. On the sweep path the
+   report costs nothing (a second filter over `number,labels` already fetched); on the
+   explicit path it costs one
    `gh issue list --repo <owner/name> --state open --json number,labels --limit 500` call,
-   carrying the same truncation warning. If the fetch
-   returned 500 rows, warn that the sweep was truncated at the limit rather than
-   treating it as the complete backlog. GitHub has no native "missing label"
-   filter, so this filter is always client-side.
+   carrying the same truncation warning. If the fetch returned 500 rows, warn that the sweep
+   was truncated at the limit rather than treating it as the complete backlog. GitHub has no
+   native "missing label" filter, so these filters are always client-side.
 
-4. **Analyze.** For each selected issue, read its content with
-   `gh issue view <n> --repo <owner/name> --json title,body,labels,comments` and
-   map it to the taxonomy. Propose labels to add, using each slot's name from the
-   available label set — when a slot was served by an adopted label, propose that
-   adopted name (e.g. `bug`), never the prefixed taxonomy name. For
-   `priority:`/`status:`/`risk:`, propose a swap when the assessed value differs from the
-   existing one — but never propose a `status:` swap for an open issue carrying
-   `status:blocked` with a `Blocked by #<n>` body line **while any referenced blocker
-   is still open** (birth-blocked ordering state; `github-tracking` birth-blocked
-   rule). Once every referenced blocker is closed, re-triage *is* the exit edge —
-   propose the swap and note the cleared dependency. Do not infer priority beyond what
-   the issue text actually states.
+4. **Analyze.** For each selected issue, read its content once with
+   `gh issue view <n> --repo <owner/name> --json title,body,labels,comments`. Analyze an
+   explicitly requested issue or a sweep's untriaged issue against the full taxonomy.
+   Analyze a blocked candidate that is not untriaged only for the cleared-dependency edge;
+   do not propose `type:`, `priority:`, `risk:`, `effort:`, or `good first issue` changes for
+   it. An issue in both sweep populations receives full taxonomy analysis and the
+   cleared-dependency guard in the same read.
 
-   This explicit path is a **manual reassessment fallback**, not the required release
-   mechanism. `$merge-cleanup` owns automatic release when a blocker closes, and
-   `$recover-orphans` repairs a missed release under confirmation. Keep this fallback for
-   an operator who intentionally requests a broader re-triage.
+   For full taxonomy analysis, propose labels using each slot's name from the available
+   label set — when a slot was served by an adopted label, propose that adopted name (e.g.
+   `bug`), never the prefixed taxonomy name. For `priority:`/`status:`/`risk:`, propose a
+   swap when the assessed value differs from the existing one. Do not infer priority beyond
+   what the issue text actually states.
+
+   Evaluate a sweep's blocked candidates under the `github-tracking` canonical
+   cleared-dependency contract. Consider only whole-line `Blocked by #N` records in the
+   issue body, never comments, and resolve every distinct referenced issue with
+   `gh issue view <n> --repo <owner/name> --json state`. An open, missing, or unreadable
+   blocker, a malformed `Blocked by #` record, or a body with no canonical references
+   retains `status:blocked`; report the reason and propose no status swap. Once at least one
+   canonical reference exists and every referenced blocker resolves closed, propose
+   `status:blocked` → `status:ready` and note the cleared dependency. The same fail-closed
+   dependency guard applies during full taxonomy analysis when a blocked issue carries a
+   canonical or malformed dependency record.
+
+   This sweep is a **manual reassessment fallback**, not the required release mechanism.
+   `$merge-cleanup` owns automatic release when a blocker closes, and `$recover-orphans`
+   repairs a missed release under confirmation. Keep this fallback for an operator who
+   intentionally requests a broader re-triage.
 
    Propose a `risk:` value **only when the available label set holds all three** — say so
    plainly when you skip the dimension, since a silently absent judgment is
