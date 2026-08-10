@@ -2,6 +2,8 @@
 
 ## Status
 
+> **Superseded by [0039](0039-commit-hooks-run-the-static-gates.md)** (2026-08-09)
+
 Accepted (2026-08-09)
 
 ## Context

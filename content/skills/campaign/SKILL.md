@@ -241,9 +241,7 @@ decision kind, authoritative accepted status, governed behavior, and explicit te
 acceptance criteria. These fields are classification evidence, not authority created by
 campaign.
 
-<!-- SCOPE-RULE:governed-evidence -->
 Campaign carries governed-small-change evidence to work-issue; the subtype name alone never authorizes the abbreviated path.
-<!-- SCOPE-RULE:END:governed-evidence -->
 
 Carry those fields verbatim in the `$work-issue` dispatch prompt. `$work-issue` resolves
 the live decision and issue again; stale, conflicting, incomplete, superseded, or
@@ -365,9 +363,7 @@ lifecycle transcript. That report, not the transcript, is what bounds the
 orchestrator's per-issue context. Each prompt carries:
 
 - issue number and acceptance criteria,
-<!-- SCOPE-RULE:governed-dispatch-evidence -->
 A governed-small-change dispatch carries the triage subtype, decision reference, decision kind, authoritative accepted status, governed behavior, and explicit testable acceptance criteria.
-<!-- SCOPE-RULE:END:governed-dispatch-evidence -->
 - the **assigned ADR/migration numbers** and **file scope** from the manifest,
 - the guardrail commands, `BASE_BRANCH`, and the ADR-index coupling verdict from
   step 2 — the last so an ADR-producing run knows whether to carry its own index

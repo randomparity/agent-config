@@ -2,8 +2,8 @@ repos:
   - repo: local
     hooks:
       - id: commit-check
-        name: just commit-check
-        entry: just commit-check
+        name: just lint format-check public-safety
+        entry: just lint format-check public-safety
         language: system
         always_run: true
         pass_filenames: false

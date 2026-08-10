@@ -63,12 +63,10 @@ Also classify the work:
   authentication, migration, or external-service behavior.
 - **Non-trivial change:** anything else.
 
-<!-- SCOPE-RULE:governed-small-change -->
 Classify as governed-small-change only when one accepted decision governs every changed contract and normative behavior.
 Require explicit testable acceptance criteria, no design-changing ambiguity, and one independently testable slice with no cross-task sequencing or decomposition.
 Revalidate the decision reference, decision kind, accepted status, and governed behavior when the abbreviated path is consumed.
 Missing, superseded, non-accepted, conflicting, incomplete, or no-longer-governing evidence returns to SCOPE CHECKPOINT and full design.
-<!-- SCOPE-RULE:END:governed-small-change -->
 
 Only trivial bugfixes and verified governed small changes may skip step 3. The governing
 decision must be a stable reference whose repository-defined status and supersession state
@@ -89,7 +87,6 @@ then set this issue to `status:in-progress` (single-active swap, removing any ot
 `status:` value). If ensure-create fails, stop with its message rather than proceeding
 label-less.
 
-<!-- SCOPE-ORDER:work-frozen -->
 ## Frozen scope charter
 
 Freeze the complete external authority before design. Set `interaction: interactive` when
@@ -99,15 +96,11 @@ changes this root value.
 
 Record all eight fields in the issue's `WORK:SCOPE` annotation:
 
-<!-- SCOPE-RULE:scope-identity -->
 Use the issue URL plus a unique annotation token as the pre-publication scope identity.
-<!-- SCOPE-RULE:END:scope-identity -->
 
-<!-- SCOPE-RULE:public-scope-comment -->
 Before posting any GitHub annotation, keep only public-safe authority labels; omit secrets and host data.
 If authority cannot be summarized safely, do not post or log its raw value.
 An unattended root may post only a generic public-safe WORK:TRAJECTORY notice without charter values.
-<!-- SCOPE-RULE:END:public-scope-comment -->
 
 - `scope identity`: the issue URL plus that unique annotation token;
 - `outcome`: the requested outcome;
@@ -136,7 +129,6 @@ an unavoidable consequence of satisfying a sourced criterion. The workflow and t
 artifact it produces cannot authorize their own scope. More review authorizes more
 scrutiny, not more scope.
 
-<!-- SCOPE-ORDER:work-checkpoint -->
 ### SCOPE CHECKPOINT
 
 Before freezing, return here when an omission or conflict could change a charter field or
@@ -146,7 +138,6 @@ design-changing answer ends the current design cycle and re-freezes the charter 
 new cycle starts. Missing, incomplete, or unresolvable fields never fall back to a spec,
 ADR, plan, or other generated artifact.
 
-<!-- SCOPE-ORDER:work-unattended -->
 ### Unattended parking
 
 When the root interaction is unattended, do not answer a design-changing question on the
@@ -176,7 +167,6 @@ the repo, do not use it; run `git worktree add <external-path>` yourself.
 If the repo already has a branch for this issue, ask before reusing it unless the
 issue or PR explicitly names that branch.
 
-<!-- SCOPE-ORDER:work-abbreviated -->
 ### Governed small change path
 
 Immediately before using the abbreviated path, resolve the governing decision again and
@@ -186,25 +176,17 @@ slice and no excluded decision or ambiguity has appeared. A failed check returns
 `SCOPE CHECKPOINT`; re-freeze the complete charter and run step 3. Do not automatically
 reselect the abbreviated path in that design cycle.
 
-<!-- SCOPE-RULE:governed-direct-build -->
 A governed-small-change proceeds from verified WORK:SCOPE directly to build-tdd without a new spec or plan.
-<!-- SCOPE-RULE:END:governed-direct-build -->
 
-<!-- SCOPE-ORDER:governed-proof -->
 The first executable action on the abbreviated path is the focused failing test in step 4.
-<!-- SCOPE-ORDER:governed-elaboration -->
 Optional design elaboration may follow that proof but is not a prerequisite.
 
-<!-- SCOPE-RULE:post-build-controls -->
 The abbreviated path retains branch review, simplification, repository guardrails, PR creation, CI, and merge handoff.
-<!-- SCOPE-RULE:END:post-build-controls -->
 
-<!-- SCOPE-ORDER:work-design -->
 ## 3. Design
 
 Pass the frozen charter to `$design` exactly as follows:
 
-<!-- SCOPE-CARRIER:work-issue-to-design -->
 interaction: <unchanged root value>
 scope identity: <external scope identity, never reviewed target>
 outcome: <frozen external outcome>
@@ -213,7 +195,6 @@ provenance: <external source for every outcome, criterion, and user decision>
 exclusions: <frozen external exclusions>
 surface: <frozen permitted surface>
 ambiguities: <frozen ambiguity list>
-<!-- SCOPE-CARRIER:END:work-issue-to-design -->
 
 Run `$design <issue-number>` to write the spec + ADR, adversarial-review the spec,
 write the implementation plan, and adversarial-review the plan. Skip only for a
@@ -230,9 +211,7 @@ hold the design.
 Run `$build-tdd` to implement the plan using test-driven development and run the
 guardrail suite. Pass the plan path if one exists.
 
-<!-- SCOPE-RULE:governed-build-handoff -->
 For a governed-small-change, pass build-tdd the selected classification plus the revalidated decision reference, decision kind, accepted status, governed behavior, and acceptance criteria; pass no plan path.
-<!-- SCOPE-RULE:END:governed-build-handoff -->
 
 **Durable artifact:** the committed code and tests, plus the plan's completed
 tasks. Context checkpoint before step 5: the branch name and guardrail commands

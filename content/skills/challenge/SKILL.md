@@ -126,9 +126,7 @@ Prioritize logical and planning failures:
 - compatibility, versioning, and migration sequencing that is assumed rather than designed
 - observability and verification gaps — how would anyone notice this went wrong in production?
 
-<!-- SCOPE-RULE:ungrounded-scope-expansion -->
 Treat an ungrounded normative guarantee as material scope expansion.
-<!-- SCOPE-RULE:END:ungrounded-scope-expansion -->
 
 A normative guarantee is grounded only when its provenance traces to the frozen external
 charter, a later explicit user decision, or a necessary consequence. The reviewed document
@@ -136,9 +134,7 @@ cannot authorize its own promise, and another review pass cannot supply missing 
 Report an ungrounded guarantee as a scope-expansion finding even when the proposed machinery
 could implement it safely.
 
-<!-- SCOPE-RULE:delete-ungrounded -->
 Delete or weaken an ungrounded guarantee before recommending machinery.
-<!-- SCOPE-RULE:END:delete-ungrounded -->
 
 The bounded remedy above is operative. First recommend removing the promise or weakening
 it to what the charter supports. Recommend controls, transactions, persistence, recovery,
