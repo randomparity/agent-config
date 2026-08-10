@@ -302,25 +302,31 @@ assert_invalid_utf8 'byte that never appears in UTF-8' '\0376\0377'
 # Naming the file was what the replaced call did, and issue #101 is what it costs when
 # the name is all you get. The line number is the half a reader can act on, so it is
 # asserted exactly rather than by substring: `write_skill` lays down five lines.
+#
+# Pinned under a territory UTF-8 locale, because that is the only place the rule bites:
+# the line being trimmed is by definition not decodable there, so an unpinned `.*`
+# stops at the first bad byte and drags it into the message. Under the C locale the
+# bug is invisible, exactly as with the ASCII-portability cases below.
 root="$(new_fixture)"
 printf '%b\n' 'a clean line' >>"$root/content/skills/skill-01/SKILL.md"
 printf '%b\n' 'and a \0377 byte' >>"$root/content/skills/skill-01/SKILL.md"
 assert_fails \
 	'content/skills/skill-01/SKILL.md: file must be valid UTF-8 (first malformed line 7)' \
-	"$root"
+	"$root" "$utf8_locale"
 
-# rg documents binary detection as ending the search at the first NUL, and a file whose
-# scan ended early reports as well-formed. A file named explicitly on the command line
-# is read to the end today whichever way --text is set, so this case passes either way:
-# it pins the guarantee the flag buys, not a defect the flag currently fixes. The
-# config-root scan above is where the same detection does bite, because it walks a
-# directory rather than naming a file.
+# rg's binary detection triggers on a single NUL byte. For a file named explicitly on
+# the command line it converts rather than quits, so the verdict survives -- but the
+# reported position does not, and the position is the half of the message worth having.
+# Asserting the whole string is what makes --text bite here; a substring assertion let
+# the flag be deleted with the suite green.
 root="$(new_fixture)"
 {
 	printf '%b\n' '---\nname: skill-01\ndescription: "Test skill."\n---'
 	printf '%b\n' '# Body\0000 then \0377 after the NUL'
 } >"$root/content/skills/skill-01/SKILL.md"
-assert_fails 'content/skills/skill-01/SKILL.md: file must be valid UTF-8' "$root"
+assert_fails \
+	'content/skills/skill-01/SKILL.md: file must be valid UTF-8 (first malformed line 5)' \
+	"$root"
 
 # rg transcodes a UTF-16 file on sight of its BOM, and the transcoded text is
 # well-formed by construction -- so without BOM sniffing turned off the validator

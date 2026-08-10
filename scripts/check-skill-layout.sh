@@ -178,11 +178,8 @@ validate_portable_tree() {
 #
 # --encoding none turns off the BOM sniffing that would otherwise transcode a UTF-16
 # file and report its bytes as valid UTF-8. --text disables binary detection, which
-# rg documents as stopping the search at the first NUL: a file explicitly named on
-# the command line is scanned to the end today whatever the flag says, so this pins
-# the guarantee rather than the current behaviour -- a NUL byte ahead of a malformed
-# sequence must not end the scan and report the file clean. `check-skill-layout-test.sh`
-# covers the NUL case, and it passes either way; that is why the flag stays.
+# triggers on a single NUL byte: for a file named explicitly it converts rather than
+# quits, so the verdict survives without the flag but the reported position does not.
 #
 # The message names the offending line, because the failure it replaces cost hours
 # for want of one. --max-count 1 keeps the early exit --quiet used to give. The line
