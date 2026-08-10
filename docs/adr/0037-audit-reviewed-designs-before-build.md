@@ -18,8 +18,8 @@ that result constrains later review without creating another policy engine.
 
 ## Decision
 
-Add a reusable, prose-only `scope-audit` skill. For every non-trivial `work-issue` run, a
-fresh independent agent reads the complete frozen charter, every reviewed ADR,
+Add a reusable, prose-only `scope-audit` skill. For every `work-issue` run that enters the
+full design path, a fresh independent agent reads the complete frozen charter, every reviewed ADR,
 specification, and plan associated with that run, and linked ownership as one proposed
 change after design review and before TDD. A missing or unresolved expected artifact returns
 `needs-attention`. The caller enumerates the set, and the independent auditor cross-checks it
@@ -52,7 +52,7 @@ not guaranteed without the excluded identity machinery.
 ## Consequences
 
 - Aggregate scope is challenged before implementation cost is sunk.
-- The audit adds one independent model pass to ordinary non-trivial issue work.
+- The audit adds one independent model pass to issue work that enters the full design path.
 - Its Markdown report follows ADR 0027's self-ignored `.agent/` convention, so it survives a
   session boundary without becoming committed product documentation.
 - Reviewers and operators, rather than a new parser, judge the report's substantive quality.
