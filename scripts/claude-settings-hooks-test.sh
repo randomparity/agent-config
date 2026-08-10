@@ -9,6 +9,13 @@ set -euo pipefail
 # Settings overlays replace arrays rather than merging them, so a private
 # settings.overlay.json that defines hooks.PreToolUse drops every hook asserted here.
 # Overlays must leave `hooks` alone.
+#
+# Three accepted limits of the masked-exit hook, all consequences of scoping it to the
+# known-masking targets rather than to any pipe of a guardrail command:
+#   - `just ci | tee log` stays legal even though tee returns its own status;
+#   - a filter reached through a non-tee pass-through (`just ci | cat | tail`) is missed;
+#   - only `just ci` and `just verify` are recognised, since this file ships to every
+#     repository and cannot enumerate one repository's recipe names.
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 SETTINGS="$ROOT/agents/claude/shared/settings.base.json"
@@ -60,12 +67,23 @@ assert_allowed() { # hook-command label command-string
 	[[ $status == 0 ]] || fail "$2 must allow [$3], got exit $status: $output"
 }
 
+run_hook_without_jq() { # hook-command
+	local payload
+	payload=$(jq -nc '{tool_input: {command: "git clean -fd"}}')
+	printf '%s' "$payload" | PATH="$SCRATCH:$PATH" bash -c "$1"
+}
+
 assert_fails_closed() { # hook-command label
-	local status=0 output payload
-	payload=$(jq -nc '{tool_input: {command: "ls"}}')
-	output=$(printf '%s' "$payload" | PATH="$SCRATCH:$PATH" bash -c "$1" 2>&1) || status=$?
+	local status=0 output
+	output=$(run_hook_without_jq "$1" 2>&1) || status=$?
 	[[ $status == 2 ]] || fail "$2 must fail closed without jq, got exit $status: $output"
 	[[ $output == BLOCKED:* ]] || fail "$2 must say why it failed closed: $output"
+}
+
+assert_fails_open() { # hook-command label
+	local status=0 output
+	output=$(run_hook_without_jq "$1" 2>&1) || status=$?
+	[[ $status == 0 ]] || fail "$2 must fail open without jq, got exit $status: $output"
 }
 
 assert_deny_entry() { # pattern
@@ -105,9 +123,13 @@ assert_blocked "$CLEAN_HOOK" 'git clean hook' 'timeout 60 git clean -fd'
 # git accepts any unambiguous abbreviation of --force.
 assert_blocked "$CLEAN_HOOK" 'git clean hook' 'git clean --f -d'
 assert_blocked "$CLEAN_HOOK" 'git clean hook' 'cd /tmp; git clean --fo'
-# clean.requireForce=false deletes with no force flag at all.
+# clean.requireForce=false, inline or already in the repository config, deletes with no
+# force flag at all — so the guard blocks every git clean that is not a dry run.
 assert_blocked "$CLEAN_HOOK" 'git clean hook' 'git -c clean.requireForce=false clean -d'
 assert_blocked "$CLEAN_HOOK" 'git clean hook' 'git -c clean.requireForce=0 clean'
+assert_blocked "$CLEAN_HOOK" 'git clean hook' 'git clean -d'
+assert_blocked "$CLEAN_HOOK" 'git clean hook' 'git clean -x'
+assert_blocked "$CLEAN_HOOK" 'git clean hook' 'git clean'
 
 # A destructive guard that cannot read its input must not wave the command through.
 assert_fails_closed "$CLEAN_HOOK" 'git clean hook'
@@ -124,6 +146,7 @@ assert_allowed "$CLEAN_HOOK" 'git clean hook' 'git worktree remove /tmp/wt --for
 assert_allowed "$CLEAN_HOOK" 'git clean hook' 'git checkout -f main && make clean'
 assert_allowed "$CLEAN_HOOK" 'git clean hook' 'git rm -f clean'
 assert_allowed "$CLEAN_HOOK" 'git clean hook' 'git commit -m "make clean -f"'
+assert_allowed "$CLEAN_HOOK" 'git clean hook' 'git checkout -b cleanup-fix'
 # Searching for the banned text is not running it: the hook must not fire on its own
 # literal appearing inside a quoted argument.
 assert_allowed "$CLEAN_HOOK" 'git clean hook' 'rg -n "git clean -fd" docs/'
@@ -190,9 +213,17 @@ assert_allowed "$MASK_HOOK" 'masked exit hook' 'rg -n "just ci | tail" AGENTS.md
 assert_allowed "$MASK_HOOK" 'masked exit hook' 'just ci | tailscale-status'
 
 # Accepted false positive, pinned so it is discoverable rather than surprising: grep
-# treats every line of a multi-line command as its own command position, so banned text
-# inside a heredoc blocks too. Write such files with the editor tool, not a heredoc.
+# treats every line of a multi-line command as its own command position, so a banned
+# command appearing inside any multi-line argument blocks too — a heredoc, a
+# `git commit -m` body, a `gh --body`. The hook message names the escape: pass the text
+# through a file instead of quoting it inline.
 assert_blocked "$CLEAN_HOOK" 'git clean hook' $'cat >note.md <<EOF\ngit clean -fd\nEOF'
+assert_blocked "$CLEAN_HOOK" 'git clean hook' $'git commit -m "note\ngit clean -fd was refused"'
 assert_blocked "$MASK_HOOK" 'masked exit hook' $'cat >note.md <<EOF\njust ci | tail\nEOF'
+
+# The destructive guard fails closed without jq; the advisory one fails open, because a
+# missing jq would otherwise block every Bash call over a masking pattern that may not
+# even be present.
+assert_fails_open "$MASK_HOOK" 'masked exit hook'
 
 printf 'claude-settings-hooks-test: ok\n'
