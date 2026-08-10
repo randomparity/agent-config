@@ -90,19 +90,26 @@ directions.
 | 1 | declared, not present | `deployed-membership: missing-member: <repo-relative path>` |
 | 2 | more than one argument | `usage: check-deployed-membership.sh [repository-root]` |
 | 2 | the root argument is not a usable directory | `deployed-membership: repository root is not a directory: <arg>` |
-| 2 | a declared tree is not a directory | `deployed-membership: installed tree is missing: <tree>` |
 | 2 | a manifest entry lies under no declared tree | `deployed-membership: manifest entry is outside every declared tree: <entry>` |
 | 2 | the enumeration itself fails | `deployed-membership: could not enumerate the installed trees` |
 
 Every finding is reported before the script exits; a run does not stop at the first one.
 
-Exit 1 is a difference the comparison found. Exit 2 is the gate not being able to trust that
-it is comparing the right thing — including a declared tree that is not there, which is the
-call `check-shared-standards.sh` and `check-deployed-references.sh` both already make for a
-missing scan root, and which keeps a checker pointed at the wrong root from emitting seven
-`missing-member` findings instead of saying so. A missing member of a present tree is a
-finding; a missing block site in `check-shared-standards.sh` stays a fault because the file
-is an input to a byte comparison that then cannot run.
+A declared tree that is not a directory is deliberately **not** a fault. It contributes no
+members, so every file the manifest declares under it reports as `missing-member`. That case
+is reachable: `agents/bob/shared/rules` and `content/references` hold one file each, Git does
+not track empty directories, and so the commit deleting that file removes the directory from
+every fresh checkout — CI and the detached worktree `verify-push.sh` rehearses in included. A
+fault there would report the gate as unable to run, about the deletion it exists to describe.
+
+Only trees that exist are passed to `find`, so a missing one cannot make the enumeration
+fail; the exit-2 enumeration fault is left for a real failure, such as an unreadable
+directory.
+
+Exit 1 is a difference the comparison found. Exit 2 is an input the gate cannot make sense of
+at all. This is where the gate parts company with `check-shared-standards.sh` and
+`check-deployed-references.sh`, which both fault on a missing scan root: neither compares
+membership, so for neither is the root's absence itself an answer.
 
 ### Wiring
 
@@ -143,7 +150,7 @@ manifest" and every other case a delta on top.
 | a symlink added to an existing member | `unexpected-member` naming it |
 | a declared member deleted | `missing-member` naming it |
 | a file added outside the declared trees | passes |
-| a declared tree removed | exit 2, `installed tree is missing` |
+| a one-file declared tree removed entirely | `missing-member` naming its declared file, not a fault |
 | a second argument | exit 2, `usage:` |
 | a root that does not exist | exit 2, `repository root is not a directory` |
 

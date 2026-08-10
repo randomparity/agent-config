@@ -38,8 +38,8 @@ file: a file under `content/skills/<skill>/` is an asset of a skill that
 child to be a skill directory with a valid `SKILL.md`. It never asks which files may exist
 inside one, so the exclusion is a residual and not coverage. The cost side is worth writing
 down: the three covered trees hold seven files between them and one commit ever added to any
-of them, while `content/skills` holds 96 across eleven, so a manifest over it would churn on
-the repository's ordinary work while gating assets rather than instructions. The loose
+of them, while `content/skills` holds 96 across eleven such commits, so a manifest over it would churn
+on the repository's ordinary work while gating assets rather than instructions. The loose
 `docs/licenses/superpowers.LICENSE` stays out too — a named file is already a deliberate edit.
 
 **The gate is its own script.** `scripts/check-deployed-membership.sh` holds the manifest,
@@ -55,15 +55,21 @@ copies all of them. `find` is total by construction: it reads no ignore file and
 `RIPGREP_CONFIG_PATH`, so there are no flags for a later edit to drop. Ignore rules are not a
 merely local concern here, because ripgrep applies `.gitignore` to tracked files too.
 
-**A disagreement in either direction is a finding, exit 1.** A declared file that is absent
-and an undeclared file that is present are the two answers the comparison exists to produce.
-Exit 2 is reserved for the gate not being able to trust that it is comparing the right thing:
-a missing declared tree, an unusable repository root, a bad argument, or a manifest entry
-under no declared tree. A missing tree is a fault on that ground and not because no answer
-could be computed — one could — and it is the call `check-shared-standards.sh` and
-`check-deployed-references.sh` both already make for a scan root that is not there.
-`check-shared-standards.sh` exiting 2 on a missing block site stays as it is for the separate
-reason that the file is an input to a byte comparison that then cannot run.
+**A disagreement in either direction is a finding, exit 1, and the fault class may never
+swallow one.** A declared file that is absent and an undeclared file that is present are the
+two answers the comparison exists to produce. So a declared tree that is not there is not a
+fault either: it contributes no members, and every file the manifest declares under it reports
+as missing. That case is reachable and would otherwise invert the report — two of the three
+trees hold exactly one file, and Git does not track empty directories, so the commit deleting
+that file removes the directory from every fresh checkout. A gate that called it a fault would
+tell CI it could not run, about the deletion it exists to describe.
+
+Exit 2 is left with the inputs the gate cannot make sense of at all: a bad argument, an
+unusable repository root, a manifest entry lying under no declared tree, and an enumeration
+that fails on a tree that is present. This is where the gate parts company with
+`check-shared-standards.sh` and `check-deployed-references.sh`, which both make a missing scan
+root a fault; neither compares membership, so for neither is the root's absence itself an
+answer.
 
 ## Consequences
 
@@ -118,15 +124,17 @@ reason that the file is an input to a byte comparison that then cannot run.
   holding temporary files. That is parsing shell to find out, and a heuristic that misreads a
   call site fails silently in the same direction the manifest does. A list file `install.sh`
   itself read would remove the guess, but that changes what the installer consumes.
-- **Enumerate with `rg --files --hidden --no-ignore`.** Rejected: it reaches the same set only
-  as long as both flags stay put and `RIPGREP_CONFIG_PATH` is neutralised — three things
-  record 0041's gate has to remember and test — where `find` needs none of them.
-- **Treat an unexpected member as a fault (exit 2).** Rejected: it is the finding the gate was
-  written to produce, and reporting it as "could not run" would tell a reader the opposite of
-  what happened.
+- **Assert membership in `install-test.sh`, against the installed result.** It is the only
+  gate here that observes a real installation — it runs `install.sh` into a `mktemp -d` HOME
+  and asserts on what landed — so enumerating the installed set would cover a newly added
+  wholesale tree the moment the installer shipped it, closing by construction the residual
+  this record books as open. Rejected: this change is a static gate over source, and folding
+  membership into a suite whose subject is installer behavior would make a source-tree
+  question answerable only by running the installer. It is also outside this change's
+  surface. It is the strongest alternative on this list.
 - **Generate the manifest from the tree, or from `git ls-files`.** Rejected: a list derived
   from what is there agrees with whatever is there, so it would pass on exactly the change it
-  exists to catch — and `git ls-files` would miss the ignored files `cp -pR` still ships.
+  exists to catch.
 - **Have `install.sh` install only manifested files instead of copying trees whole.**
   Rejected for this change: it is a delivery change rather than a detection one, and the
   manifest would then have no reviewer between it and the user. Detection first; if the
