@@ -26,10 +26,11 @@ open residual.
 delivery is the skill directory rather than the file, and `check-skill-layout.sh` gates that
 unit at its boundary — every top-level child must be a skill directory with a valid
 `SKILL.md`, and a whole-tree walk forbids symlinks and non-regular files and constrains every
-path component. It does not ask which files may exist inside a skill directory, so a file
-added there still deploys unchecked; that residual is recorded, not closed. The cost side is
-the other half: 96 files across eleven commits there, against seven files and one commit in
-the three covered trees.
+path component. What it never does is declare an expected set — so both a file added inside a
+skill directory and a whole new top-level skill directory still deploy unchecked. Those
+residuals are recorded, not closed, and the directory-level half has its own issue. The cost
+side of a per-file manifest is the other consideration: 96 files across eleven commits there,
+against seven files and one commit in the three covered trees.
 
 ## Goal
 

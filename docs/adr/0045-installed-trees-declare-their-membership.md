@@ -21,9 +21,9 @@ many files are in one. Record 0041 disclosed the residual in as many words: the 
 the ungated surface, it does not close it.
 
 So adding a file to one of these directories deploys it to every user's global agent
-configuration, and the only thing standing between that and review is that somebody notices.
-That is the class of change that most wants a machine check, because the file need not be
-edited by anyone afterwards to keep having effect.
+configuration, with nothing asking whether it belongs. That is the class of change that most
+wants a machine check, because the file need not be edited by anyone afterwards to keep
+having effect.
 
 ## Decision
 
@@ -80,14 +80,18 @@ answer.
 - A branch that adds such a file without the manifest line fails `just verify` and CI. In a
   parallel wave this can turn a sibling branch red after this one merges; the remedy is the
   one-line manifest edit, and the alternative is the deployment nobody reviewed.
-- A file added inside an existing `content/skills` skill directory still installs into every
-  user's configuration with no membership check. That is the larger tree by file count, and
-  the residual is left open on the grounds above.
+- Nothing declares the expected set of skills. A file added inside an existing
+  `content/skills` skill directory installs to every user with no membership check, and so
+  does a whole new top-level skill directory — `check-skill-layout.sh` constrains what a skill
+  must look like, and `scripts/reserved-skill-names.txt` is a forbidden list rather than an
+  expected one. That is the larger surface by file count and it is left open here.
 - Untracked debris under one of the three trees — an editor swap file, a `*.orig` from a
   merge, a scratch draft — now turns a local `just verify` red, because the enumeration reads
   no ignore rules. Neither gating environment sees it: `scripts/verify-push.sh` rehearses in a
   detached worktree of the pushed objects, and CI runs on a clean checkout. The remedy is to
-  keep scratch work outside the three trees.
+  remove the debris, which is what the red is asking for: a `*.orig` lands inside a covered
+  tree by construction when the conflict is there, so no amount of keeping scratch work
+  elsewhere avoids it.
 - A new wholesale-installed tree added to `install.sh` is not covered until it is added to
   this manifest, and nothing detects that omission. The manifest is source, so this gate
   cannot defend against edits to itself; comments at the `install_common_content` and Bob
@@ -108,9 +112,17 @@ answer.
   `agents/claude/shared`, `agents/codex/shared` and `content/skills`, from which the installer
   takes named files or a filtered copy. Reusing it would gate membership of trees whose
   membership does not matter; scoping a subset out of it would put two meanings in one list.
-- **Gate only `agents/bob/shared/rules`, as the issue frames it.** Rejected: the same `cp -pR`
-  ships `content/languages` and `content/references` to three agents instead of one, so this
-  closes the narrower hole and leaves the wider one, having declared the defect fixed.
+- **Gate only `agents/bob/shared/rules`, as the issue frames it.** Rejected for the reason the
+  Decision gives; recorded here because the issue's framing is the obvious scope and a reader
+  should find it disposed of rather than overlooked.
+- **Declare `content/skills` at directory granularity** — a manifest of the expected top-level
+  skill names, which would gate a whole new skill reaching every user without a per-file list.
+  The churn objection does not apply at this granularity: two commits in the repository's
+  history ever added a top-level skill directory, against 36 directories today. Rejected here
+  on shape rather than cost: this gate compares one flat set of files, and a second tree
+  compared at a different granularity puts two comparison rules in one script. The natural
+  home is `check-skill-layout.sh`, which already enumerates those top-level children and would
+  gain an expected-set assertion beside its shape rules. Tracked as follow-up work.
 - **Extend `scripts/check-shared-standards.sh` and its manifest.** Rejected: that gate's
   subject is the identity of one block across the files that carry it, and its manifest means
   "these files must each hold a block". A second list meaning "these files may exist" would
