@@ -97,6 +97,23 @@ authoritative and the drift returns inside a single agent's tree.
   does not decide between them; the issue's naming does. Confirming it against the vendor
   documentation is tracked as follow-up work, and moving the block to Bob's root file is
   the remedy if the answer is no.
+- That follow-up is done and the answer is yes. The vendor's custom-rules documentation
+  (<https://bob.ibm.com/docs/ide/configuration/rules>, retrieved 2026-08-10) says global
+  rules "Apply automatically across all your projects" and gives their location as
+  `~/.bob/rules/`. `install.sh` copies `agents/bob/shared/rules` into that same directory
+  by default, so Bob receives the block unprompted and the remedy the bullet above holds in
+  reserve is not needed.
+- The same page qualifies that in three ways. A workspace `.bob/rules/` is combined with
+  the global copy and takes precedence where the two conflict, so the block is a defeasible
+  default wherever a project rule contradicts it — the gate proves the four copies agree,
+  never that the agreed rule wins at runtime. Unprompted loading turns out not to be unique
+  to root instruction files, so the rejected alternative that deploys the canonical
+  instructions tree and links to it from each root file stays rejected on its other ground
+  rather than on the one the bullet above worried about: a file the agent must first decide
+  to open is a reference whatever directory it sits in. And the page documents automatic
+  `AGENTS.md` loading only for a file in the workspace root, saying nothing about the
+  `~/.bob/AGENTS.md` that `install.sh` writes — so the reserve remedy is not merely
+  unneeded, it is the less documented of the two paths.
 - The gate proves the copies agree, not that they are worth agreeing on. Three empty
   subsections would satisfy it. Review keeps them worth having, which is the division of
   labor 0038 chose.
