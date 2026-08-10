@@ -156,9 +156,11 @@ have produced.
 
 The order is: satisfy the liveness precondition, confirm the branch landed, remove the
 worktree, then delete the branch. Worktree before branch matches `$clean-branches`, and for
-the same reason: a branch checked out in a worktree cannot be deleted. `git branch -d` tests
-against the current `HEAD` rather than `origin/<BASE_BRANCH>`, so it refuses on the squash
-path; `-D` is permitted for the two cases the land check proved merged and for nothing else.
+the same reason: a branch checked out in a worktree cannot be deleted. `git branch -d` is not
+a second land check and is not treated as one: it tests against the branch's own upstream when
+it has one and against `HEAD` otherwise, never against `origin/<BASE_BRANCH>`, so on the
+squash path it warns and then *succeeds* on a branch that is no ancestor of the base. `-D` is
+permitted for the two cases the land check proved merged and for nothing else.
 
 **A worktree that refuses to be removed is a deferral, not a case for `--force`.**
 `git worktree remove` refuses on modified or untracked files, and a finished worker's worktree
@@ -188,18 +190,23 @@ re-dispatch, for the same reason.
 - A campaign can end with worktrees still on disk and merged branches still present. That is
   the cost, and it is paid deliberately: a leaked directory is recoverable and named in the
   report, while a directory removed from under a running process is not.
-- The fallback owner is the operator, and only the operator. `$clean-branches` looks like the
-  standing sweep for this and is not: it enumerates candidates by `%(upstream:track)` equal to
-  `[gone]`, and one of these branches carries no upstream at all until it is pushed, or one
-  pointing at the base — neither reads `[gone]`, so the sweep passes it over. The report
-  naming the paths is therefore the whole of the recovery path today. Closing that gap is a
-  change to `$clean-branches`, tracked separately rather than folded in here.
+- The fallback owner is usually the operator alone. `$clean-branches` looks like the standing
+  sweep for this and mostly is not: it enumerates candidates by `%(upstream:track)` equal to
+  `[gone]`, and merging a pull request leaves `origin/<branch>` in place, so the track field
+  reads empty rather than `[gone]` and the sweep passes the branch over. The exception is a
+  repository that deletes head branches on merge, where a pruned fetch does make it `[gone]`
+  and the sweep does collect it. Relying on that would make recovery a function of one
+  repository setting, so the report naming the paths is what this record depends on. Closing
+  the gap properly is a change to `$clean-branches`, tracked separately rather than folded in
+  here.
 - Cleanup now depends on a harness notification, and the degradation without one is worse than
-  0042's. There, a missing notification cost only automatic re-dispatch. Here it would also
-  cost the `BEHIND` refresh, and a sibling that can never be refreshed is a row that can never
-  merge — so the notification is not the sole route to either. `git worktree list` showing the
-  branch held by nobody carries both, and a harness with no notifications degrades to that
-  plus the operator, rather than to a stuck queue.
+  0042's. There, a missing notification cost only automatic re-dispatch. Here it also costs the
+  `BEHIND` refresh, and a sibling that can never be refreshed is a row that can never merge. So
+  the notification is not the sole route. For a row this run did **not** dispatch,
+  `git worktree list` settles it without one. For a row it did, that query cannot help — the
+  worker's own worktree still holds the branch, which is the premise two paragraphs above — and
+  the surviving route is to ask the live agent to perform its own refresh. Cleanup on such a
+  harness falls to the operator; the queue does not stick.
 - The branch refresh for a `BEHIND` sibling can now wait on a live worker instead of
   proceeding. Merges of *other* rows are unaffected, since each row's refresh is independent.
 - A worker that hangs after its pull request merges holds one worktree, not the campaign.

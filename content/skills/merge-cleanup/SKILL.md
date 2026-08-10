@@ -75,7 +75,7 @@ not prevent other dependents from being evaluated.
 ## After a merge (yours or the user's)
 
 1. `cd` to the main checkout. If you have been working in an external
-   worktree you are standing in the directory step 5 removes, and every
+   worktree you are standing in the directory step 2 removes, and every
    step below is wrong from there: `git switch` refuses a branch checked
    out elsewhere, and `git worktree remove .` succeeds and takes your
    working directory with it.
@@ -98,11 +98,13 @@ first reads green + mergeable. Removing that directory while its owner is still 
 surfaces as `fatal: Unable to read current working directory` out of that agent's next
 push.
 
-So leave it alone and report it to your caller as deferred cleanup, naming the worktree
-path and the branch it holds. A `$campaign` orchestrator is the caller that can act on it
-— it holds the end-of-run notification the removal waits on, and its step 6 owns the
-retry. Never `git worktree remove --force` your way past this: the force *is* the failure
-mode, not the way around it, and it discards whatever the agent had not committed.
+So leave it alone and record it as deferred cleanup, naming the worktree path and the
+branch it holds — reported to your caller, or carried into your own deferred list when you
+are the `$campaign` orchestrator running this inline. Either way the orchestrator is what
+acts on it: it holds the end-of-run notification the removal waits on, and its step 6 owns
+the retry and the gated deletion. Never `git worktree remove --force` your way past this:
+the force *is* the failure mode, not the way around it, and it discards whatever the agent
+had not committed.
 
 Step 5 needs no such scoping, because git supplies it: a branch checked out in another
 worktree cannot be deleted, by `-d` or `-D`. Take *that* refusal — a branch held by a
