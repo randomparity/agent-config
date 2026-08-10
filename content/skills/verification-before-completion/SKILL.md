@@ -32,7 +32,9 @@ BEFORE claiming any status or expressing satisfaction:
 4. VERIFY: Does output confirm the claim?
    - If NO: State actual status with evidence
    - If YES: State claim WITH evidence
-5. ONLY THEN: Make the claim
+5. ACCOUNT: For a done, passing, or mergeable claim, run `git status --porcelain`
+   Any untracked file means not green — the check never saw it
+6. ONLY THEN: Make the claim
 
 Skip any step = lying, not verifying
 ```
@@ -48,6 +50,7 @@ Skip any step = lying, not verifying
 | Regression test works | Red-green cycle verified | Test passes once |
 | Agent completed | VCS diff shows changes | Agent reports "success" |
 | Requirements met | Line-by-line checklist | Tests passing |
+| CI green / mergeable | Guardrail exit 0 and clean `git status --porcelain` | Green checks with untracked files |
 
 ## Red Flags - STOP
 
