@@ -120,9 +120,14 @@ run_checker() {
 	"$CHECKER" "$FIXTURE" >"$SCRATCH/output" 2>&1
 }
 
-assert_passes() { # name
+assert_passes() { # name [expected-summary]
 	if ! run_checker; then
 		printf 'not ok - %s should pass\n' "$1" >&2
+		sed -n '1,20p' "$SCRATCH/output" >&2
+		exit 1
+	fi
+	if [[ -n "${2:-}" ]] && ! rg -qF -- "$2" "$SCRATCH/output"; then
+		printf 'not ok - %s should summarise as %s\n' "$1" "$2" >&2
 		sed -n '1,20p' "$SCRATCH/output" >&2
 		exit 1
 	fi
@@ -176,7 +181,8 @@ assert_exit_two() { # name expected-message [extra-argument...]
 }
 
 reset_fixture
-assert_passes 'four identical blocks'
+assert_passes 'four identical blocks' \
+	'shared-standards: ok (3 mirrors match the canonical block)'
 
 # One case per mirror: a checker that compares only the first copy it finds, or
 # only one hardcoded file, passes the other two.
@@ -290,5 +296,19 @@ assert_exit_two 'a missing canonical file' "canonical file is missing: $CANONICA
 
 reset_fixture
 assert_exit_two 'a second argument' 'usage:' extra
+
+# A misspelled root has to read as "I could not run", not as "I found drift".
+code=0
+"$CHECKER" "$SCRATCH/no-such-root" >"$SCRATCH/output" 2>&1 || code=$?
+if ((code != 2)); then
+	printf 'not ok - an unusable repository root should exit 2, exited %s\n' "$code" >&2
+	sed -n '1,20p' "$SCRATCH/output" >&2
+	exit 1
+fi
+if ! rg -qF -- 'repository root is not a directory' "$SCRATCH/output"; then
+	printf 'not ok - an unusable repository root should say so\n' >&2
+	sed -n '1,20p' "$SCRATCH/output" >&2
+	exit 1
+fi
 
 printf 'shared-standards-test: ok\n'

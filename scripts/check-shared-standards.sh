@@ -40,7 +40,13 @@ if (($# > 1)); then
 fi
 
 if (($# == 1)); then
-	ROOT="$(cd "$1" && pwd)"
+	# Not just `cd || exit`: an unreadable or misspelled root is a fault, and
+	# every other fault here exits 2. Letting errexit take it would exit 1, the
+	# status that means this gate found drift.
+	if ! ROOT="$(cd "$1" 2>/dev/null && pwd)"; then
+		printf 'shared-standards: repository root is not a directory: %s\n' "$1" >&2
+		exit 2
+	fi
 fi
 
 begin_marker='<!-- shared-standards:begin -->'
@@ -234,8 +240,10 @@ while IFS= read -r relative; do
 done <<<"$manifest"
 
 if ((result_status == 0)); then
-	printf 'shared-standards: ok (%s copies match the canonical block)\n' \
-		"$(count_lines "$carriers")"
+	# The canonical file is one of the carriers and is the thing compared
+	# against, so the number worth printing is the count of everything else.
+	printf 'shared-standards: ok (%s mirrors match the canonical block)\n' \
+		"$(($(count_lines "$carriers") - 1))"
 fi
 
 exit "$result_status"
