@@ -10,7 +10,8 @@ offer to bootstrap one. The skill is **add-only** except within the
 single-value dimensions `priority:`, `status:`, and `risk:`, where it swaps the
 existing value. It never closes an issue and never edits an issue body.
 
-Input: use the user-supplied issue numbers, or sweep untriaged open issues when none are supplied.
+Input: use the user-supplied issue numbers.
+When none are supplied, sweep untriaged and blocked open issues.
 
 Execute every step below in order. Both writes to GitHub (creating labels,
 applying labels) are gated behind a single explicit confirmation each — do not
@@ -100,8 +101,8 @@ it, so no swap arises there.
 
    - **Untriaged** — issues carrying no `type:*` label and no adopted equivalent. These
      receive full taxonomy analysis.
-   - **Blocked candidates** — issues carrying `status:blocked`. They qualify
-     regardless of whether they carry a `type:` label. These receive the
+   - **Blocked candidates** — open, non-`epic` issues carrying `status:blocked`.
+     They qualify regardless of whether they carry a `type:` label. These receive the
      cleared-dependency check only unless they are also untriaged.
 
    On both paths, drop `epic`-labeled issues — epics sit outside the `status:` machine (see
