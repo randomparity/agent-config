@@ -109,7 +109,8 @@ settings file that is deployed and unguarded.
   whose current `settings.json` was produced by a clobbering overlay stays unguarded until
   the overlay is fixed and the install re-run — and the abort *lengthens* that window,
   because the run that used to complete now does nothing. The abort message says so, which
-  is the only thing that turns this residual into an operator instruction.
+  is the only thing that turns this residual into an operator instruction. Issue #126 owns
+  closing it.
 - The published overlay contract narrows, so `README.md` states it rather than leaving it
   to be inferred from jq's behavior.
 - The merge reads its input twice — once to merge, once to compare — and the failure path

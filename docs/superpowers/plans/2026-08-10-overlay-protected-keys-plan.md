@@ -16,11 +16,8 @@ The spec is the contract; this plan is the order of work. Where they disagree, t
 
 **Where this fits.** The suite currently proves nothing about base values surviving an overlay, so
 the tests are written and observed failing before `install.sh` changes. Assertions 2, 3, 4 and 10
-fail against unmodified `install.sh`; 6 and 9 fail against an over-protecting implementation and
-pass today. Item 7 is a mixed case: its **concatenated-documents** run is red today, while its `[]`
-run already exits non-zero because jq itself refuses (`object (...) and array ([]) cannot be
-multiplied`, naming the overlay file). So item 7's `[]` run bites only on *message* content, not on
-exit status — see the shape note below.
+fail against unmodified `install.sh`; 6, 7 and 9 fail against an over-protecting implementation and
+pass today.
 
 **Files.** `install-test.sh` only.
 
@@ -30,7 +27,7 @@ exit status — see the shape note below.
    `CLAUDE_CONFIG_DIR`/`CODEX_CONFIG_DIR`/`BOB_CONFIG_DIR` under `$tmpdir`, capturing the exit
    status and **stdout and stderr to separate files**. Both streams are needed: the abort messages
    go to stderr, while `no private overlay at <path>` and `applied private overlay <path>` are
-   existing `printf`s to stdout, so item 8 asserts against captured stdout and items 2, 3, 4 and 7
+   existing `printf`s to stdout, so item 8 asserts against captured stdout and items 2, 3 and 4
    against captured stderr. Per the spec's isolation rule, nothing new may reuse the suite's
    exported paths or disturb the existing assertion at `install-test.sh:278`.
 2. Add an `assert_json_equal <file-a> <filter-a> <file-b> <filter-b>` helper for comparing a
@@ -40,18 +37,17 @@ exit status — see the shape note below.
      non-zero exit cannot satisfy it;
    - 4 asserts stderr contains `hooks` and **not** `PreToolUse` — outermost-only, and proof the
      message is not jq's `Cannot index string with string "PreToolUse"`;
-   - 6 and 9 assert **success**, guarding the empty-array exemption and the result-based rule;
-   - 7's `[]` run asserts stderr contains the shape-check wording and does **not** contain
-     `cannot be multiplied`, mirroring how item 4 excludes jq's traversal error — without that,
-     an implementation dropping the object half of the check ships green. Its zero-byte run
-     asserts the empty-overlay wording specifically;
-   - 8 covers the no-overlay default and catches a shape check misplaced above the `-f` guard;
+   - 6, 7 and 9 assert **success**, guarding the empty-array exemption, the in-repo empty-object
+     instance (`{"mcpServers": null}` against Bob's `{"mcpServers": {}}`), and the result-based
+     rule;
+   - 8 covers the no-overlay default, so the new branch structure cannot break the configuration
+     every first-time user has;
    - 10 installs benignly, re-runs with the clobbering overlay, and asserts the already-deployed
      file still holds the base's `hooks` and `permissions.deny`.
 
 **Acceptance.** The suite's `fail()` exits on the first failure, so the red set cannot be read from
 one run. Observe it one item at a time: run, record the message, comment out that assertion, repeat
-for 2, 3, 4, 7 and 10 — then **restore every commented assertion and re-read the file** before
+for 2, 3, 4 and 10 — then **restore every commented assertion and re-read the file** before
 committing, so no disabled assertion reaches the commit. The recorded messages are the evidence the
 tests bite; a reasoned claim that an unobserved assertion would have failed is not. Commit the
 failing tests separately from the fix.
@@ -68,14 +64,12 @@ is derived from each base, so no call site passes a key list.
 **Do.**
 
 1. Keep the no-overlay branch exactly as it is (`jq '.'` plus the existing message).
-2. **Inside** the `[[ -f "$overlay" ]]` branch — not beside `require_command jq`, which sits above
-   it — add the shape check. One boolean cannot produce the three messages the spec requires, so
-   read the two facts separately: `jq -s 'length'` and, when that is 1, `jq -s '.[0] | type'`.
-   Branch to three messages, each naming the overlay path — *empty overlay* (length 0), *more than
-   one JSON value* (length > 1), *not a JSON object* (type is not `object`). A zero-byte overlay is
-   the first of those and must not be reported as the second.
-3. Merge into a temp file from `new_temp_file`, not straight to `$output`, so a rejected merge
-   writes nothing to the destination.
+2. Do **not** add overlay-shape validation. It closes a different defect class — loss of the
+   operator's own overlay content — and is owned by #123/#125; the scope audit flagged it as
+   review-created scope.
+3. Merge straight to `$output` and validate before returning. No extra temp file: every call site
+   already passes a `new_temp_file` path, and under `set -euo pipefail` a non-zero return aborts
+   before `install_managed_path` ever reads it, so a second temp buys nothing.
 4. Compare: for every path in the base whose value is a **non-empty array**, the merged value must
    be identical; for every path whose value is a **non-empty object**, the merged value must be an
    object. The lookup must be **guarded** (`try`/`catch`) — an unguarded `getpath` raises
@@ -84,9 +78,9 @@ is derived from each base, so no call site passes a key list.
 5. On any mismatch: print the operation, the overlay path, each offending base path, and the
    sentence that the currently deployed settings file is unchanged and may already be missing those
    values. Send it to **stderr** (`>&2`, as `require_command` does) — the function's existing
-   success messages go to stdout, and an abort printed there would fail assertions 2, 3, 4 and 7
-   against an otherwise-correct guard. Exit non-zero. On success, `cp` the temp file to `$output`
-   and keep the existing `applied private overlay` message on stdout.
+   success messages go to stdout, and an abort printed there would fail assertions 2, 3 and 4
+   against an otherwise-correct guard. Exit non-zero. On success keep the existing
+   `applied private overlay` message on stdout.
 
 **Acceptance.** `./install-test.sh` passes, including 6 and 9. `just verify` passes bare. The
 function stays within the repo's complexity baseline; if the jq program grows past readability,
@@ -124,8 +118,10 @@ describes behavior the code does not have.
 ## Out of scope
 
 `agents/claude/shared/settings.base.json` deny entries (#111). `merge_toml_config` and the Codex
-TOML overlay — flag only. Any route for a host-private `permissions.deny` entry (#118). Repairing an
-already-deployed unguarded `settings.json` (ADR 0043 records it as a residual). Merging the PR.
+TOML overlay — flag only (#123). Any route for a host-private `permissions.deny` entry (#118).
+Repairing an already-deployed unguarded `settings.json` (#126; ADR 0043 records it as a residual).
+Overlay-shape validation — multi-document, non-object and repeated-key overlays (#125). Merging
+the PR.
 
 ## Verification
 
