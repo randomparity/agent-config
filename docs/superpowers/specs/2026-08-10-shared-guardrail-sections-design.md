@@ -4,16 +4,35 @@ Design for issue 88. Decision record: `docs/adr/0041-shared-prose-is-gated-for-c
 
 ## Problem
 
-The operating rules this change generalizes are spread unevenly across the four copies of
-the global development standards. Exit-code truth, the destructive-git ban, the `trash`
-row's deletion warning, and the decision-framing rules are in Claude's file, Codex's file
-and the canonical copy, and in neither Bob file. The untracked-file check and the
-`git clean` and force-delete bans are in none of the four.
+The operating rules this change generalizes are spread unevenly across the copies of the
+global development standards. Exit-code truth, the destructive-git ban, the `trash` row's
+deletion warning, and the decision-framing rules are in Claude's file, Codex's file and the
+canonical copy, and in neither Bob file. The `git clean -fd` and `rm -f` bans are in none
+of them.
 
 Nothing in the repository detects the unevenness: no gate compares an instruction copy to
 another copy or to the canonical one. Adding the missing prose fixes today's gap and
 leaves tomorrow's open. The change is only durable if a gate turns red the next time a
 rule reaches one copy and not the rest.
+
+### What the block adds
+
+The gate deliberately asserts nothing about the block's content, so every rule the block
+states that is not already in the four copies is listed here with its source. A reviewer
+checking criterion 1 has this list and nothing else; a rule not on it and not in the
+consolidation table below is scope this design did not authorize.
+
+| New rule | Source |
+|----------|--------|
+| Before claiming green, done, or mergeable, run `git status --porcelain`; any untracked file means not green | issue 88, Expected bullet 3 and Proposed approach |
+| Never pipe a guardrail command into `grep` (the existing rule names `tail`, `head`, `>/dev/null`, `\|\| true`) | issue 88, Proposed approach |
+| Never run `git clean -fd` or `rm -f` | issue 88, Proposed approach |
+| Verify a historical claim about a repository with `git log` or `gh` and cite the output | issue 88, Proposed approach |
+| State a judgment call as a decision with its rationale rather than handing the choice back | issue 88, Proposed approach |
+| Do authorized follow-up work rather than offering it back | issue 88, Proposed approach |
+
+Everything else in the block is one of the six existing rules the consolidation table
+moves, reworded only to drop agent-specific detail.
 
 ## Outcome
 
@@ -65,9 +84,9 @@ with `git restore`, `git stash`, or `git revert`, and delete recoverably — `tr
 macOS, `gio trash` on Linux. Force pushes, with a lease or without one, are the user's to
 run rather than yours.
 
-Never chain a destructive operation and a non-destructive one in a single command. If the
-destructive step is denied or fails, the rest of the chain never runs and the reported
-error names the wrong operation.
+Never chain a command that might be denied or fail with one that must still run, and never
+put a destructive operation in a chain at all. A denied or failed first step leaves the
+rest of the chain unrun, and the reported error names the wrong operation.
 
 ### Honesty & Decision Framing
 
@@ -85,8 +104,7 @@ compiler version — or a destructive or external write. A question is not a tas
 and stop.
 
 Do authorized follow-up work rather than offering it back. Report what ran, what did not,
-and what is still red in the same message as the result; an exhausted review budget
-without approval is reported as exactly that, never as clean.
+An exhausted review budget without approval is reported as exactly that, never as clean.
 <!-- shared-standards:end -->
 ````
 
@@ -100,7 +118,8 @@ number, no bare issue number, no concrete record path. The text above satisfies 
 Every rule the block absorbs is removed from where it was, or the file states it twice.
 Six removals in each of `agents/claude/shared/CLAUDE.md`,
 `agents/codex/shared/AGENTS.md`, and `content/instructions/global-development-standards.md`
-(line numbers are Claude's copy):
+(line numbers are `content/instructions/global-development-standards.md`'s; Claude's copy
+runs two to three lines shorter from its shorter opening bullet):
 
 | Removed | Absorbed into |
 |---------|---------------|
@@ -119,9 +138,12 @@ run's findings are reported` (Testing), `Unit tests green ≠ working` (Done mea
 
 Bob's rules file carries none of the six and only gains the block.
 
-The force-push rule loses the clause `are denied by settings policy`, which describes
-Claude's permission configuration and cannot be stated agent-neutrally. The operative
-half — a force push is the user's to run — survives.
+Two losses in consolidation, both deliberate. The force-push rule drops the clause `are
+denied by settings policy`, which describes Claude's permission configuration and cannot
+be stated agent-neutrally; the operative half — a force push is the user's to run —
+survives. The `&&`-chain rule's subject was `a possibly-denied command`, which the issue's
+wording would have narrowed to destructive ones; the block keeps both, so a chain whose
+first step may be denied for any reason is still covered.
 
 ### The gate
 
@@ -238,7 +260,7 @@ Both new scripts are tab-indented, so `scripts/list-shell-sources.sh` gets no ed
 new script is invisible to them while the `Justfile` edit for `shared-standards-check`
 takes effect immediately — a run that looks complete having never executed the new gate or
 its suite. Both scripts must be `git add`ed before `just verify` proves anything, and the
-evidence for criterion 6 is `just test`'s trailing `test: N suites passed` line showing
+evidence for criterion 7 is `just test`'s trailing `test: N suites passed` line showing
 `N` one higher than on `main`. This is the same failure the change adds to
 `verification-before-completion`, arriving first in its own implementation.
 

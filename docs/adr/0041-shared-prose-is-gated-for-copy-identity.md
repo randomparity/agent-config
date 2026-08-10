@@ -6,24 +6,28 @@ Accepted (2026-08-10)
 
 ## Context
 
-The global development standards exist as four documents:
+The global development standards exist as four full or condensed copies —
 `content/instructions/global-development-standards.md` (agent-neutral, not deployed),
-`agents/claude/shared/CLAUDE.md`, `agents/codex/shared/AGENTS.md`, and Bob's condensation
-under `agents/bob/shared/rules/global-development-standards.md`. The first three are
-near-identical, diverging only where the surface is agent-native — the name of a
-project-local instruction file, a config directory in a reference path, whether a skill is
-invoked by name or by prefix.
+`agents/claude/shared/CLAUDE.md`, `agents/codex/shared/AGENTS.md`, and
+`agents/bob/shared/rules/global-development-standards.md` — beside Bob's root summary at
+`agents/bob/shared/AGENTS.md`. The first three run to about 125 lines each and are
+near-identical; Bob's is a condensation of about twenty.
 
-The operating rules this change generalizes are spread unevenly across them. Exit-code
-truth, the destructive-git ban, the deletion warning, and the decision-framing rules are in
-the first three and in neither of Bob's two deployed files. The untracked-file check and
-the `git clean` and force-delete bans are in none of them.
+They diverge where the surface is agent-native, which is by design, and in at least one
+place where a rule simply landed in one copy and stayed there:
+`agents/codex/shared/AGENTS.md` carries a rule about where reusable workflow sources live
+that neither Claude's copy nor the canonical one has.
 
-Nothing detects unevenness. `scripts/check-carrier-drift.sh` scans `content/skills` only.
+The operating rules this change generalizes are spread unevenly too. Exit-code truth, the
+destructive-git ban, the deletion warning, and the decision-framing rules are in the three
+long copies and in neither of Bob's two deployed files. The untracked-file check, the
+`git clean` ban, and the force-delete ban are in none of the five.
+
+Nothing detects any of it. `scripts/check-carrier-drift.sh` scans `content/skills` only.
 `scripts/check-deployed-references.sh` scans the deployed trees for stale record
 references and never compares a copy to another copy or to the canonical one. So writing
 the missing prose into every file fixes the present state and leaves the next rule free to
-land in one copy unnoticed — which is how Bob's copy reached its present state.
+land in one copy unnoticed, exactly as Codex's has.
 
 Record 0038 is both the obstacle and the answer. It decided that prompt prose is gated for
 the consistency of its machine-read blocks and never for the wording of its sentences,
@@ -61,15 +65,18 @@ copy states a rule twice.
 
 **Bob's copy is `agents/bob/shared/rules/global-development-standards.md`**, the file the
 issue names and the one `install.sh` reaches by copying `agents/bob/shared/rules` whole
-into Bob's rules directory. `agents/bob/shared/AGENTS.md` — also deployed, and also titled
-Global Development Standards — goes on summarizing the defaults. One deployed home per
-agent, or the gate has to decide which of Bob's two copies is authoritative and the drift
-returns inside a single agent's tree.
+into Bob's rules directory. Bob's root summary goes on summarizing the defaults. One
+deployed home per agent, or the gate has to decide which of Bob's two copies is
+authoritative and the drift returns inside a single agent's tree.
 
 ## Consequences
 
 - A rule added to the block reaches every agent, or `just verify` goes red naming the file
   that missed it. That is the machine-checkable form of "generalized to all agents".
+- Only rules inside the block get that. A rule that cannot be stated agent-neutrally stays
+  outside it and stays ungated, so the divergence this record found in Codex's copy is one
+  the gate would not have caught. The gate narrows the ungated surface; it does not close
+  it.
 - 0038's synchronization cost returns, at four copies rather than two, and the copy is
   manual: nothing here generates or repairs a mirror. What changed is where the second
   copy lives — a file a reader can read, not a string inside the suite that asserts it.
@@ -90,9 +97,6 @@ returns inside a single agent's tree.
 - The gate proves the copies agree, not that they are worth agreeing on. Three empty
   subsections would satisfy it. Review keeps them worth having, which is the division of
   labor 0038 chose.
-- A block copied into some other file under a scanned root is found and compared. A new
-  agent tree added with no block at all needs an edit to the roots and the manifest — the
-  same residual 0038 accepts for its carrier sites.
 
 ## Considered & rejected
 
@@ -114,7 +118,17 @@ returns inside a single agent's tree.
   carrying what the agent receives, so a reader of `agents/codex/shared/AGENTS.md` would
   no longer be reading Codex's instructions, and review would cover an artifact that is
   not the deployed one.
+- **Add a repository-side recipe that copies the canonical block into the mirrors.** Not
+  the install-time splice above: it writes the tracked files, so each copy still is what
+  the agent receives and review still covers the deployed artifact. Rejected for now
+  because it is not needed to reach the outcome — the gate names the drifted file and its
+  line, and the edit is rare — and it would be a second thing to keep correct. If the
+  four-file sync proves burdensome in practice it is the obvious follow-up.
 - **Exempt Bob and gate the two full-length copies.** Rejected: Bob is the copy actually
   missing the rules, so this would gate the pair that already agree.
-- **Do nothing and rely on review.** Rejected: review is what the repository has now, and
-  Bob's copy is what it produced.
+- **Do nothing and rely on review.** The history is more favorable to review than it first
+  looks: Bob's copy was authored as a condensation on day one rather than drifting, and the
+  one rule added to these files since then was propagated to all five by the commit that
+  introduced it. Rejected anyway, on two grounds review did not catch — Codex's copy holds
+  a rule the others do not, and nobody chose a condensation as the right form for a safety
+  rule, which is what Bob's file makes it.
