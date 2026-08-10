@@ -81,10 +81,20 @@ fortunate, because the correct number varies with the issue.
 **Only an observed end of run authorizes re-dispatch.** Two things count: the harness's
 own end-of-run notification for that agent, or the orchestrator stopping the agent through
 the harness's stop control and then seeing that notification. Unanswered probes are not a
-third. A row that has gone quiet, failed two consecutive probes, and shows no new tracker
-event is a **hold** — reported in the run output, routed to the blocker path, with the
-rest of the queue still draining. It is not a persisted state: the next poll recomputes it
-from live queries in seconds.
+third. A row that has gone quiet, has not answered a probe across two polls, and shows no
+new tracker event is a **hold** — reported in the run output, with the rest of the queue
+still draining. Nothing is written down: the tracker half recomputes from live queries in
+seconds, and the probe half is an observation belonging to the run that made it, so a hold
+does not outlive that run and is not meant to.
+
+**A held row keeps its in-flight state and gets no `status:` label.** This is where the
+hold departs from step 6's, and the difference is the subject: a pull request held for an
+operator is inert, while a held agent is one the design's own premise says is probably
+still running. `github-tracking` keeps one `status:` label active, so a `blocked` written
+here is removed by that agent's own next transition, leaving the manifest disagreeing with
+the tracker — and a `blocked` row counts as drained, which would let the campaign end its
+turn while the agent it gave up on kept working toward a pull request nobody was waiting
+for.
 
 **The operator's answer to a hold is what reaches the stop control.** That is the entry
 condition, and without one the second route above would be an authorization nothing could
@@ -99,10 +109,12 @@ The branch holds the committed work; the successor is handed its name, an explic
 decision, and the last phase the tracker showed — not a pasted diff, which is bulky going
 in and stale on arrival. Two cases are not resumable that way and are called out rather
 than papered over. A row with no branch at all died before one existed and is dispatched
-fresh. And a branch does not carry uncommitted edits, so recovering it into a new worktree
-discards them silently unless the dying agent's worktree is read first and what was found
-or lost is handed on. Artifact reconciliation runs before any of this, because a dying
-agent may have pushed a branch or opened a pull request the manifest has not recorded.
+fresh. And the dead agent's worktree still holds the branch checked out, so the successor
+cannot add its own worktree on that path until the orchestrator reclaims it — handing over
+the path or removing it — which is also the only window in which the uncommitted edits
+stranded there can be read. Artifact reconciliation runs before any of this, because a
+dying agent may have pushed a branch or opened a pull request the manifest has not
+recorded.
 
 ## Consequences
 
@@ -116,6 +128,12 @@ agent may have pushed a branch or opened a pull request the manifest has not rec
   ignore-path question, so record 0027's constraints are satisfied by not engaging them.
 - A probe consumes a turn of a live agent's run. That is the price of the discriminator
   and it is paid only on rows that have gone quiet.
+- The poll needs a trigger of its own when the orchestrator has nothing else in hand —
+  serial dispatch, or the tail of a wave whose healthy rows have all finished. Those are
+  the cases the filed stall actually occurred in, so leaving the poll to ride on other
+  rows' events would have reproduced it. The orchestrator waits on the outstanding rows
+  from a background task instead, which is what the standing rule against foreground sleep
+  loops already prescribes for anything long.
 - A hung agent that still answers messages reads as alive and will not be re-dispatched.
   This is deliberate. The alternative is a heuristic that decides an answering agent is
   dead, which is the duplicate-pull-request failure by a subtler route; a genuinely wedged
