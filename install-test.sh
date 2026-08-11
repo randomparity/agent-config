@@ -1678,6 +1678,39 @@ mode = "workspace-write"'
 	assert_not_file "$OVERLAY_DEST/codex/config.toml"
 fi
 
+# 48a. The hoist's own status guard (ADR 0049 rule 1). Since the overlay is parsed before
+#      the hoist reads it, an unreadable overlay no longer reaches `emit_merged_toml`, so
+#      case 48 stopped covering the guard — but it stays reachable, by an `awk` that fails
+#      for any other reason. Unguarded, a partial emit produces a document that parses,
+#      preserves `features`, and deploys under `applied private overlay` with the operator's
+#      overlay silently missing.
+awk_shim_dir="$tmpdir/awk-shim"
+mkdir -p "$awk_shim_dir"
+cat >"$awk_shim_dir/awk" <<'SHIM'
+#!/usr/bin/env bash
+printf 'awk-shim: forced failure\n' >&2
+exit 2
+SHIM
+chmod +x "$awk_shim_dir/awk"
+
+start_overlay_case codex
+write_text "$OVERLAY_FILE/config.overlay.toml" '[sandbox]
+mode = "workspace-write"'
+OVERLAY_STATUS=0
+PATH="$awk_shim_dir:$PATH" \
+	AGENT_CONFIG_HOST=test-host \
+	AGENT_CONFIG_PRIVATE_DIR="$OVERLAY_PRIVATE" \
+	CLAUDE_CONFIG_DIR="$OVERLAY_DEST/claude" \
+	CODEX_CONFIG_DIR="$OVERLAY_DEST/codex" \
+	BOB_CONFIG_DIR="$OVERLAY_DEST/bob" \
+	./install.sh --agent codex \
+	>"$OVERLAY_OUT" 2>"$OVERLAY_ERR" || OVERLAY_STATUS=$?
+assert_overlay_refused 'failing awk fails closed'
+assert_stream_contains "$OVERLAY_ERR" 'could not merge private overlay' \
+	'failing awk fails closed'
+assert_stream_lacks "$OVERLAY_OUT" 'applied private overlay' 'failing awk fails closed'
+assert_not_file "$OVERLAY_DEST/codex/config.toml"
+
 # 48b. An overlay path awk would read as a variable assignment. POSIX awk treats an operand
 #      matching `name=value` as an assignment rather than a file, so a *relative*
 #      AGENT_CONFIG_PRIVATE_DIR of that shape made awk read stdin, print nothing and exit

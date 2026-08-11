@@ -1003,6 +1003,7 @@ merge_toml_config() { # base overlay output
 			"$diagnostic" \
 			"Run: python3 -c 'import tomllib,sys; tomllib.load(open(sys.argv[1],\"rb\"))' \\" \
 			"  '$overlay'"
+		unlink "$output"
 		return 1
 		;;
 	2)
@@ -1011,6 +1012,7 @@ merge_toml_config() { # base overlay output
 			'check is a TOML parse. This host has no python3 that can import tomllib,' \
 			'which needs Python 3.11 or newer; install one and re-run. The base alone is' \
 			'all the installer can deploy until then (ADR 0057).'
+		unlink "$output"
 		return 1
 		;;
 	*)
@@ -1032,12 +1034,19 @@ merge_toml_config() { # base overlay output
 	case "$status" in
 	0) ;;
 	1)
+		# Two causes reach here and they need different remedies, so neither is asserted.
+		# The common one is a duplicate declaration: TOML forbids declaring a table or key
+		# twice, and an overlay that names one the base already defines is the only way to
+		# reach a base value at all. The other is the hoist mangling a legal file. Leading
+		# with the wrong one sends the operator to the wrong file.
 		report_toml_overlay "$overlay" 'does not survive the merge:' \
 			"$diagnostic" \
-			'Your overlay parses on its own, so this is the merge splitting it: root settings' \
-			'are moved above the base tables, and the positions above are in that merged' \
-			'document rather than in your file. A root value that opens a multi-line string' \
-			'or array is the usual cause; put it inside a table of its own.'
+			'Your overlay parses on its own, so the merge is what produced this, and the' \
+			'positions above are in the merged document rather than in your file. Either it' \
+			'declares a table or key the base already defines -- TOML forbids declaring one' \
+			'twice, so an overlay may add but not redefine -- or a root value that opens a' \
+			'multi-line string or array swallowed the base tables, in which case put that' \
+			'value inside a table of its own.'
 		unlink "$output"
 		return 1
 		;;

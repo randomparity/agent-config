@@ -169,15 +169,19 @@ Returns 0 on success, 1 on refusal, and exits on anything else (R8).
    exits, naming the file it could not read, and must not fall through as an empty
    contribution.
 4. `validate_toml` the merged result. Rejected — refuse, naming the overlay and carrying
-   the diagnostic, and say plainly that the overlay parses on its own so this is the merge
-   splitting it, with offsets that index the merged document. No parser is unreachable here,
-   because step 2 already returned on it; it is treated as a machine failure.
+   the diagnostic, and say the overlay parses on its own so the merge produced this, with
+   offsets that index the merged document. Two causes reach here and the verdict asserts
+   neither: a duplicate declaration, which is the common one because it is the only way to
+   name a base value at all, and the hoist mangling a legal file. No parser is unreachable
+   here, because step 2 already returned on it; it is treated as a machine failure.
 5. `erased_base_toml_paths`; if non-empty, refuse naming the overlay and each path, with
    the rule that an overlay may add tables and keys but may not erase or change what the
    base defines, and the same unhedged statement that the hoist is the cause.
 6. Print `applied private overlay`, return 0 (R9).
 
-Every refusal unlinks `$output` before returning (R7).
+Every refusal unlinks `$output` before returning (R7), including the two overlay-level ones,
+where it is still the empty file the caller allocated — an empty `config.toml` is an
+installable artifact like any other.
 
 ### `install_merged_toml <dest_dir> <base> <overlay> <rel>`
 
