@@ -720,8 +720,10 @@ assert_stream_lacks "$OVERLAY_ERR" 'has every array and object' 'empty destinati
 # The refusal unlinks the merged temp file, so the fill has to allocate a fresh 0600 one
 # rather than re-creating it by redirection, which would take the umask. `payload_differs`
 # compares content and the executable bit only, so a widened mode would never converge
-# back. `-perm -044` is both group- and other-read, and is portable to BSD find.
-[[ -z "$(find "$OVERLAY_DEST/claude/settings.json" -perm -044 -print)" ]] ||
+# back. `-perm -0NN` tests that *every* named bit is set, so a single `-044` would let a
+# 0640 file through under umask 027; the alternation is the any-of idiom, portable to BSD find.
+[[ -z "$(find "$OVERLAY_DEST/claude/settings.json" \
+	\( -perm -040 -o -perm -004 \) -print)" ]] ||
 	fail 'base-filled settings.json must not be group- or world-readable'
 
 # 16. One merged document, two destinations. `agents/bob/shared/mcp.json` ships
@@ -785,7 +787,10 @@ set -u
 shape=other
 for arg in "$@"; do
 	case $arg in
-	'.[0] * .[1]') shape=merge ;;
+	# Matched as a substring: the merge filter carries a base-length test around the
+	# product, so an exact-match pattern would stop selecting it and cases 19 and 20 would
+	# silently start failing a different call.
+	*'.[0] * .[1]'*) shape=merge ;;
 	*@tsv*) shape=shape ;;
 	-rn) shape=compare ;;
 	-S) shape=normalize ;;
@@ -1035,7 +1040,8 @@ assert_stream_contains "$OVERLAY_ERR" 'private overlay(s) were refused' \
 	'multi-document overlay'
 # The base fill reaches this destination through a new refusal path, so it has to allocate
 # its own 0600 temp rather than inherit the umask, exactly as case 15 requires of the other.
-[[ -z "$(find "$OVERLAY_DEST/claude/settings.json" -perm -044 -print)" ]] ||
+[[ -z "$(find "$OVERLAY_DEST/claude/settings.json" \
+	\( -perm -040 -o -perm -004 \) -print)" ]] ||
 	fail 'multi-document overlay: base-filled settings.json must not be group- or world-readable'
 
 # 29. A zero-byte overlay. `write_json` appends a newline, so the file is created bare.
@@ -1122,6 +1128,30 @@ assert_file "$OVERLAY_DEST/claude/skills/preflight/SKILL.md"
 assert_file "$OVERLAY_DEST/codex/config.toml"
 assert_file "$OVERLAY_DEST/bob/settings.json"
 assert_file "$OVERLAY_DEST/bob/mcp_settings.json"
+
+# 35b. The same slurp, through the other input. `jq -s` builds one array from *both* files,
+#      so `.[1]` is the overlay only while the base is one document as well: a two-document
+#      base merges the base with itself and leaves the whole overlay at an index nothing
+#      reads. `erased_base_paths` compares against `$base[0]` and finds nothing erased, so
+#      without this the run reports `applied private overlay` and exits 0 having applied
+#      none of it — #125's defect, through the file the operator cannot fix. The base is
+#      this repository's, so it is a hard failure rather than a refusal.
+two_document_repo="$tmpdir/two-document-repo"
+mkdir -p "$two_document_repo/docs"
+cp -pR "$REPO/install.sh" "$REPO/content" "$REPO/agents" "$two_document_repo/"
+cp -pR "$REPO/docs/licenses" "$two_document_repo/docs/"
+two_document_base="$two_document_repo/agents/claude/shared/settings.base.json"
+cat "$BASE_SETTINGS" "$BASE_SETTINGS" >"$two_document_base"
+# The planted base must really hold two documents, or the case proves nothing.
+[[ "$(jq -s 'length' "$two_document_base")" == 2 ]] ||
+	fail 'two-document fixture must plant two documents in the base'
+start_overlay_case claude
+write_json "$OVERLAY_FILE/settings.overlay.json" '{"env":{"AGENT_CONFIG_TEST":"lost"}}'
+run_overlay_case claude "$two_document_repo/install.sh"
+assert_overlay_refused 'two-document base'
+assert_stream_contains "$OVERLAY_ERR" 'are not exactly one JSON object' 'two-document base'
+assert_stream_lacks "$OVERLAY_OUT" 'applied private overlay' 'two-document base'
+assert_not_file "$OVERLAY_DEST/claude/settings.json"
 
 # 36. The shape check is a jq call like any other, so it fails closed (ADR 0049 rule 1).
 #     A build reading its failure as "the overlay is fine" would merge an unvalidated

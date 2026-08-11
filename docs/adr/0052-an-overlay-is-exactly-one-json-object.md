@@ -65,12 +65,21 @@ Four things are normative.
    `report_deployed_state`, which reads a failed parse of a *deployed* file as a verdict
    about that file rather than as an installer fault. The direction is safe either way: the
    result is a refusal, so no overlay content is applied and the run still fails. What is
-   given up is message accuracy in the case where jq itself is broken, and in that case
-   `render_base` fails on the very next line and exits with its own message.
+   given up is message accuracy in the case where jq itself is broken: where the refusal
+   goes on to fill an empty destination set, `render_base` fails on the very next line and
+   says so, but where a destination is occupied by a symlink or a directory nothing else
+   calls jq and the operator is told a sound overlay will not parse. That gap is accepted
+   rather than closed — distinguishing the two would mean probing jq's health on every
+   overlay, and the run fails either way with nothing written.
 
-The merge expression is unchanged. Because the precondition guarantees the overlay is
-exactly one object, `.[1]` is now correct rather than accidentally correct, and every ADR
-0043 verdict over the merged result is reached by the same code as before.
+The merge is `.[0] * .[1]` as before, now guarded by a length test. `-s` slurps *both*
+files into one array, so the overlay's index depends on the base as well: a two-document
+base would merge the base with itself and leave the whole overlay unread, under a green
+`applied private overlay`. The precondition above pins one side and the length test pins
+the other, which together are what make `.[1]` correct rather than accidentally correct. A
+base failing that test is a defect in this repository rather than a mistake the operator
+can fix, so it takes the merge's existing hard failure and not a refusal. Every ADR 0043
+verdict over the merged result is reached by the same product as before.
 
 ## Consequences
 
@@ -88,9 +97,13 @@ exactly one object, `.[1]` is now correct rather than accidentally correct, and 
   not. It writes only what ADR 0049 already permits on a refusal: the rest of the managed
   tree, and the base alone into a destination set that holds no file. Nothing derived from
   the overlay is written, and nothing deployed is replaced.
-- One extra `jq` invocation per JSON overlay per run — four in an `--agent all` run, on the
-  success path as well as the refusal path. It reads a file the merge is about to read
+- One extra `jq` invocation per JSON overlay per run — three in an `--agent all` run, on
+  the success path as well as the refusal path. It reads a file the merge is about to read
   anyway.
+- A base file that is not exactly one JSON object now fails the merge and names itself,
+  where before it merged the base with itself and reported the operator's overlay as
+  applied. No base in this repository is in that shape, and the length test costs no extra
+  process — it rides in the merge's own filter.
 - The overlay file format is now a stated contract rather than whatever jq tolerates. A
   future relaxation — JSON with comments, a document array — is an ADR, not a patch.
 - `install.sh` grows a second refusal reporter. The protected-key refusal keeps its own

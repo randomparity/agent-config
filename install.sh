@@ -506,15 +506,23 @@ merge_json_settings() {
 	fi
 
 	# Before the merge, because `.[1]` below reads one document out of a stream and cannot
-	# report what it left behind (ADR 0052). With the precondition held, `.[1]` is the
-	# overlay rather than the overlay's first document, and every ADR 0043 verdict over the
-	# merged result is reached by the same expression as before.
+	# report what it left behind (ADR 0052).
 	if ! overlay_is_one_object "$overlay"; then
 		unlink "$output"
 		return 1
 	fi
 
-	if ! jq -s '.[0] * .[1]' "$base" "$overlay" >"$output"; then
+	# `-s` slurps *both* files into one array, so `.[1]` is the overlay only while the base
+	# is one document too: a two-document base would push the overlay to `.[2]` and merge
+	# the base with itself, under a green `applied private overlay`. The length test is what
+	# makes `.[1]` correct rather than accidentally correct, and it is a hard failure rather
+	# than a refusal because the base is this repository's file — a malformed one is a defect
+	# here, not a mistake the operator can fix (ADR 0052).
+	if ! jq -s --arg base "$base" '
+		if length == 2 then .[0] * .[1]
+		else error("base settings \($base) are not exactly one JSON object")
+		end
+	' "$base" "$overlay" >"$output"; then
 		printf 'install: could not merge private overlay %s into %s\n' "$overlay" "$base" >&2
 		exit 1
 	fi
