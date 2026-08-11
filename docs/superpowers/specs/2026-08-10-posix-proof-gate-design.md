@@ -5,10 +5,14 @@ Decision record: [ADR 0053](../../adr/0053-the-required-check-proves-shell-porta
 
 ## Problem
 
-`scripts/claude-settings-hooks-test.sh` proves that the two shipped Claude `PreToolUse`
-hook bodies stay inside POSIX shell by re-running them under `sh`. Since #112 the suite
-resolves `sh` by what it accepts (`sh -c '[[ -n x ]]'`) and, where `sh` turns out to be an
-extended shell, prints a skip notice instead of a green line it has not earned.
+`scripts/claude-settings-hooks-test.sh` proves that shipped Claude `PreToolUse` hook bodies
+stay inside POSIX shell by re-running them under `sh`. It covers two of the five bodies
+`settings.base.json` ships, behaviourally — exit status for chosen inputs, not construct
+conformance. Widening that is [issue #157](https://github.com/randomparity/agent-config/issues/157),
+not this change; what follows takes the guarantee's extent as it stands and stops it from
+disappearing. Since #112 the suite resolves `sh` by what it accepts (`sh -c '[[ -n x ]]'`)
+and, where `sh` turns out to be an extended shell, prints a skip notice instead of a green
+line it has not earned.
 
 The skip is correct and stays. What is missing is a floor under it. The assertions run in
 exactly one environment — the `ubuntu-latest` leg of `.github/workflows/verify.yml`, whose
@@ -32,7 +36,10 @@ Two halves, landing together:
 
 1. **A refusable skip in the suite.** When `POSIX_ASSERTIONS_REQUIRED` is set to a
    non-empty value and `sh` accepts bashisms, the suite fails instead of skipping. Unset or
-   empty leaves #112's behaviour exactly as shipped.
+   empty leaves #112's skip as shipped: same condition, same notice, same `posix_verdict`,
+   same exit status. Two sentences inside that region — the comment naming the ubuntu leg
+   as the sole proving ground, and the notice's "this run did not check" paragraph pointing
+   at #136 as open work — stop being true and are corrected in the same change.
 2. **The wiring in the `verify` job.** The job checks out the repository and runs the suite
    with `POSIX_ASSERTIONS_REQUIRED=1`. It is not a matrix leg, so no matrix edit can remove
    it, and any environment change that takes the proving ground away turns that step red.
@@ -125,10 +132,23 @@ repository's existing CI posture, decided before this change and not altered by 
 compromise and action supply chain are covered by SHA pinning and `zizmor` in
 `actions-check`.
 
+## When the guard fires
+
+The designed trigger is an upstream change nobody here controls: `ubuntu-latest` ceasing to
+ship dash as `/bin/sh`. It reds `verify` — the required check — on every open pull request,
+not only ones touching shell. The intended response is to install a POSIX shell in that one
+step and point `sh` at it, which is the CI-only toolchain floor rejected today and the
+operator's call on the day it is needed. Relaxing or deleting the gate under a red required
+check is what stating this in advance exists to prevent.
+
 ## Not doing
 
-- **Installing dash in CI.** The operator rejected raising the toolchain floor when deciding
-  #112; this design keeps the floor where they put it.
-- **Weakening the skip.** The notice, its wording, and the `posix_verdict` line are
-  untouched on the unrequired path.
+- **Installing dash in CI now.** The operator rejected raising the toolchain floor when
+  deciding #112; this design keeps the floor where they put it while the image supplies
+  dash for free.
+- **Weakening the skip.** Same condition, same notice, same verdict line, same exit status
+  on the unrequired path; two factually stale sentences inside it are corrected.
+- **Replacing the executable proof with `shellcheck -s sh` over the extracted bodies.**
+  Simpler and broader, and it can never skip — but it proves constructs rather than exit
+  statuses, so it is issue #157's addition, not this change's substitution. See the ADR.
 - **Cross-job reporting of which leg proved what.** See the ADR.
