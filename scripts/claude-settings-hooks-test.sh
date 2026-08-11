@@ -22,21 +22,22 @@ set -euo pipefail
 #
 # Both hooks read the command as text. The destructive guard fires only where three things
 # hold at once: a recognised command position, then an unbroken `git ... clean` on that one
-# line, then no later token it reads as a preview. Those are separate axes, and the gaps
-# below are grouped by the one each exploits — `sudo \git clean -fd` is allowed despite
-# sudo being a recognised position, because it fails the second. Every form named was run
-# against the shipped hook body.
+# line, then every token after `clean` consumable by its flag alternation. Those are
+# separate axes, and the gaps below are grouped by the one each exploits — `sudo \git clean
+# -fd` is allowed despite sudo being a recognised position, because it fails the second.
+# Every form named was run against the shipped hook body.
 #
-# Position. The wrapper commands recognised are sudo, doas, xargs, ionice, stdbuf, nice,
-# env, command, exec, setsid, nohup, time and timeout, plus `bash -c`, `sh -c`, `zsh -c`,
-# `eval` and `git submodule foreach` — so `xargs -n1 git clean -fd` blocks, correcting an
-# earlier claim here that both mechanisms miss xargs. That is the wrapper list alone; the
-# POS alternation in settings.base.json is the authority, and it also treats a line start,
-# `(`, `{`, `;`, `&`, `&&`, `||`, `|`, the keywords if/then/else/do/while/until, a leading
-# `!` and a `VAR=value` prefix as positions. Three dispatchers are absent from it, and each
-# therefore allows a destructive clean: `trap "git clean -fd" EXIT`, `ssh host git clean
-# -fd`, and `find . -execdir git clean -fd \;` (`-exec` likewise). One more alternation
-# entry would close each, the way 2cbe92b closed xargs; they are recorded, not closed.
+# Position. `xargs -n1 git clean -fd` blocks, correcting an earlier claim here that both
+# mechanisms miss xargs: 2cbe92b put xargs in the alternation. POS in settings.base.json is
+# the authoritative list and is not restated here — it covers the separators, the shell
+# keywords, a leading `!`, a `VAR=value` prefix, the `-c` shells, `eval`,
+# `git submodule foreach`, and an enumerated set of wrapper commands. Enumerated is the
+# operative word: the wrappers outside it are an open class, not a fixed shortfall. Five
+# that allow a destructive clean are `trap "git clean -fd" EXIT`,
+# `ssh host git clean -fd`, `find . -execdir git clean -fd \;` (`-exec` likewise),
+# `flock /tmp/l git clean -fd` and `su -c "git clean -fd"`. Each is one alternation entry
+# from being closed, the way xargs was; none is closed here, and enumerating them is not
+# the same as bounding them.
 #
 # Text. These break the token run itself, so no alternation entry closes them and chasing
 # them is a matcher arms race this approach cannot win:
@@ -48,18 +49,24 @@ set -euo pipefail
 #   - a command assembled rather than written — `C="git clean -fd"; $C`, backticks, or
 #     `$(echo git clean -fd)`. A literal `$(git clean -fd)` blocks, since `(` is a
 #     position.
-# These are deliberate routes around the guard. The three dispatchers above are not: they
-# are ordinary usage the guard does not reach, so a clean on a remote host or in a nested
+# These are deliberate routes around the guard. The wrappers above are not: they are
+# ordinary usage the guard does not reach, so a clean on a remote host or in a nested
 # checkout is unguarded whether or not anyone meant to evade. A form missing from this
 # comment is not thereby covered.
 #
-# Preview. The guard stops matching at any dash-prefixed token after `clean` whose letters
-# include n or i, reading it as a dry run. git need not agree, and `--` is not what makes
-# the difference: after `--` a flag is a pathspec, so `git clean -fd -- build/ -n` deletes
-# and is allowed (git 2.55.0), and in `git clean -fd -e -n` the -n is consumed as -e's
-# exclude pattern. The git clean deny entries are the only cover left, and they reach the
-# simple uncompounded command only (see the note on them below), so
-# `cd sub && git clean -fd -- build/ -n` has no cover at all. Issue #141.
+# Flags. The guard walks the tokens after `clean` and stops at the first one its
+# alternation cannot consume, which leaves the whole command unmatched and allowed. Two
+# rules, not one: a single-dash token stops it when n or i appears anywhere in it (`-n`,
+# `-i`, `-fdn`), while a `--` token stops it only on the first letter after the dashes
+# being d or i — so `--dry-run` and `--interactive` are allowed while `--quiet`, `--force`
+# and `--exclude=-n` still block, as the assertions below pin. A token no alternative
+# consumes at all, such as a bare `-`, stops it too. git need not agree that a stopping
+# token is a preview, and `--` is not what makes the difference: after `--` a flag is a
+# pathspec, so `git clean -fd -- build/ -n` deletes and is allowed (git 2.55.0), and in
+# `git clean -fd -e -n` the -n is consumed as -e's exclude pattern. The git clean deny
+# entries are the only cover left, and they reach the simple uncompounded command only
+# (see the note on them below), so `cd sub && git clean -fd -- build/ -n` has no cover at
+# all. Issue #141.
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 SETTINGS="$ROOT/agents/claude/shared/settings.base.json"
