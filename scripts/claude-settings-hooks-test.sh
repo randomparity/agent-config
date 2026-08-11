@@ -92,6 +92,14 @@ fail() {
 	exit 1
 }
 
+# The push-to-main hook returns 0 unconditionally when GT_REFINERY=1, before it evaluates
+# anything. That is an operator escape hatch, not a defect, but it is read from the ambient
+# environment — so a developer who has it exported would run a different suite from CI's, and
+# the push assertions below would fail for a reason that has nothing to do with the hook.
+# Clear it here so every run asserts the hook, not the environment. ADR 0056 records the one
+# consequence for helper failure.
+unset GT_REFINERY
+
 SCRATCH=$(mktemp -d "${TMPDIR:-/tmp}/claude-settings-hooks-test.XXXXXX")
 
 cleanup() {
@@ -536,22 +544,35 @@ for stub in broken-printf broken-echo; do
 	assert_unaffected_by "$RG_HOOK" 'rg -r hook' "$stub" 'rg -n foo src/' 0
 done
 
-# The floor, over every hook in the array rather than the five this file names: with no PATH
-# at all, every external command a body reaches for fails — including one added after this
-# file was written, and including a helper nobody here thought to stub. Any command serves as
-# the payload, since no hook gets far enough to look at it.
+# The floor, over every hook in the array rather than the five this file names — so a hook
+# added later is covered before anyone remembers to name it here.
+#
+# Be precise about what each column proves, because the empty-PATH one proves less than it
+# looks like it does. With no PATH the *first* helper a body reaches fails, and for all five
+# that is the jq call that reads the tool input; a body that guards jq and nothing else
+# passes this assertion while still failing open on grep — the exact issue #139 defect. It is
+# a floor, not the property. The broken-jq and broken-grep columns beside it are what reach
+# past the first helper.
+#
+# broken-grep asserts an assumption worth stating: every hook in this array reaches grep
+# unconditionally, so a broken grep must stop all of them whatever the payload. A future hook
+# that calls grep only inside a branch would fail here legitimately, and the right response is
+# to give it its own assertion with a payload that reaches its grep — not to drop the column.
 hook_count=0
 while IFS= read -r body; do
 	[[ -n $body ]] || continue
 	hook_count=$((hook_count + 1))
 	assert_fails_closed_without_path "$body" "PreToolUse hook $hook_count" 'git status'
+	assert_fails_closed "$body" "PreToolUse hook $hook_count" missing-jq 'git status'
+	assert_fails_closed "$body" "PreToolUse hook $hook_count" broken-jq 'git status'
+	assert_fails_closed "$body" "PreToolUse hook $hook_count" broken-grep 'git status'
 done < <(all_hook_commands)
 # A miscount here means the enumeration silently matched nothing and the loop above asserted
 # nothing — the failure mode of every gate that iterates over a query result.
 ((hook_count >= 5)) ||
 	fail "expected at least 5 PreToolUse command hooks, enumerated $hook_count"
 
-# The shell Claude Code runs a hook body in is not this suite's to choose, so both hook
+# The shell Claude Code runs a hook body in is not this suite's to choose, so all five hook
 # bodies stay inside POSIX shell. Only a run whose sh rejects bashisms proves that, which
 # across the environments this gate runs in is the ubuntu leg of .github/workflows/verify.yml
 # alone: macOS ships bash 3.2 as /bin/sh and the Fedora developer hosts ship bash 5, so

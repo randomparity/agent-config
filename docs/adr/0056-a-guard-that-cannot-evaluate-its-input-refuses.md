@@ -73,6 +73,15 @@ the diagnostic. A command matching no masking pattern no longer runs `awk` at al
 entry of either name is never reached. The suite asserts this rather than assuming it, which
 is what makes the helper list — `jq`, `grep`, `awk` — a checked claim.
 
+**One path still returns 0 without evaluating anything, deliberately.** The push-to-main
+guard exits 0 immediately when `GT_REFINERY=1`, ahead of every helper, and this record does
+not change that: it is an explicit operator opt-out for that one guard, and an opt-out that
+stopped working when `grep` broke would be a worse escape hatch than none. The consequence is
+bounded by the same property the rest of this decision rests on — the other four hooks refuse
+the same tool call on helper failure, so `GT_REFINERY=1` suppresses one guard's verdict, not
+the block. Reordering the check against the `jq` guard is a change to the escape hatch's
+meaning and is not made here.
+
 ## Consequences
 
 A broken or absent `jq` or `grep` now blocks every Bash tool call, with five diagnostics
@@ -125,6 +134,13 @@ a hook through a string in its own block message, so a sixth hook is simply abse
 absence is not a failure — the gate would go green on a newly reintroduced defect. The floor
 is asserted by enumerating the `PreToolUse` array instead, with a count assertion under it so
 an enumeration that matches nothing cannot pass as an enumeration that found no problem.
+
+**Assert that floor with an empty `PATH` alone.** Rejected as insufficient once written: with
+no `PATH` the *first* helper a body reaches fails, which for all five is the `jq` call that
+reads the tool input. A hook that guarded `jq` and nothing else would satisfy it while still
+failing open on `grep` — issue #139's defect exactly. The enumeration runs the broken-`jq` and
+broken-`grep` stubs over every body as well, and the empty-`PATH` case is kept as what it
+honestly is: a floor covering the helper reached first, including one nobody stubbed.
 
 **Treat `grep`'s status ≥ 2 as a no-match and carry on**, on the grounds that a guard should
 not stop work it cannot justify stopping. Rejected: that is the current behaviour and it is
