@@ -50,7 +50,7 @@ Signature and merge rule are unchanged. What changes is the failure mechanism.
 
 | Input | Behavior |
 |---|---|
-| No overlay file | Copy the base through `jq '.'`; report no overlay. Return 0. Unchanged. |
+| No overlay file | Copy the base through `jq '.'`; report no overlay. Return 0. The copy is now guarded — see below. |
 | Overlay whose merged result preserves every protected base value | Merge; report the overlay applied. Return 0. Unchanged. |
 | Overlay whose merged result changes a base non-empty array or leaves a non-object where the base held a non-empty object | Report to standard error, naming the overlay and each outermost base path not preserved, **delete the merged output**, and **return 1**. Was `exit 1`. |
 | `jq` missing, or either `jq` invocation failing | Report and **`exit 1`**, as today. |
@@ -63,10 +63,22 @@ the tested command. So once the call sites branch on the status, a failing `jq -
 inside `merge_json_settings` no longer aborts: execution falls through to `erased_base_paths` with
 an empty or truncated `$output`, every protected base path compares unequal, and the installer
 accuses a blameless overlay of erasing all of them — then continues and installs the rest of the
-tree. Every `jq` invocation on this path is therefore tested explicitly and `exit 1`s on failure —
-the merge, *and* both `erased_base_paths` calls, since that helper reports "nothing erased" and
-"I could not tell" with the same empty stdout. A comparison that did not run must never be
-reported as one that found nothing.
+tree. The guard is therefore over **every fallible command reachable inside `merge_json_settings`
+and the refusal path it returns into** — not an enumerated few:
+
+- the no-overlay `jq '.' "$base"`, whose failure is the worst of the set. It is on the *default*
+  configuration, and its truncated output passes `install_managed_path`'s `[[ ! -e "$src" ]]`
+  missing-source test, so an unguarded failure deploys a zero-byte `settings.json` and exits 0;
+- the merge `jq -s '.[0] * .[1]'`;
+- both `erased_base_paths` calls, since that helper reports "nothing erased" and "I could not tell"
+  with the same empty stdout;
+- the base render used for the empty-destination fill, whose output is installed; and
+- the base normalization behind the base-alone comparison.
+
+A comparison that did not run must never be reported as one that found nothing, and a document that
+was not produced must never be deployed. The one failure that is a *verdict* rather than an error is
+a deployed file that is not parseable JSON: that is reported and the run continues, because it
+describes the operator's file rather than the installer's own machinery.
 
 **A refused merge leaves no installable artifact.** The merged file is written before it is checked,
 so on refusal a fully-formed, guard-erased settings document exists on disk; `exit 1` used to make
@@ -107,9 +119,11 @@ Withholding a path means:
      gains an entry the same file reports as missing it, which is accurate about the guard and
      silent about the cause;
    - deployed file carries every protected base value → say so;
-   - deployed file is missing some → name them, state the repair route, and name
-     `<dest>/.agent-config-backups/`, where the run that clobbered the file copied its predecessor
-     before replacing it;
+   - deployed file is missing some → name them, state the repair route, and say that *if* an
+     earlier run replaced that file its predecessor is under `<dest>/.agent-config-backups/`. The
+     conditional is load-bearing: `backup_path` copies nothing when the path did not previously
+     exist, so a host whose very first install clobbered the file has no predecessor there and may
+     have no such directory at all;
    - deployed file cannot be read as JSON → say so and name it, without guessing.
 
 The comparison is `erased_base_paths base deployed` — the same derived-protected-set check the
@@ -143,8 +157,16 @@ the managed-path route that has always owned that file, with the backup it has a
 
 Each is a test in `install-test.sh` unless noted.
 
-1. **Clobbered deployment, reported.** A deployed `settings.json` missing the base's
-   `hooks.PreToolUse` in a temp dest, refused overlay: standard error names the deployed file's
+**Every destination under test is produced by a prior *successful* install** (valid or absent
+overlay) before anything is planted into it. `prune_removed` returns immediately when the
+destination has no `.agent-config-manifest` (`install.sh:299`), and that file is written only by a
+completed `finish_agent` — so a hand-built destination leaves the retention rule unexercised, and a
+"the file survived" assertion passes against an implementation that never retains anything. A
+clobbered deployment has to be constructed this way in any case: #110 makes the installer refuse to
+produce one.
+
+1. **Clobbered deployment, reported.** Install successfully, plant a `settings.json` missing the
+   base's `hooks.PreToolUse` over the result, then refuse: standard error names the deployed file's
    missing paths distinctly from the overlay's. Reddens if the deployed-file comparison is removed.
 2. **Clobbered deployment, repaired.** The same dest, overlay fixed, re-run: the deployed file
    carries the base's `hooks` and `permissions.deny` again, and the clobbered content is under
@@ -156,38 +178,54 @@ Each is a test in `install-test.sh` unless noted.
    "refusal over a deployment" case; extended to assert the file is still present *after* the run
    reaches `prune_removed`, which the abort used to prevent.
 6. **A clean deployment is reported clean.** A refused overlay over a dest whose deployed settings
-   file carries every base value says so rather than naming paths.
-7. **Idempotent.** Running the refused case twice leaves the same deployed file, the same exit
-   status, and the same report.
-8. **The refused merge's output is unusable.** A refused run leaves no merged settings file behind
-   for a mis-written call site to install. Asserted through the observable consequence: the existing
-   "refusal over a deployment" case's deployed file is unchanged, and the empty-destination case
-   (below) deploys the base rather than the merged result.
-9. **An empty destination is filled from the base.** A refused Claude overlay against a destination
+   file carries every base value says so rather than naming paths. Its manifest still lists
+   `settings.json` after the run — the half that reddens when a call site withholds without
+   retaining, which "the file is still there" alone does not.
+7. **Idempotent over a retained deployment.** Running the refused case twice against a destination
+   that already holds a settings file leaves the same deployed file, the same exit status, and the
+   same report. The empty-destination case converges rather than repeats, and criterion 9 owns it.
+8. **The refused merge's output is unusable.** *Not a test.* Rule 2 is structural: the refusal
+   unlinks the merged file, so a call site that installs it anyway hits `install.sh:268`'s
+   missing-source `exit 1`. The merged file lives under `$TMPDIR` and `cleanup` unlinks it on every
+   exit path, so nothing observable distinguishes "deleted early" from "deleted at exit" — an
+   assertion here would be green against an implementation that never deletes it.
+9. **An empty destination converges on the base.** A refused Claude overlay against a destination
    with no deployed `settings.json` deploys the base: the file exists afterwards, carries the base's
    `hooks` and `permissions.deny`, and does *not* carry the overlay's value. The run still exits
-   non-zero. Re-running reports it as base-alone rather than as carrying every protected value.
-   Reddens if the empty-destination rule or its base-alone verdict is removed.
+   non-zero. Every run after the first retains that file, reports it as base-alone rather than as
+   carrying every protected value, and leaves it byte-identical. Reddens if the empty-destination
+   rule or its base-alone verdict is removed.
 10. **Bob's two MCP destinations stay one document.** A refused Bob `mcp.overlay.json` against a
     destination already holding `mcp.json` and `mcp_settings.json` leaves **both** present and
-    unchanged after the run reaches `prune_removed`. Against a destination holding only `mcp.json`,
-    neither is rewritten — the set is not wholly empty, so nothing is filled from the base.
-    Reddens if only one path is retained, or if the fill is evaluated per path.
-11. **A failed comparison is not reported as a clean one.** With `jq` made to fail, the run exits
-    non-zero and its output does not accuse the overlay of erasing base values, nor report a
-    deployed file as carrying every protected value.
-12. **The withheld summary survives a later hard failure.** The summary is emitted from the EXIT
+    unchanged after the run reaches `prune_removed`, with both still in the new manifest. Against a
+    destination holding only `mcp.json`, neither is rewritten — the set is not wholly empty, so
+    nothing is filled from the base. Reddens if only one path is retained, or if the fill is
+    evaluated per path.
+11. **A guard that did not run is not a clean verdict.** One case per guarded invocation, using a
+    `jq` shim early on `PATH` that delegates to the real `jq` except for the call under test — a
+    globally failing `jq` stops at the merge, so it can never reach either comparison and would
+    leave both bare implementations green. The shim selects on argument shape: `-s` for the merge,
+    `-rn`/`--slurpfile` for `erased_base_paths`. Expected observables: merge fails → non-zero, no
+    path names printed, nothing deployed; overlay comparison fails → non-zero, no accusation against
+    the overlay; deployed-file comparison fails → non-zero, no "carries every value" verdict.
+12. **The no-overlay path fails closed.** With the base render made to fail and no overlay present,
+    the run exits non-zero and no `settings.json` is deployed. This is the default configuration, so
+    an unguarded failure here would deploy a zero-byte settings file to every fresh operator.
+13. **The withheld summary survives a later hard failure.** The summary is emitted from the EXIT
     trap, so a refused agent followed by a hard failure in a later agent still names the withheld
     path.
-13. **#110's verdicts unchanged.** The five constrained cases keep theirs: clobbering
+14. **#110's verdicts unchanged.** The five constrained cases keep theirs: clobbering
     `hooks.PreToolUse` refused; `permissions.deny` replacement refused; `permissions.allow` addition
     installed; `{"env":null}` refused; `{"hooks":"x"}` refused naming `hooks` and not `PreToolUse`.
     Already covered by existing cases 2–6, 9, 10.
-14. **No test writes outside its fixture.** Every case exports `HOME`, `*_CONFIG_DIR`, and
+15. **No test writes outside its fixture.** Every case exports `HOME`, `*_CONFIG_DIR`, and
     `AGENT_CONFIG_PRIVATE_DIR` under the suite's `mktemp -d`, removed by the existing EXIT trap.
-15. `README.md` states the withheld-path behavior, the empty-destination rule, and the repair route.
-    Not a test.
-16. `just verify` passes bare.
+16. `README.md` states the withheld-path behavior, the empty-destination rule, and the repair route,
+    **and corrects the existing overlay paragraph in place** — it currently says such an overlay
+    "fails the install", which after this change describes only the exit status and not the run.
+    Adding new prose while leaving that sentence would leave the pre-#126 behavior documented a few
+    lines above the new behavior. Not a test.
+17. `just verify` passes bare.
 
 ## Out of scope
 
