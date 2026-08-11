@@ -18,19 +18,19 @@ reading. Neither the hook's tests nor the suite's `assert_deny_entry` calls coul
 divergence: those calls asserted the entries were *present*, and a comment above them put
 their glob semantics out of scope.
 
-The globs are unfixable in place. A `permissions.deny` pattern is a prefix glob with no
-negation, so `Bash(git clean -f*)` also matches `-fn`, `-fdn`, `-f -n` and `-f --dry-run`,
-and `Bash(git clean *-f*)` also matches `-nf`, `-n -f` and `-i -f` — seven previews, none of
-which deletes anything. No narrowing exists: no prefix pattern matches `-fd` but not `-fdn`.
-A deny match is also the one verdict an operator cannot approve in session, so these
-previews were unreachable rather than merely awkward, which pushes whoever wanted to inspect
-a dirty tree toward running the destructive form to find out what it would have done.
+The force-anchored globs cannot be narrowed to fix that. A `permissions.deny` pattern is a
+prefix glob with no negation, so `Bash(git clean -f*)` also matches `-fn`, `-fdn`, `-f -n`
+and `-f --dry-run`, and `Bash(git clean *-f*)` also matches `-nf`, `-n -f` and `-i -f` —
+seven previews, none of which deletes anything. No pattern anchored on the force flag
+separates them: none matches `-fd` but not `-fdn`. A deny match is also the one verdict an
+operator cannot approve in session, so these previews were unreachable rather than merely
+awkward, which pushes whoever wanted to inspect a dirty tree toward running the destructive
+form to find out what it would have done.
 
 The hook reaches shapes the globs never could — `cd /tmp && git clean -fd`,
 `git -C /repo clean -fd`, `git submodule foreach git clean -fd`,
-`git -c clean.requireForce=false clean -d`. The reverse is also true, and matters more: a
-prefix glob matches whatever follows it, so it covered forms the hook misparses. That
-asymmetry is priced in the Consequences rather than waved away.
+`git -c clean.requireForce=false clean -d`. A prefix glob also matches whatever follows it,
+so it covered a shape the hook misparses; the Consequences price that.
 
 Keeping the globs as defence in depth had a second premise until recently: a private
 `settings.overlay.json` defining `hooks.PreToolUse` replaced the base array wholesale and
@@ -45,28 +45,22 @@ deploying a settings file missing any of them.
 `git clean`.**
 
 Two mechanisms for one job was the defect, not the safety margin: they were added together,
-only one was maintained, and the stale one was the one no test could evaluate.
-
-What the surviving mechanism actually does, stated so a later edit can be measured against
-it rather than flattered by it: the hook blocks a `git clean` it can see in the command text
-unless that text contains `-n`, `-i`, `--dry-run` or `--interactive`. It blocks more than
-the forced ones — `git clean -d` and `git -c clean.requireForce=false clean` included — and
-it fails closed when `jq` cannot read its input. It does **not** parse `--`, so a preview
-flag after the separator is a pathspec to git and a dry-run signal to the hook; issue #141
-owns that.
+only one was maintained, and the stale one was the one no test could evaluate. What the
+guard does is therefore not restated here — `scripts/claude-settings-hooks-test.sh` is the
+maintained executable description, and a second prose copy in an immutable record is the
+drift this decision exists to end. The Consequences record the gaps that description does
+not close as of this date.
 
 ## Consequences
 
 - The previews come back: `git clean -fn`, `-nf`, `-fdn`, `-f -n`, `-n -f`, `-f --dry-run`
-  and `-i -f`. `scripts/claude-settings-hooks-test.sh` pins all seven, so the forms this
-  record restores are the forms a later regex edit has to keep restoring.
+  and `-i -f`. The suite pins all seven.
 - **This is a coverage loss as well as a restoration, and the loss is on destructive
-  commands.** `git clean -fd -- build/ -n` deletes — confirmed on git 2.55.0, which printed
-  `Removing build/` — and the hook allows it, because it sees `-n`. The removed prefix glob
-  matched it. So the trade is not previews-for-nothing: it is seven unreachable previews
-  bought back at the cost of the `--` forms, which now have no guard until issue #141 lands.
-  A reader deciding whether to re-add the globs should weigh that, not the framing that this
-  removed only false positives.
+  commands.** git stops parsing options at `--`, so a preview flag after the separator is a
+  pathspec — but the hook reads it as a dry run. `git clean -fd -- build/ -n` deletes
+  (confirmed on git 2.55.0, which printed `Removing build/`) and the hook allows it. The
+  removed prefix glob matched it. So the trade is seven unreachable previews bought back at
+  the cost of the `--` forms, which have no guard until issue #141 lands.
 - **`git clean` becomes the only destructive command in this file guarded by a hook with no
   `permissions.deny` backstop.** `rm` keeps both layers; `git reset --hard`,
   `git push --force`, `dd`, `mkfs` and `sudo` keep deny entries and have no hook. This is
@@ -104,24 +98,26 @@ owns that.
   strict superset, so it is worse on every count here. Rejected because the narrow entry is
   where most of the cost lives: it still refuses four of the seven forms this record exists
   to restore.
-- **Remove only after #139 and #141 land**, so no window is left unbacked. This is the
-  closest call in the list, and it got closer once the `--` gap was found: unlike the
-  fail-open case, that gap is reachable by an ordinary command with no evasion. Rejected on
-  the exchange rate the operator set — the previews are unappealable on every host and every
-  day the entries stay, while the gap needs a `--` an agent has little reason to write — and
-  on sequencing: #141 is a hook fix, so it can land without the globs and is not blocked by
-  this change. Removing first does not make it harder.
-- **Move both entries from `deny` to `ask`.** The `permissions` object is not deny-only, and
-  an `ask` entry prompts rather than refusing — the one settings-layer option that keeps a
-  backstop without making previews unreachable. Rejected: it contradicts the
-  single-mechanism decision recorded here, and it fires on every preview while the hook is
-  healthy, since destructive forms are blocked before the operator sees a prompt.
-  [ADR 0009](0009-native-permission-lists-grant-capabilities.md) frames `permissions.deny`
-  as the checked-in restrictive surface and rejects adding permission fields for symmetry;
-  this is consistent with that.
+- **Move both entries from `deny` to `ask`.** An `ask` entry prompts rather than refusing,
+  and the operator can approve, so it is the one settings-layer option that keeps the
+  previews reachable — and being a prefix glob it would still cover the `--` forms the hook
+  misses. Rejected on the two costs that survive that: a prompt on every force-flagged
+  preview for as long as it stays, and a second settings-layer mechanism for one job, which
+  is precisely the arrangement this record removes. #141 closes the same gap in the
+  mechanism that already owns the decision.
+- **Anchor a deny entry on the separator instead** — `Bash(git clean * -- *)`, aimed at the
+  lost coverage rather than at the force flag. Rejected on the same second-mechanism ground,
+  and on price: it would refuse `git clean -n -- build/`, a genuine preview the suite pins
+  as allowed, and it would have to be deleted again once #141 lands. Left to #141 by choice
+  rather than ruled out as inexpressible.
 - **Enumerate the destructive bundles** rather than matching a prefix. Rejected: bundle
   order is free and abbreviations are accepted (`--f` and `--fo` are `--force`), so the list
   is unbounded and the first form nobody thought of is allowed.
+- **Remove only after #139 and #141 land**, so no window is left unbacked. The closest call
+  here, since the `--` gap is reachable by an ordinary command with no evasion. Rejected on
+  the exchange rate the operator set — the previews are unappealable on every host and every
+  day the entries stay — and on sequencing: #141 is a hook fix, so it can land without the
+  globs and is not blocked by this change.
 - **Do nothing and document the false positives.** Rejected: the documentation would say
   that the recommended way to inspect a tree before deleting from it is denied, and the
   operator cannot approve past a deny.
