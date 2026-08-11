@@ -63,8 +63,10 @@ the tested command. So once the call sites branch on the status, a failing `jq -
 inside `merge_json_settings` no longer aborts: execution falls through to `erased_base_paths` with
 an empty or truncated `$output`, every protected base path compares unequal, and the installer
 accuses a blameless overlay of erasing all of them — then continues and installs the rest of the
-tree. Both `jq` invocations are therefore tested explicitly and `exit 1` on failure, keeping "the
-overlay is refused" distinguishable from "the merge did not run".
+tree. Every `jq` invocation on this path is therefore tested explicitly and `exit 1`s on failure —
+the merge, *and* both `erased_base_paths` calls, since that helper reports "nothing erased" and
+"I could not tell" with the same empty stdout. A comparison that did not run must never be
+reported as one that found nothing.
 
 **A refused merge leaves no installable artifact.** The merged file is written before it is checked,
 so on refusal a fully-formed, guard-erased settings document exists on disk; `exit 1` used to make
@@ -101,7 +103,9 @@ Withholding a path means:
    - deployed file is byte-identical to the normalized base → say that no overlay has ever been
      applied there. This is the state rule 1 leaves behind, and without its own verdict every later
      refused run would report it as carrying every protected value — true, and reassuring about a
-     configuration the operator never got;
+     configuration the operator never got. It holds only while the base is unchanged; once the base
+     gains an entry the same file reports as missing it, which is accurate about the guard and
+     silent about the cause;
    - deployed file carries every protected base value → say so;
    - deployed file is missing some → name them, state the repair route, and name
      `<dest>/.agent-config-backups/`, where the run that clobbered the file copied its predecessor
@@ -169,8 +173,9 @@ Each is a test in `install-test.sh` unless noted.
     unchanged after the run reaches `prune_removed`. Against a destination holding only `mcp.json`,
     neither is rewritten — the set is not wholly empty, so nothing is filled from the base.
     Reddens if only one path is retained, or if the fill is evaluated per path.
-11. **A failed merge is not reported as a refusal.** With the merge forced to fail, the run exits
-    non-zero and its output does not accuse the overlay of erasing base values.
+11. **A failed comparison is not reported as a clean one.** With `jq` made to fail, the run exits
+    non-zero and its output does not accuse the overlay of erasing base values, nor report a
+    deployed file as carrying every protected value.
 12. **The withheld summary survives a later hard failure.** The summary is emitted from the EXIT
     trap, so a refused agent followed by a hard failure in a later agent still names the withheld
     path.
