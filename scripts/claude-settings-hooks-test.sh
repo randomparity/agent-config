@@ -104,7 +104,19 @@ set -euo pipefail
 #     `git clean -fd --exclude`, `git clean -fd --e` and `git clean -fd --end`. git rejects
 #     all four for a missing value or an unknown option, so none of them deletes. These are
 #     the tokens the grammar does not account for, and the reason each is safe is git's
-#     rejection rather than anything the guard does.
+#     rejection rather than anything the guard does. All four blocked before #141, so this
+#     is the one class where the guard got looser; the four are pinned below as allowed so
+#     the loosening cannot widen unnoticed.
+#
+# Both separator spellings have to arrive unquoted. A `--` or `--end-of-options` carrying a
+# quote or a backslash does not break the `git … clean` token run the way a quoted command
+# word does, so the Text section above does not predict this: the token falls through to the
+# pathspec alternative, is consumed as an ordinary argument, and a following preview flag
+# then stops the option section. `git clean -fd "--" build/ -n`, `git clean -fd '--' . -n`,
+# `git clean -fd -"-" . --dry-run` and `git clean -fd "-e" -n` were run and all four delete
+# while the guard allows them. That is the quoting class of #113, which owns it and which no
+# alternation entry can close — but it means one pair of quotes returns a command to the
+# #141 shape, and the sections below close that shape only for the unquoted spelling.
 #
 # The letter rules encode git 2.55.0's option table for `clean` rather than a parser for it:
 # d and i are the only long names that mean a preview, `--end-of-options` is the only
@@ -390,6 +402,14 @@ assert_allowed "$CLEAN_HOOK" 'git clean hook' 'git clean -fd - -n'
 # A preview flag ahead of `--end-of-options` is still in an option position.
 assert_allowed "$CLEAN_HOOK" 'git clean hook' 'git clean -n --end-of-options build/'
 assert_allowed "$CLEAN_HOOK" 'git clean hook' 'git clean -i --end-of-options .'
+# Pinned because they got looser, not because they are previews: requiring the -e value
+# leaves a value-less spelling unconsumed, and these four were blocked before #141. git
+# rejects each for a missing value or an unknown option, so none deletes — that rejection is
+# the whole reason the class is safe, which is why it is pinned rather than left to drift.
+assert_allowed "$CLEAN_HOOK" 'git clean hook' 'git clean -fd -e'
+assert_allowed "$CLEAN_HOOK" 'git clean hook' 'git clean -fd --exclude'
+assert_allowed "$CLEAN_HOOK" 'git clean hook' 'git clean -fd --e'
+assert_allowed "$CLEAN_HOOK" 'git clean hook' 'git clean -fd --end'
 assert_allowed "$CLEAN_HOOK" 'git clean hook' 'git status --porcelain'
 assert_allowed "$CLEAN_HOOK" 'git clean hook' 'git stash push --include-untracked'
 assert_allowed "$CLEAN_HOOK" 'git clean hook' 'git worktree remove /tmp/wt --force'
