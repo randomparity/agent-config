@@ -502,8 +502,15 @@ assert_json_equal "$CLAUDE_CONFIG_DIR/settings.json" "$BASE_SETTINGS" '.hooks' \
 assert_json_equal "$CLAUDE_CONFIG_DIR/settings.json" "$BASE_SETTINGS" \
 	'.permissions.deny' 'deployed permissions.deny'
 
-# 2. The reported defect. Before this change the install succeeds and deploys a
+# 2. The reported defect. Before ADR 0043 the install succeeds and deploys a
 #    settings.json carrying one hook instead of the base's five.
+#
+#    The destination is empty here, so ADR 0049's empty-destination rule fills it from
+#    the base rather than leaving it bare: what must not survive is the *merged* result,
+#    not the file. Asserting the base's five hooks and the absence of the overlay's own
+#    hook is the assertion that distinguishes the two — `assert_not_file` did so before
+#    0049 and would now pass against an implementation that deployed nothing at all,
+#    which is the state 0049 rule 4 exists to prevent.
 start_overlay_case claude
 write_json "$OVERLAY_FILE/settings.overlay.json" \
 	'{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"true"}]}]}}'
@@ -512,7 +519,10 @@ assert_overlay_refused 'clobbering hooks overlay'
 assert_stream_contains "$OVERLAY_ERR" "$OVERLAY_FILE/settings.overlay.json" \
 	'clobbering hooks overlay'
 assert_stream_contains "$OVERLAY_ERR" 'hooks.PreToolUse' 'clobbering hooks overlay'
-assert_not_file "$OVERLAY_DEST/claude/settings.json"
+assert_json_equal "$OVERLAY_DEST/claude/settings.json" "$BASE_SETTINGS" '.hooks' \
+	'clobbering hooks overlay'
+assert_json_equal "$OVERLAY_DEST/claude/settings.json" "$BASE_SETTINGS" '.' \
+	'clobbering hooks overlay'
 
 # 3. The same loss reached through an object rather than an array: `*` replaces the
 #    whole subtree, so the base's four privacy defaults leave without being named.
@@ -585,6 +595,12 @@ assert_json_equal "$OVERLAY_DEST/claude/settings.json" "$BASE_SETTINGS" '.hooks'
 assert_json_equal "$OVERLAY_DEST/claude/settings.json" "$BASE_SETTINGS" \
 	'.permissions.deny' 'refusal over a deployment'
 assert_json_value "$OVERLAY_DEST/claude/settings.json" '.env.AGENT_CONFIG_TEST' first
+# The run now continues past the refusal and reaches `prune_removed`, which the abort
+# used to stop before. The manifest entry is the only thing standing between a withheld
+# path and deletion, so assert the entry and not just the file (ADR 0049).
+assert_line "$OVERLAY_DEST/claude/.agent-config-manifest" 'settings.json'
+assert_stream_contains "$OVERLAY_ERR" 'has every array and object' 'refusal over a deployment'
+assert_stream_lacks "$OVERLAY_ERR" 'is missing protected values' 'refusal over a deployment'
 
 # 7. The empty-container exemption's one in-repo instance: `agents/bob/shared/mcp.json`
 #    ships `{"mcpServers": {}}`, and replacing an empty container erases nothing, so
@@ -614,5 +630,371 @@ run_overlay_case claude "$exempt_repo/install.sh"
 assert_overlay_installed 'empty-array exemption'
 assert_json_value "$OVERLAY_DEST/claude/settings.json" '.permissions.allow[0]' \
 	'Read(/tmp/**)'
+
+# --- A refused overlay withholds one destination set, not the run (ADR 0049) ----------
+#
+# Every destination below is produced by a *successful* install before anything is
+# planted into it. `prune_removed` returns immediately when the destination has no
+# `.agent-config-manifest`, and that file is written only by a completed `finish_agent`
+# — so a hand-built destination leaves the retention rule unexercised, and a "the file
+# survived" assertion passes against a build that never retains anything. A clobbered
+# deployment has to be built this way in any case, since ADR 0043 makes the installer
+# refuse to produce one.
+
+CLOBBERING_OVERLAY='{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"true"}]}]}}'
+
+# 11. The residual #126 reports: a host clobbered by the pre-ADR-0043 merge. Reproduce
+#     that file exactly as the old installer produced it — `.[0] * .[1]` of base and
+#     overlay — deploy it over a real install, then refuse against it.
+start_overlay_case claude
+write_json "$OVERLAY_FILE/settings.overlay.json" '{"env":{"AGENT_CONFIG_TEST":"kept"}}'
+run_overlay_case claude
+assert_overlay_installed 'clobbered deployment setup'
+printf '%s\n' "$CLOBBERING_OVERLAY" >"$tmpdir/clobbering-overlay.json"
+jq -s '.[0] * .[1]' "$BASE_SETTINGS" "$tmpdir/clobbering-overlay.json" \
+	>"$OVERLAY_DEST/claude/settings.json"
+# The planted file must really be missing the guards, or the case proves nothing.
+[[ "$(jq '.hooks.PreToolUse | length' "$OVERLAY_DEST/claude/settings.json")" == 1 ]] ||
+	fail 'clobbered fixture must carry one hook instead of the base set'
+cp "$OVERLAY_DEST/claude/settings.json" "$tmpdir/clobbered-planted.json"
+
+write_json "$OVERLAY_FILE/settings.overlay.json" "$CLOBBERING_OVERLAY"
+run_overlay_case claude
+assert_overlay_refused 'clobbered deployment reported'
+# The distinct half: the overlay rejection names what *would* be erased, and this names
+# what the file the agent actually loads is missing right now. Without the deployed-file
+# comparison the second message does not exist and this reddens.
+assert_stream_contains "$OVERLAY_ERR" 'is missing protected values' 'clobbered deployment reported'
+assert_stream_contains "$OVERLAY_ERR" '.agent-config-backups' 'clobbered deployment reported'
+assert_stream_contains "$OVERLAY_ERR" 'would erase values' 'clobbered deployment reported'
+# Reported, never repaired: the deployed file is byte-identical to what was planted.
+assert_same_file "$tmpdir/clobbered-planted.json" "$OVERLAY_DEST/claude/settings.json"
+assert_line "$OVERLAY_DEST/claude/.agent-config-manifest" 'settings.json'
+assert_stream_contains "$OVERLAY_ERR" 'private overlay(s) were refused' \
+	'clobbered deployment reported'
+
+# 12. Idempotent over a retained deployment: a second refused run changes nothing.
+cp "$OVERLAY_ERR" "$tmpdir/refusal-first.err"
+run_overlay_case claude
+assert_overlay_refused 'refused run is idempotent'
+assert_same_file "$tmpdir/clobbered-planted.json" "$OVERLAY_DEST/claude/settings.json"
+assert_same_file "$tmpdir/refusal-first.err" "$OVERLAY_ERR"
+
+# 13. The documented route back. Fix the overlay, re-run, and the managed-path code that
+#     has always owned the file replaces it and keeps the clobbered one.
+write_json "$OVERLAY_FILE/settings.overlay.json" '{"env":{"AGENT_CONFIG_TEST":"kept"}}'
+run_overlay_case claude
+assert_overlay_installed 'clobbered deployment repaired'
+assert_json_equal "$OVERLAY_DEST/claude/settings.json" "$BASE_SETTINGS" '.hooks' \
+	'clobbered deployment repaired'
+assert_json_equal "$OVERLAY_DEST/claude/settings.json" "$BASE_SETTINGS" \
+	'.permissions.deny' 'clobbered deployment repaired'
+assert_json_value "$OVERLAY_DEST/claude/settings.json" '.env.AGENT_CONFIG_TEST' kept
+assert_tree_contains "$OVERLAY_DEST/claude/.agent-config-backups" '"command": "true"'
+
+# 14. The freeze itself, which is what #126's reframing is about. A refused Claude
+#     overlay must not cost that agent its skills, instructions or shared content, and
+#     under `--agent all` must not cost the later agents their whole install.
+start_overlay_case claude
+write_json "$OVERLAY_FILE/settings.overlay.json" "$CLOBBERING_OVERLAY"
+run_overlay_case all
+assert_overlay_refused 'refusal does not freeze the tree'
+assert_file "$OVERLAY_DEST/claude/CLAUDE.md"
+assert_file "$OVERLAY_DEST/claude/skills/preflight/SKILL.md"
+assert_file "$OVERLAY_DEST/claude/languages/bash.md"
+assert_file "$OVERLAY_DEST/codex/config.toml"
+assert_file "$OVERLAY_DEST/codex/skills/preflight/SKILL.md"
+assert_file "$OVERLAY_DEST/bob/settings.json"
+assert_file "$OVERLAY_DEST/bob/mcp_settings.json"
+
+# 15. The empty destination converges on the base rather than staying unguarded. Run 14
+#     left this destination filled, so re-running it is the convergence half: the file is
+#     byte-identical and is now reported as base-alone, not as carrying every value —
+#     without that verdict the operator's own configuration would read as being in order.
+cp "$OVERLAY_DEST/claude/settings.json" "$tmpdir/base-filled.json"
+run_overlay_case all
+assert_overlay_refused 'empty destination converges'
+assert_same_file "$tmpdir/base-filled.json" "$OVERLAY_DEST/claude/settings.json"
+assert_stream_contains "$OVERLAY_ERR" 'is the base alone' 'empty destination converges'
+assert_stream_lacks "$OVERLAY_ERR" 'has every array and object' 'empty destination converges'
+# The refusal unlinks the merged temp file, so the fill has to allocate a fresh 0600 one
+# rather than re-creating it by redirection, which would take the umask. `payload_differs`
+# compares content and the executable bit only, so a widened mode would never converge
+# back. `-perm -044` is both group- and other-read, and is portable to BSD find.
+[[ -z "$(find "$OVERLAY_DEST/claude/settings.json" -perm -044 -print)" ]] ||
+	fail 'base-filled settings.json must not be group- or world-readable'
+
+# 16. One merged document, two destinations. `agents/bob/shared/mcp.json` ships
+#     `mcpServers` as `{}`, which is unprotected, so no in-repo overlay can be refused
+#     there and this rule has to be constructed. It is the one place a per-path
+#     withhold is observable: retaining `mcp.json` and forgetting `mcp_settings.json`
+#     leaves the second in the old manifest and absent from the new one, and
+#     `prune_removed` deletes it.
+bob_repo="$tmpdir/bob-repo"
+mkdir -p "$bob_repo/docs"
+cp -pR "$REPO/install.sh" "$REPO/content" "$REPO/agents" "$bob_repo/"
+cp -pR "$REPO/docs/licenses" "$bob_repo/docs/"
+bob_mcp_base="$bob_repo/agents/bob/shared/mcp.json"
+jq '.mcpServers = {"seeded":{"command":"true"}}' "$REPO/agents/bob/shared/mcp.json" \
+	>"$bob_mcp_base"
+# The seeded container must be genuinely non-empty, or the overlay below is exempt and
+# the case tests nothing.
+[[ "$(jq -r '.mcpServers.seeded.command' "$bob_mcp_base")" == 'true' ]] ||
+	fail 'bob fixture must seed a non-empty mcpServers object'
+
+start_overlay_case bob
+run_overlay_case bob "$bob_repo/install.sh"
+assert_overlay_installed 'bob two-destination setup'
+assert_file "$OVERLAY_DEST/bob/mcp.json"
+assert_file "$OVERLAY_DEST/bob/mcp_settings.json"
+cp "$OVERLAY_DEST/bob/mcp.json" "$tmpdir/bob-mcp-before.json"
+
+write_json "$OVERLAY_FILE/mcp.overlay.json" '{"mcpServers":null}'
+run_overlay_case bob "$bob_repo/install.sh"
+assert_overlay_refused 'bob two-destination refusal'
+assert_file "$OVERLAY_DEST/bob/mcp.json"
+assert_file "$OVERLAY_DEST/bob/mcp_settings.json"
+assert_same_file "$tmpdir/bob-mcp-before.json" "$OVERLAY_DEST/bob/mcp.json"
+assert_same_file "$tmpdir/bob-mcp-before.json" "$OVERLAY_DEST/bob/mcp_settings.json"
+assert_line "$OVERLAY_DEST/bob/.agent-config-manifest" 'mcp.json'
+assert_line "$OVERLAY_DEST/bob/.agent-config-manifest" 'mcp_settings.json'
+
+# 17. The same set, half populated. The fill is evaluated over the whole set, so a
+#     destination holding one of the two is not "empty" and neither path is rewritten —
+#     filling only the absent one would leave one document as two differing files.
+remove_dest_file="$OVERLAY_DEST/bob/mcp_settings.json"
+rm "$remove_dest_file"
+run_overlay_case bob "$bob_repo/install.sh"
+assert_overlay_refused 'bob half-populated set'
+assert_same_file "$tmpdir/bob-mcp-before.json" "$OVERLAY_DEST/bob/mcp.json"
+assert_not_file "$remove_dest_file"
+
+# --- Every guarded jq call fails closed (ADR 0049 rule 1) ------------------------------
+#
+# Testing a function's status at the call site suppresses `set -e` for its whole body,
+# so each fallible jq call inside the merge needs its own guard. A globally failing jq
+# stops at the merge and can never reach either protected-set comparison, so a build
+# leaving both bare would pass such a case. This shim fails one selected invocation,
+# chosen by argument shape, and delegates everything else to the real binary.
+jq_shim_dir="$tmpdir/jq-shim"
+mkdir -p "$jq_shim_dir"
+real_jq="$(command -v jq)"
+cat >"$jq_shim_dir/jq" <<'SHIM'
+#!/usr/bin/env bash
+set -u
+shape=other
+for arg in "$@"; do
+	case $arg in
+	'.[0] * .[1]') shape=merge ;;
+	-rn) shape=compare ;;
+	-S) shape=normalize ;;
+	esac
+done
+if [[ $shape == other && $# -eq 2 && $1 == '.' ]]; then
+	shape=render
+fi
+if [[ $shape == "${AGENT_CONFIG_TEST_JQ_FAIL:-}" ]]; then
+	count=0
+	if [[ -f $AGENT_CONFIG_TEST_JQ_COUNT ]]; then
+		count=$(cat "$AGENT_CONFIG_TEST_JQ_COUNT")
+	fi
+	count=$((count + 1))
+	printf '%s\n' "$count" >"$AGENT_CONFIG_TEST_JQ_COUNT"
+	if [[ $count -eq ${AGENT_CONFIG_TEST_JQ_NTH:-1} ]]; then
+		printf 'jq-shim: forced failure (%s #%s)\n' "$shape" "$count" >&2
+		exit 3
+	fi
+fi
+exec "$AGENT_CONFIG_TEST_REAL_JQ" "$@"
+SHIM
+chmod +x "$jq_shim_dir/jq"
+
+run_overlay_case_jq() { # agent fail-shape [nth]
+	OVERLAY_STATUS=0
+	rm -f "$OVERLAY_ROOT/jq-count"
+	PATH="$jq_shim_dir:$PATH" \
+		AGENT_CONFIG_TEST_REAL_JQ="$real_jq" \
+		AGENT_CONFIG_TEST_JQ_FAIL="$2" \
+		AGENT_CONFIG_TEST_JQ_NTH="${3:-1}" \
+		AGENT_CONFIG_TEST_JQ_COUNT="$OVERLAY_ROOT/jq-count" \
+		AGENT_CONFIG_HOST=test-host \
+		AGENT_CONFIG_PRIVATE_DIR="$OVERLAY_PRIVATE" \
+		CLAUDE_CONFIG_DIR="$OVERLAY_DEST/claude" \
+		CODEX_CONFIG_DIR="$OVERLAY_DEST/codex" \
+		BOB_CONFIG_DIR="$OVERLAY_DEST/bob" \
+		./install.sh --agent "$1" \
+		>"$OVERLAY_OUT" 2>"$OVERLAY_ERR" || OVERLAY_STATUS=$?
+}
+
+# 18. The default configuration — no overlay at all — renders the base through jq, and
+#     an unguarded failure there leaves a truncated file that passes
+#     `install_managed_path`'s missing-source test and deploys as a zero-byte
+#     settings.json on a green run.
+start_overlay_case claude
+run_overlay_case_jq claude render
+assert_overlay_refused 'no-overlay render fails closed'
+assert_stream_contains "$OVERLAY_ERR" 'could not read base settings' \
+	'no-overlay render fails closed'
+assert_not_file "$OVERLAY_DEST/claude/settings.json"
+
+# 19. The merge itself.
+start_overlay_case claude
+write_json "$OVERLAY_FILE/settings.overlay.json" "$CLOBBERING_OVERLAY"
+run_overlay_case_jq claude merge
+assert_overlay_refused 'merge failure fails closed'
+assert_stream_contains "$OVERLAY_ERR" 'could not merge private overlay' \
+	'merge failure fails closed'
+assert_stream_lacks "$OVERLAY_ERR" 'would erase values' 'merge failure fails closed'
+assert_not_file "$OVERLAY_DEST/claude/settings.json"
+
+# 20. The merge-result comparison. `erased_base_paths` reports "nothing erased" and "I
+#     could not tell" with the same empty stdout, so an unguarded failure here reads as
+#     a clean overlay and deploys the merged result.
+start_overlay_case claude
+write_json "$OVERLAY_FILE/settings.overlay.json" "$CLOBBERING_OVERLAY"
+run_overlay_case_jq claude compare 1
+assert_overlay_refused 'overlay comparison fails closed'
+assert_stream_contains "$OVERLAY_ERR" 'could not compare the merged result' \
+	'overlay comparison fails closed'
+assert_stream_lacks "$OVERLAY_ERR" 'would erase values' 'overlay comparison fails closed'
+assert_not_file "$OVERLAY_DEST/claude/settings.json"
+
+# 21. The deployed-file comparison, which is reachable only after the first one has
+#     succeeded and returned a refusal — which is why a globally failing jq cannot get
+#     here and this case needs the shim's occurrence counter.
+start_overlay_case claude
+write_json "$OVERLAY_FILE/settings.overlay.json" '{"env":{"AGENT_CONFIG_TEST":"first"}}'
+run_overlay_case claude
+assert_overlay_installed 'deployed comparison setup'
+write_json "$OVERLAY_FILE/settings.overlay.json" "$CLOBBERING_OVERLAY"
+run_overlay_case_jq claude compare 2
+assert_overlay_refused 'deployed comparison fails closed'
+assert_stream_contains "$OVERLAY_ERR" 'would erase values' 'deployed comparison fails closed'
+# The diagnostic, not just the exit status: `report_deployed_state` runs outside a tested
+# context, so an unguarded failure there aborts under `set -e` anyway. Both builds fail
+# the run, and only this message distinguishes the guarded one.
+assert_stream_contains "$OVERLAY_ERR" 'could not compare' 'deployed comparison fails closed'
+assert_stream_lacks "$OVERLAY_ERR" 'has every array and object' 'deployed comparison fails closed'
+
+# 22. The refusal is no longer the last thing on the screen, so the summary that replaces
+#     it is emitted from the EXIT trap. Refuse Claude, then hard-fail Codex on a missing
+#     source: an end-of-run summary would be preempted and the operator would see only
+#     the second failure.
+preempt_repo="$tmpdir/preempt-repo"
+mkdir -p "$preempt_repo/docs"
+cp -pR "$REPO/install.sh" "$REPO/content" "$REPO/agents" "$preempt_repo/"
+cp -pR "$REPO/docs/licenses" "$preempt_repo/docs/"
+rm "$preempt_repo/agents/codex/shared/AGENTS.md"
+start_overlay_case claude
+write_json "$OVERLAY_FILE/settings.overlay.json" "$CLOBBERING_OVERLAY"
+run_overlay_case all "$preempt_repo/install.sh"
+assert_overlay_refused 'summary survives a later hard failure'
+assert_stream_contains "$OVERLAY_ERR" 'missing source' 'summary survives a later hard failure'
+assert_stream_contains "$OVERLAY_ERR" 'private overlay(s) were refused' \
+	'summary survives a later hard failure'
+
+# 23. The one failure the design treats as a verdict rather than an error: a deployed
+#     file that will not parse. Nothing else fails if this branch stops working — the
+#     run continues either way — so without a case it can rot silently.
+start_overlay_case claude
+write_json "$OVERLAY_FILE/settings.overlay.json" '{"env":{"AGENT_CONFIG_TEST":"first"}}'
+run_overlay_case claude
+assert_overlay_installed 'unparseable deployment setup'
+write_text "$OVERLAY_DEST/claude/settings.json" '{"hooks": '
+cp "$OVERLAY_DEST/claude/settings.json" "$tmpdir/unparseable.json"
+write_json "$OVERLAY_FILE/settings.overlay.json" "$CLOBBERING_OVERLAY"
+run_overlay_case claude
+assert_overlay_refused 'unparseable deployment'
+assert_stream_contains "$OVERLAY_ERR" 'could not be read as JSON' 'unparseable deployment'
+# Reported, not repaired, and not guessed at.
+assert_same_file "$tmpdir/unparseable.json" "$OVERLAY_DEST/claude/settings.json"
+assert_stream_lacks "$OVERLAY_ERR" 'has every array and object' 'unparseable deployment'
+
+# 24. A destination path that is a symlink is occupied, so it is retained and listed as
+#     kept — and its target is not the installer's to vouch for. Saying "nothing is
+#     deployed" here would contradict the kept list in the same output.
+start_overlay_case claude
+write_json "$OVERLAY_FILE/settings.overlay.json" '{"env":{"AGENT_CONFIG_TEST":"first"}}'
+run_overlay_case claude
+assert_overlay_installed 'symlinked deployment setup'
+mv "$OVERLAY_DEST/claude/settings.json" "$OVERLAY_ROOT/elsewhere.json"
+ln -s "$OVERLAY_ROOT/elsewhere.json" "$OVERLAY_DEST/claude/settings.json"
+write_json "$OVERLAY_FILE/settings.overlay.json" "$CLOBBERING_OVERLAY"
+run_overlay_case claude
+assert_overlay_refused 'symlinked deployment'
+assert_stream_contains "$OVERLAY_ERR" 'is a symlink' 'symlinked deployment'
+assert_stream_lacks "$OVERLAY_ERR" 'no file is deployed at' 'symlinked deployment'
+[[ -L "$OVERLAY_DEST/claude/settings.json" ]] ||
+	fail 'symlinked deployment: the symlink must be left in place'
+
+# 25. The absent half of a half-populated destination set reports as absent rather than
+#     being filled — case 17 leaves exactly that state, and nothing there reads the
+#     message it produces.
+start_overlay_case bob
+run_overlay_case bob "$bob_repo/install.sh"
+assert_overlay_installed 'absent-path verdict setup'
+rm "$OVERLAY_DEST/bob/mcp_settings.json"
+write_json "$OVERLAY_FILE/mcp.overlay.json" '{"mcpServers":null}'
+run_overlay_case bob "$bob_repo/install.sh"
+assert_overlay_refused 'absent-path verdict'
+assert_stream_contains "$OVERLAY_ERR" 'no file is deployed at' 'absent-path verdict'
+assert_not_file "$OVERLAY_DEST/bob/mcp_settings.json"
+# The tail summary lists this absent path too, so its header has to be true of an absent
+# entry. An operator who reads only the tail must not be told a missing file is intact.
+assert_stream_contains "$OVERLAY_ERR" 'these paths were left untouched' 'absent-path verdict'
+assert_stream_lacks "$OVERLAY_ERR" 'deployed paths were kept' 'absent-path verdict'
+
+# 26. The base normalization behind the base-alone comparison is guarded like every other
+#     jq call, and is the one the shim's `normalize` shape reaches.
+start_overlay_case claude
+write_json "$OVERLAY_FILE/settings.overlay.json" '{"env":{"AGENT_CONFIG_TEST":"first"}}'
+run_overlay_case claude
+assert_overlay_installed 'normalize guard setup'
+write_json "$OVERLAY_FILE/settings.overlay.json" "$CLOBBERING_OVERLAY"
+run_overlay_case_jq claude normalize 1
+assert_overlay_refused 'normalize guard fails closed'
+assert_stream_contains "$OVERLAY_ERR" 'could not read base settings' \
+	'normalize guard fails closed'
+assert_stream_lacks "$OVERLAY_ERR" 'has every array and object' 'normalize guard fails closed'
+
+# 26b. A directory occupying a destination path is occupied, not bare. It is retained and
+#      listed like any other withheld path, so reporting "no file is deployed" would tell
+#      the operator the destination is empty while something sits on it.
+start_overlay_case claude
+write_json "$OVERLAY_FILE/settings.overlay.json" '{"env":{"AGENT_CONFIG_TEST":"first"}}'
+run_overlay_case claude
+assert_overlay_installed 'directory at the destination setup'
+rm "$OVERLAY_DEST/claude/settings.json"
+mkdir "$OVERLAY_DEST/claude/settings.json"
+write_json "$OVERLAY_FILE/settings.overlay.json" "$CLOBBERING_OVERLAY"
+run_overlay_case claude
+assert_overlay_refused 'directory at the destination'
+assert_stream_contains "$OVERLAY_ERR" 'a directory occupies' 'directory at the destination'
+assert_stream_lacks "$OVERLAY_ERR" 'no file is deployed at' 'directory at the destination'
+[[ -d "$OVERLAY_DEST/claude/settings.json" ]] ||
+	fail 'directory at the destination: the directory must be left in place'
+assert_line "$OVERLAY_DEST/claude/.agent-config-manifest" 'settings.json'
+
+# 27. The honest scope of the clean verdict. ADR 0043's check covers non-empty base
+#     arrays and objects, so a deployed file that dropped a scalar or emptied an object
+#     passes it. Saying it carries every value the base *defines* would be a definite
+#     statement that is false, and an operator would have an affirmative reason to stop
+#     looking; the wording says "protected", and this case is what holds it there.
+start_overlay_case claude
+write_json "$OVERLAY_FILE/settings.overlay.json" '{"env":{"AGENT_CONFIG_TEST":"first"}}'
+run_overlay_case claude
+assert_overlay_installed 'unprotected scalar loss setup'
+jq '.env = {} | del(.cleanupPeriodDays)' "$BASE_SETTINGS" \
+	>"$OVERLAY_DEST/claude/settings.json"
+write_json "$OVERLAY_FILE/settings.overlay.json" "$CLOBBERING_OVERLAY"
+run_overlay_case claude
+assert_overlay_refused 'unprotected scalar loss'
+assert_stream_contains "$OVERLAY_ERR" 'has every array and object' \
+	'unprotected scalar loss'
+assert_stream_lacks "$OVERLAY_ERR" 'is missing protected values' 'unprotected scalar loss'
+# And says so: the base's telemetry and MCP hardening are scalars, so an unqualified
+# affirmation here would be a clean bill for a file that lost them.
+assert_stream_contains "$OVERLAY_ERR" 'Base scalars are outside this check' \
+	'unprotected scalar loss'
 
 printf 'install-test: ok\n'
