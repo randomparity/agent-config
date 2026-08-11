@@ -20,40 +20,46 @@ set -euo pipefail
 #   - the filter list is tail, head, grep and rg, and the short-circuit list is `true`
 #     and `:`, so `| sed`, `| awk`, `| cat`, `| less` and `|| echo failed` mask freely.
 #
-# Both hooks read the command as text. A guard fires only where a recognised command
-# position is followed by a literal, unquoted `git ... clean` on one line. Those are two
-# axes that compose, not two buckets: widening one alone changes nothing, and
-# `sudo \git clean -fd` is allowed even though sudo is a recognised position.
+# Both hooks read the command as text. The destructive guard fires only where three things
+# hold at once: a recognised command position, then an unbroken `git ... clean` on that one
+# line, then no later token it reads as a preview. Those are separate axes, and the gaps
+# below are grouped by the one each exploits — `sudo \git clean -fd` is allowed despite
+# sudo being a recognised position, because it fails the second. Every form named was run
+# against the shipped hook body.
 #
-# Recognised positions: `bash -c`, `sh -c`, `zsh -c`, `eval`, `git submodule foreach`, and
-# the wrappers sudo, doas, xargs, ionice, stdbuf, nice, env, command, exec, setsid, nohup,
-# time and timeout — so `xargs -n1 git clean -fd` blocks, correcting an earlier claim here
-# that both mechanisms miss xargs.
+# Position. The wrapper commands recognised are sudo, doas, xargs, ionice, stdbuf, nice,
+# env, command, exec, setsid, nohup, time and timeout, plus `bash -c`, `sh -c`, `zsh -c`,
+# `eval` and `git submodule foreach` — so `xargs -n1 git clean -fd` blocks, correcting an
+# earlier claim here that both mechanisms miss xargs. That is the wrapper list alone; the
+# POS alternation in settings.base.json is the authority, and it also treats a line start,
+# `(`, `{`, `;`, `&`, `&&`, `||`, `|`, the keywords if/then/else/do/while/until, a leading
+# `!` and a `VAR=value` prefix as positions. Three dispatchers are absent from it, and each
+# therefore allows a destructive clean: `trap "git clean -fd" EXIT`, `ssh host git clean
+# -fd`, and `find . -execdir git clean -fd \;` (`-exec` likewise). One more alternation
+# entry would close each, the way 2cbe92b closed xargs; they are recorded, not closed.
 #
-# Text the matcher cannot follow. Each was run against the shipped hook body and allows a
-# destructive `git clean`:
+# Text. These break the token run itself, so no alternation entry closes them and chasing
+# them is a matcher arms race this approach cannot win:
 #   - quoting and escaping a shell strips and a matcher does not — `\git clean -fd`,
-#     `git "clean" -fd`, `git cl""ean -fd`;
+#     `git "clean" -fd`, `git cl""ean -fd`. Quoting the command whole is different and
+#     still fires: see the accepted false positive below;
 #   - a backslash-newline continuation falling between `git` and `clean`, since the match
 #     is per line; one falling after `clean`, or inside `-fd`, is still caught;
-#   - deferred execution — `trap "git clean -fd" EXIT`;
-#   - execution on another host — `ssh host git clean -fd`;
-#   - exec-style dispatchers — `find . -execdir git clean -fd \;`, and -exec likewise;
 #   - a command assembled rather than written — `C="git clean -fd"; $C`, backticks, or
-#     `$(echo git clean -fd)`. A literal `$(git clean -fd)` blocks, since `(` is itself a
-#     recognised position.
-# Quoting, continuation, a trap and an assembled command are deliberate routes around the
-# guard rather than accidents. ssh and find are not: they are ordinary usage the guard does
-# not reach, so a clean on a remote host or in a nested checkout is unguarded whether or
-# not anyone meant to evade. Chasing any of them is a matcher arms race this approach
-# cannot win, so they are stated instead — a form missing from this comment is not
-# thereby covered.
+#     `$(echo git clean -fd)`. A literal `$(git clean -fd)` blocks, since `(` is a
+#     position.
+# These are deliberate routes around the guard. The three dispatchers above are not: they
+# are ordinary usage the guard does not reach, so a clean on a remote host or in a nested
+# checkout is unguarded whether or not anyone meant to evade. A form missing from this
+# comment is not thereby covered.
 #
-# One route needs no indirection at all: git stops parsing options at `--`, so a preview
-# flag after it is a pathspec. `git clean -fd -- build/ -n` deletes, and the guard reads
-# that trailing -n as a dry run and allows it. The git clean deny entries are the only
-# cover left, and they reach the simple uncompounded command only (see the note on them
-# below), so `cd sub && git clean -fd -- build/ -n` has no cover at all. Issue #141.
+# Preview. The guard stops matching at any dash-prefixed token after `clean` whose letters
+# include n or i, reading it as a dry run. git need not agree, and `--` is not what makes
+# the difference: after `--` a flag is a pathspec, so `git clean -fd -- build/ -n` deletes
+# and is allowed (git 2.55.0), and in `git clean -fd -e -n` the -n is consumed as -e's
+# exclude pattern. The git clean deny entries are the only cover left, and they reach the
+# simple uncompounded command only (see the note on them below), so
+# `cd sub && git clean -fd -- build/ -n` has no cover at all. Issue #141.
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 SETTINGS="$ROOT/agents/claude/shared/settings.base.json"
@@ -346,10 +352,12 @@ assert_blocked "$MASK_HOOK" 'masked exit hook' $'cat >note.md <<EOF\njust ci | t
 # missing jq would otherwise block every Bash call over a masking pattern that may not
 # even be present. Fail-open is also the shape of the three hooks that predate these two —
 # the rm -rf, push-to-main and rg guards each read the command without checking jq's exit
-# status — so the destructive guard is the exception, deliberately. jq is not assumed
-# either way: it is a declared prerequisite that `just tools-check` verifies (Justfile:33),
-# reached from `just verify` (Justfile:152), so a missing jq is a red gate before it is a
-# quiet hook.
+# status — so the destructive guard is the exception, deliberately. jq is a declared
+# prerequisite: install.sh requires it at install time (install.sh:388) and
+# `just tools-check` (Justfile:33, reached from `just verify` at Justfile:152) re-checks
+# it. That second half is this repository only. In the other repositories these hooks ship
+# to, a jq that leaves PATH after install makes the advisory guard quiet, with no gate to
+# notice.
 #
 # Only jq is guarded. Any other helper a guard calls can fail the same way unchecked: with
 # a grep that exits 2 on PATH, the destructive guard exits 0 on a real `git clean -fd`,
