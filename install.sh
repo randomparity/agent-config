@@ -100,6 +100,11 @@ new_temp_file() {
 # source, so a reinstall reports unchanged instead of reading the missing
 # fixtures as drift and recopying the whole tree every run.
 stage_skills() {
+	# The staged tree is what all three agents receive, so this is the one place a
+	# reader of any skill call site reaches. Its top-level directories are declared
+	# in scripts/check-deployed-membership.sh, and one added without a declaration
+	# fails that gate (ADR 0054). The prune below is unanchored, so a declared
+	# top-level `testdata` would pass the gate and never install.
 	SKILLS_STAGING="$(mktemp -d "${TMPDIR:-/tmp}/agent-config-skills.XXXXXX")"
 	cp -pR "$REPO/content/skills" "$SKILLS_STAGING/skills"
 	find "$SKILLS_STAGING/skills" -name testdata -prune -exec rm -R {} +
