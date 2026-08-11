@@ -99,9 +99,12 @@ scan root; neither compares membership, so for neither is the root's absence its
   this manifest, and nothing detects that omission. The manifest is source, so this gate
   cannot defend against edits to itself; a comment in `install_common_content` and one at the
   Bob rules call site name the manifest, which is the whole of the coupling. Making it detectable
-  is tracked separately. Every other disagreement this gate finds is red; narrowing the
-  manifest — deleting a tree or a member line while the tree still installs — is the one edit
-  that leaves it green, and it is the edit a red gate invites.
+  is tracked separately. Narrowing the manifest is the edit a red gate invites, and it is
+  mostly caught: deleting a member line while the file is still there makes the file
+  undeclared, which is red, and deleting a tree line with its members leaves the checker green
+  but fails the suite, whose pass case pins the whole summary against its own tree list and the
+  tracked file count. What survives is a coordinated edit to both the checker's lists and the
+  suite's — the residual of a gate whose manifest is source.
 - The repository now holds two lists of installer-copied roots — this manifest's trees and
   `check-deployed-references.sh`'s `scan_paths` — that mean different things, with nothing
   comparing them.

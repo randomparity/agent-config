@@ -1,6 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Hooks export repository-local selectors that override every `git -C` below.
+# Clear Git's reported set before this suite inspects the repository, or a
+# hook-shaped environment sends `ls-files` and `checkout-index` at the hook's
+# repository and the failure reads as this one being empty (ADR 0035).
+while IFS= read -r variable; do
+	[[ -n $variable ]] && unset "$variable"
+done < <(git rev-parse --local-env-vars)
+
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CHECKER="$ROOT/scripts/check-deployed-membership.sh"
 
@@ -299,8 +307,14 @@ done
 if run_checker; then
 	fail 'every declared tree removed' 'should fail'
 fi
-if ! grep -q 'missing-member' "$SCRATCH/err"; then
-	fail 'every declared tree removed' 'should report every declared file as missing'
+# The count, not just one match: unexpected-member multiplicity is pinned by the
+# two-file row above, and without this its missing-member half is not -- a
+# checker that stopped after its first missing member would pass every other row.
+# EXPECTED_MEMBERS comes from the fixture build, so no second copy of the
+# manifest enters the suite.
+if [[ "$(grep -c 'missing-member' "$SCRATCH/err")" != "$EXPECTED_MEMBERS" ]]; then
+	fail 'every declared tree removed' \
+		"should report all $EXPECTED_MEMBERS declared files as missing"
 fi
 assert_absent 'every declared tree removed' unexpected-member 'content/instructions/notes.md'
 
