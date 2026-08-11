@@ -115,17 +115,6 @@ else
 	SH_ACCEPTS_BASHISMS=no
 fi
 
-assert_deny_entry() { # pattern
-	jq -e --arg pattern "$1" '.permissions.deny | index($pattern)' "$SETTINGS" >/dev/null ||
-		fail "permissions.deny is missing $1"
-}
-
-# The deny entries are defence in depth for the simple, uncompounded command. Their glob
-# semantics belong to Claude Code and are not exercised here, so a green run establishes
-# that the entries are present, not that they match. The hooks are what this suite proves.
-assert_deny_entry 'Bash(git clean -f*)'
-assert_deny_entry 'Bash(git clean *-f*)'
-
 CLEAN_HOOK=$(hook_command 'BLOCKED: git clean')
 
 # The flag forms the issue names, combined and space-separated, in either order.
@@ -208,7 +197,17 @@ assert_allowed "$CLEAN_HOOK" 'git clean hook' 'git clean -ndx'
 assert_allowed "$CLEAN_HOOK" 'git clean hook' 'git clean -nxd'
 assert_allowed "$CLEAN_HOOK" 'git clean hook' 'git clean -id'
 assert_allowed "$CLEAN_HOOK" 'git clean hook' 'git clean --interactive'
+# A force flag beside a preview flag is still a preview — -n and -i both override -f, so
+# these delete nothing. They are the forms the two `Bash(git clean ...-f...)` deny entries
+# made permanently unreachable, and removing those entries is the whole of ADR 0047; the
+# hook is now the only thing deciding them, so pin every one rather than a representative.
+assert_allowed "$CLEAN_HOOK" 'git clean hook' 'git clean -fn'
+assert_allowed "$CLEAN_HOOK" 'git clean hook' 'git clean -nf'
+assert_allowed "$CLEAN_HOOK" 'git clean hook' 'git clean -fdn'
 assert_allowed "$CLEAN_HOOK" 'git clean hook' 'git clean -f -n'
+assert_allowed "$CLEAN_HOOK" 'git clean hook' 'git clean -n -f'
+assert_allowed "$CLEAN_HOOK" 'git clean hook' 'git clean -f --dry-run'
+assert_allowed "$CLEAN_HOOK" 'git clean hook' 'git clean -i -f'
 assert_allowed "$CLEAN_HOOK" 'git clean hook' 'git clean -dn'
 assert_allowed "$CLEAN_HOOK" 'git clean hook' 'git clean -n -- build/'
 assert_allowed "$CLEAN_HOOK" 'git clean hook' 'git submodule foreach git clean -n'
