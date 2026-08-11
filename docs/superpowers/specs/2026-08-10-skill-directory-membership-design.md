@@ -271,16 +271,29 @@ Two of them are re-read rather than merely re-run: the `.ignore` and dot-prefix 
 three trees, and the `missing-member` rows, are the behaviors the issue names as
 must-not-regress, and their expected sequences are unchanged bytes.
 
-Four of the six exit-2 conditions have a row; two do not, and both are unreachable by the
-operand discrimination the rows above rely on. The skills-half **workspace-write** fault: the
-existing `mktemp` mock makes the whole workspace read-only, so it faults on the three-tree half's
-first truncation and never reaches the skills half, and a `: >` redirection has no argv for a
-PATH mock to read. The skills-half **declared-list sort**: both halves sort their declared list
-as `printf '%s\n' "$literal" | sort -u`, identical argv reading stdin in the same cwd and
-environment, so no mock can tell them apart without the invocation counter the comm row
-deliberately avoids. The three-tree half's own `could not sort the manifest` is unasserted today
-for exactly this reason, so this is the existing precedent rather than a new gap. Both strings
-rest on the code being read.
+Every rule was mutation-tested — reverted one at a time, the suite re-run, the change restored.
+Thirteen reverts redden, including each enumerated-name sort's `|| fault` individually, the
+newline refusal, the non-directory class, the summary clause, a phantom name added to the list,
+a real name removed from it, and the order of the two blocks. **Four survive, and each is
+unassertable rather than merely untested:**
+
+- *The declared-list `sort`.* Both halves sort their declared list as
+  `printf '%s\n' "$literal" | sort -u` — identical argv reading stdin in the same cwd and
+  environment — so no operand mock can tell them apart, and the three-tree half's own
+  `could not sort the manifest` is unasserted today for the same reason.
+- *One of the two `comm` calls.* Both take the same two operands, so a mock reaches both and the
+  surviving call faults with the same message. Dropping **both** does redden, so the row proves
+  the pair rather than either alone.
+- *The per-entry `>>` append and the `: >` truncations.* A redirection has no argv for a PATH
+  mock to read, and the existing `mktemp` mock makes the whole workspace read-only, so it faults
+  on the three-tree half's first truncation and never reaches the skills half.
+- *The `! -L` leg of the survival filter.* `find` does not follow a symlink operand, so with
+  `-mindepth 1` a tree replaced by a symlink to a directory enumerates empty whether the filter
+  admits it or not — the verdict is identical either way. The leg is kept for symmetry with the
+  three-tree filter, where it *is* load-bearing, and is defensive here.
+
+Naming these is the point: a suite whose gaps are undisclosed reads as covering more than it
+does, and the three that involve a shared message would otherwise look like passing rows.
 
 The two delegating rows need a helper of their own: `assert_environment_fault` checks only for a
 `deployed-membership:` prefix, and these rows exist to pin *which* message, so they assert the
