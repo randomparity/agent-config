@@ -45,11 +45,13 @@ live `config.toml`, `install.sh` exits 0, the summary reads `1 updated`, and Cod
 loads no configuration at all. The previous file is under
 `.agent-config-backups/<timestamp>/drift/`, and nothing says so.
 
-`agents/codex/shared/config.base.toml` is two lines — one table, one boolean — so the
-protected set ADR 0043 derives from a base would be nearly empty here. That argues against
-porting 0043's *mechanism*, which selects non-empty arrays and objects because jq's `*`
-cannot drop a base key. It does not argue against 0043's *rule*: concatenation can drop
-anything, including a scalar, so the rule has to cover everything the base defines.
+`agents/codex/shared/config.base.toml` is two lines — one table, one boolean. ADR 0043's
+selector takes the base's non-empty arrays and objects, so ported here it yields
+`features`, and it would refuse the swallowing overlay above. What it would not refuse is
+the override: `features` is still an object afterwards, holding a `goals` that is now
+`false`. 0043 can leave scalars alone because jq's `*` cannot drop a base key; a
+concatenation reconciles nothing, so the rule has to cover every value the base defines
+rather than the subtree shapes one merge tool happens to replace.
 
 ## Decision
 
@@ -62,21 +64,27 @@ applied.**
 Four things are normative.
 
 1. **The rule is stated over the merged document's parse, not over the overlay's text.**
-   Every path the base defines must be present in the merged result with an equal value,
-   and each path that is not is named. This is ADR 0043's rule with its selector widened
-   to every base value, because the two merges fail differently: jq's `*` can only replace
-   a path the overlay names, so 0043 could protect arrays and objects and leave scalars to
-   `*`'s own key-preserving behaviour; concatenation reconciles nothing and can drop a
-   scalar the overlay never mentions. Checking the parse rather than the text is what makes
-   the guarantee hold against the `awk` splitter, whose mangling is invisible to any check
-   over names.
+   Every *leaf* the base defines must be present in the merged result with an equal value
+   and an equal type; a base table is descended when the merged document holds a table
+   there, and reported by its own path when it does not. Stated over leaves rather than
+   over every path, an overlay adding `[features.sub]` would otherwise make `features`
+   unequal and be refused for extending the base — which is the thing an overlay is for.
+   This is ADR 0043's rule with its selector widened to every base value, because the two
+   merges fail differently: jq's `*` can only replace a path the overlay names, so 0043
+   could protect arrays and objects and leave scalars to `*`'s own key-preserving
+   behaviour; concatenation reconciles nothing and can drop or change a scalar the overlay
+   never mentions. Checking the parse rather than the text is what makes the guarantee hold
+   against the `awk` splitter, whose mangling is invisible to any check over names.
 
 2. **No parser, no overlay.** The guarantee *is* a parse, so a host that cannot parse
-   cannot have it, and the measured alternative is a silently destroyed `config.toml`.
-   Where `python3` cannot `import tomllib` the base alone still installs — it is emitted
-   verbatim and needs no parser to be trustworthy — and the overlay is refused by path,
-   naming the interpreter requirement rather than blaming the file. A host with no overlay
-   is unaffected.
+   cannot have it, and the measured alternative is a silently destroyed `config.toml`. The
+   overlay is refused by path, naming the interpreter requirement rather than blaming the
+   file. A host with no overlay is unaffected, and one whose destination is empty gets the
+   base — emitted verbatim, so it needs no parser to be trustworthy. A parser-less host
+   that *already* has a `config.toml` gets neither: rule 4 retains it untouched, so it
+   stays at whatever vintage it had while the rest of the Codex tree keeps updating. That
+   is ADR 0049's stale-pairing residual, and here it lasts until the interpreter is
+   upgraded rather than until the overlay is fixed.
 
 3. **With no overlay, nothing is split.** The splitter exists to hoist the overlay's root
    keys above the base's table headers; with no overlay there is nothing to hoist, so the
@@ -113,11 +121,18 @@ The no-overlay rendering loses its leading blank line, so the first run after th
 reports `1 updated` for `config.toml` and takes a drift backup of a file the installer
 itself wrote. One run, then it converges.
 
-An overlay can no longer change `features.goals`, and there was never a working route to:
-the two that exist — redefining `[features]`, and a `features.goals` root key — are a
-duplicate declaration that no TOML parser accepts. ADR 0043 leaves the same limit on
-`hooks.PreToolUse` and #118 tracks the JSON half; for Codex the pressure is lower, and if
-it bites it bites as a request to change the public base.
+The Codex overlay becomes add-only, which is stricter than the JSON contract: ADR 0043
+lets an overlay override a base scalar, and this does not. Two of the three routes to
+`features.goals` — redefining `[features]`, and a `features.goals` root key — were already
+duplicate declarations no TOML parser accepts. The third worked, and it is the mangling
+this record closes; an operator relying on it was relying on the defect. ADR 0043 leaves
+the same limit on `hooks.PreToolUse` and #118 tracks the JSON half. For Codex the pressure
+is lower, and if it bites it bites as a request to change the public base.
+
+An overlay that is legal TOML on its own can still be refused, when the splitter's hoist
+moves a base table inside a multi-line string the overlay opened at its root. That file is
+not at fault, so the verdict says the merge split it and names the remedy — put the value
+in a table — rather than accusing the overlay of erasing anything.
 
 The refusal's deployed-state report is weaker than the JSON one. ADR 0049 rule 5 promises
 a verdict of base-alone, carries-every-protected-path, or missing-some; without a parser —
@@ -132,9 +147,12 @@ behaviour is a legal overlay silently deleting the base's table at exit 0, and o
 supported host a legal overlay silently replacing the whole file with an unparseable one.
 Neither is discoverable from the installer's output, and the second breaks Codex outright.
 
-**Port ADR 0043's protected set unchanged** — non-empty arrays and objects derived from the
-base. Today's base contains neither, so the set is empty and the check refuses nothing.
-The selector matches jq's failure mode, not concatenation's.
+**Port ADR 0043's protected set unchanged** — the base's non-empty arrays and objects.
+Ported here it yields `features` and it does refuse the swallowing overlay, so this is the
+closest alternative rather than an empty one. It does not refuse the override: `features`
+survives as an object holding a changed `goals`, and it would not cover any scalar a future
+base adds at the root. The selector is shaped to jq's failure mode — replacing a path the
+overlay named — and concatenation's is losing one it did not.
 
 **Refuse by name: compare the table headers and root keys the two files declare, without a
 parser.** This was the first decision here and it is wrong. It is defeated by the measured
@@ -159,8 +177,8 @@ trusted; removing it is a change worth making on its own evidence, not folded in
 
 **Merge properly with a TOML library.** Same parser requirement as rule 2, and a real merge
 must either round-trip the operator's comments and formatting or silently discard them.
-TOML's duplicate rule already makes an override unrepresentable, so the library would buy
-override support this base has nothing to override.
+It is the option that would give overrides back, which is a larger question than the defect
+here — it changes what an overlay may do, where this record changes what it may break.
 
 **Keep validation optional and name the drift backup when it is skipped.** It keeps the
 overlay working on an old interpreter and closes the silence about recovery. It does not

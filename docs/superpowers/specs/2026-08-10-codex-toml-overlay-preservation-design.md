@@ -108,11 +108,24 @@ own parse failure is a hard exit naming the base — it is this repository's fil
 malformed one is a defect here, not a mistake the operator can fix, exactly as
 `render_base` treats a malformed base JSON.
 
-Comparison walks the base's leaves. A base path whose value is a table descends; any other
-value — scalar, array, array-of-tables — compares equal or is reported. Only the outermost
-path of a mismatch is reported, so a swallowed `[features]` names `features` rather than
-`features.goals`. Dotted-path rendering is the base's key names joined by `.`, matching
-`erased_base_paths`' output shape.
+Comparison walks the base's tree, and the walk is what makes "outermost" fall out rather
+than needing a separate ancestor-trimming pass:
+
+- the merged document has no value at this key — report this path, do not descend;
+- the base's value is a table and the merged document holds a table there — descend;
+- the base's value is a table and the merged document holds something else — report this
+  path, do not descend;
+- otherwise compare value **and** type, and report on mismatch. Type is compared because
+  `True == 1` in Python, so `goals = 1` would otherwise pass as `goals = true`.
+
+So a swallowed `[features]` — absent from the merged parse entirely — reports `features`,
+while an overridden `features.goals`, where the table survives, reports `features.goals`.
+Both are the outermost differing node. Stating the rule over leaves is also what keeps an
+additive `[features.sub]` legal: comparing `features` as a whole would refuse it for
+extending the base.
+
+Dotted-path rendering is the base's key names joined by `.`, matching `erased_base_paths`'
+output shape.
 
 Like `erased_base_paths`, empty stdout means both "nothing erased" and "I could not tell",
 so the call is status-guarded and a failure exits (R8).
@@ -207,21 +220,38 @@ stream that carries it, not only an exit status.
 
 | # | Case | Asserts | Reddens on revert |
 |---|---|---|---|
-| T1 | row 9's swallowing overlay | refused; names the overlay and `features`; deployed file unchanged | yes — the reported defect |
-| T2 | row 10's `features.goals` override | refused; names `features` | yes |
+| T1 | row 9's swallowing overlay | refused; names the overlay and `features`; says the merge split it rather than blaming the file | yes — the reported defect |
+| T2 | row 10's `features.goals` override | refused; names `features.goals` | yes |
+| T2b | overlay adding `[features.sub]` | installs; base's `features.goals` still true | yes — guards against refusing a legal extension |
+| T2c | base table replaced by a scalar in the merged result | refused; names `features`, not a key beneath it | yes |
 | T3 | overlay redefines `[features]` | refused; names the overlay, not a temp path; no traceback | yes (R10) |
 | T4 | overlay is invalid TOML | refused; names the overlay; carries the parser's diagnostic | yes (R10) |
-| T5 | empty overlay | installs; deployed file byte-identical to the base | yes (R3) |
+| T5 | empty overlay | installs; deployed document parses equal to the base; a second run reports it unchanged | partly — convergence clause |
+| T5b | overlay is unreadable (`chmod 000`) | run exits; `applied private overlay` absent; nothing deployed | yes (R8) |
+| T5c | refusal leaves no merged artifact behind | the temp file the refusal built is gone | yes (R7) |
 | T6 | bare non-table overlay | refused; names the overlay | yes (R10) |
 | T7 | no parser, overlay present, file already deployed | refused; live file byte-identical afterwards; message names the interpreter requirement | yes — row 11 |
 | T8 | no parser, no overlay | base installs, exit 0 | regression guard |
 | T9 | no parser, overlay present, empty destination | base alone deployed, 0600, exit non-zero | yes |
-| T10 | unreadable overlay (`chmod 000`) | run exits; `applied private overlay` absent from stdout; nothing deployed | yes (R8) |
+| T10 | empty base table, overlay that drops it | refused; names the table | yes — a leaf walk alone would not see it |
 | T11 | refusal over a real prior install, with a stale entry seeded into the destination and its manifest | stale entry pruned **and** `config.toml` retained byte-for-byte | yes (R6 — proves `finish_agent` ran) |
 | T12 | refusal under `--agent all` | claude and bob install; Codex's `AGENTS.md`/`skills` install; `config.toml` withheld; `applied private overlay` absent from stdout | yes (R4, R9) |
 | T13 | no-overlay run, then a second run | deployed file byte-identical to the base both times; second run reports it unchanged | yes (R3 convergence) |
 | T14 | valid additive overlay (new root key + new table) | installs; both present; base's `features` present | regression guard |
 | T15 | the JSON nine-case protected-key battery, unchanged | existing assertions pass | R11 |
+
+### Two consequences the suite carries
+
+`install-test.sh` writes a Codex overlay fixture and runs `--agent all`, so under R2 the
+suite now needs a `python3` that can `import tomllib` where before it degraded to skipping
+validation. That turns an optional tool into a hard prerequisite of `just verify`. The
+suite states it as a precondition with the version and the reason, rather than failing
+somewhere in the middle with a refusal verdict about a fixture.
+
+A directory or other non-regular file at the overlay path still reads as "no overlay",
+because the guard is `[[ -f "$overlay" ]]`. That is unchanged and is what the JSON path
+does at the same point, so it stays consistent rather than becoming a second contract; it
+is recorded here as known rather than addressed.
 
 T11 is what proves R6: today's abort happens before `finish_agent`, so the earlier
 install's manifest survives untouched and a bare "the manifest still lists `config.toml`"

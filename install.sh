@@ -680,10 +680,12 @@ report_deployed_state() { # dest_dir base rel
 	printf 'install:   its predecessor is there too.\n' >&2
 }
 
-retain_managed_path() { # dest_dir base rel
+# Bookkeeping only, and silent: each format reports what is live in its own terms, so the
+# caller makes that call. It prints nothing itself, so moving the report out changes no
+# output or its order.
+retain_managed_path() { # dest_dir rel
 	local dest_dir="$1"
-	local base="$2"
-	local rel="$3"
+	local rel="$2"
 
 	ensure_safe_rel "$rel"
 	RETAINED=$((RETAINED + 1))
@@ -693,7 +695,6 @@ retain_managed_path() { # dest_dir base rel
 	# data (ADR 0049).
 	MANIFEST_ENTRIES+=("$rel")
 	WITHHELD_PATHS+=("$dest_dir/$rel")
-	report_deployed_state "$dest_dir" "$base" "$rel"
 }
 
 destination_set_is_empty() { # dest_dir rel...
@@ -752,7 +753,8 @@ install_merged_json() { # dest_dir base overlay rel...
 		return 0
 	fi
 	for rel in "$@"; do
-		retain_managed_path "$dest_dir" "$base" "$rel"
+		retain_managed_path "$dest_dir" "$rel"
+		report_deployed_state "$dest_dir" "$base" "$rel"
 	done
 }
 
@@ -775,51 +777,287 @@ supports_tomllib() {
 		python3 -c 'import tomllib' >/dev/null 2>&1
 }
 
-validate_toml() {
-	local path="$1"
-
-	if supports_tomllib; then
-		python3 - "$path" <<'PY'
-import pathlib
-import sys
-import tomllib
-
-path = pathlib.Path(sys.argv[1])
-try:
-    tomllib.loads(path.read_text())
-except tomllib.TOMLDecodeError as exc:
-    raise SystemExit(f"{path}: invalid TOML: {exc}") from exc
-PY
-	else
-		printf 'install: skipped TOML validation because python3 tomllib is unavailable\n'
+# With no overlay there is nothing to hoist, so the base is copied rather than run through
+# the splitter. That makes one byte sequence "the base alone" — this file — which the
+# ADR 0049 fill reuses and `report_deployed_toml_state` recognises with `cmp`. Splitting it
+# produced a leading blank line, so a no-overlay run and an empty-overlay run deployed
+# different bytes for the same meaning (ADR 0057 rule 3).
+render_base_toml() { # base output
+	if ! cp "$1" "$2"; then
+		printf 'install: could not read base config: %s\n' "$1" >&2
+		exit 1
 	fi
 }
 
-merge_toml_config() {
+# `0` accepted, `1` rejected, `2` no parser here, `3` the validator itself failed. The
+# diagnostic goes to stdout without the path: the caller holds the operator's overlay path,
+# and the path this actually parses is a temporary file whose name is gone by the time the
+# verdict is read (ADR 0057 rule 4).
+#
+# Reads bytes rather than text. `read_text()` decodes with the locale encoding, so a legal
+# UTF-8 overlay raises `UnicodeDecodeError` under a non-UTF-8 `LC_ALL` — and under rule 2
+# that would be a permanent refusal of a sound file, reported as a Python traceback. TOML
+# 1.0 mandates UTF-8 and `tomllib.load` decodes it.
+validate_toml() { # path
+	local path="$1"
+	local status=0
+
+	if ! supports_tomllib; then
+		return 2
+	fi
+	python3 - "$path" <<'PY' || status=$?
+import sys
+import tomllib
+
+try:
+    with open(sys.argv[1], "rb") as handle:
+        tomllib.load(handle)
+except tomllib.TOMLDecodeError as exc:
+    sys.stdout.write(f"{exc}\n")
+    raise SystemExit(2) from exc
+PY
+	case "$status" in
+	0) return 0 ;;
+	2) return 1 ;;
+	*) return 3 ;;
+	esac
+}
+
+# Every base path the merged document does not carry with an equal value, as
+# newline-delimited dotted paths, empty when the merge preserved everything (ADR 0057).
+#
+# Stated over the parse rather than over the overlay's text, because the hoist below is
+# `awk` matching `^[[:space:]]*\[` and is not a TOML lexer: an overlay that opens a
+# multi-line string in its root section has its tail relocated behind the base's tables,
+# *inside* that string, and the base's tables are swallowed without the overlay naming
+# anything. No check over names can see that; the parse can.
+#
+# The selector is every base value, where `erased_base_paths` takes only non-empty arrays
+# and objects. jq's `*` cannot drop a base key, so the JSON rule could leave scalars to it.
+# Concatenation reconciles nothing and drops whatever the splitter moved, so a scalar needs
+# covering too — and this base is one scalar.
+erased_base_toml_paths() { # base merged
+	python3 - "$1" "$2" <<'PY'
+import sys
+import tomllib
+
+
+def load(path):
+    with open(path, "rb") as handle:
+        return tomllib.load(handle)
+
+
+# Only the outermost path of a mismatch, or a swallowed table would name every key beneath
+# it as well as itself. `type` is compared alongside value because TOML's booleans and
+# integers compare equal in Python — `True == 1` — and `goals = 1` is not `goals = true`.
+def walk(base, merged, trail, found):
+    for key, value in base.items():
+        path = trail + [key]
+        if not isinstance(merged, dict) or key not in merged:
+            found.append(path)
+            continue
+        after = merged[key]
+        if isinstance(value, dict):
+            if isinstance(after, dict):
+                walk(value, after, path, found)
+            else:
+                found.append(path)
+        elif after != value or type(after) is not type(value):
+            found.append(path)
+
+
+try:
+    base = load(sys.argv[1])
+except tomllib.TOMLDecodeError as exc:
+    raise SystemExit(f"install: base config {sys.argv[1]} is not valid TOML: {exc}")
+found = []
+walk(base, load(sys.argv[2]), [], found)
+for path in found:
+    print(".".join(path))
+PY
+}
+
+# Guarded individually rather than run as one `{ ... } >"$output"` group. `awk` exits
+# non-zero on an unreadable overlay, and this whole body runs with `set -e` suppressed
+# because the caller tests the status — so an unguarded failure would contribute nothing
+# and read as a merge that preserved everything (ADR 0049 rule 1).
+emit_merged_toml() { # base overlay
+	emit_root_settings "$1" &&
+		printf '\n' &&
+		emit_root_settings "$2" &&
+		printf '\n' &&
+		emit_table_settings "$1" &&
+		printf '\n' &&
+		emit_table_settings "$2"
+}
+
+report_toml_overlay() { # overlay problem remedy...
+	local overlay="$1"
+	local problem="$2"
+	local line
+
+	shift 2
+	printf 'install: private overlay %s %s\n' "$overlay" "$problem" >&2
+	for line in "$@"; do
+		printf 'install:   %s\n' "$line" >&2
+	done
+}
+
+# Returns 0 when the merged document is deployable and 1 when the overlay is refused.
+# Every other failure exits, and the distinction is load-bearing rather than tidy (ADR 0049
+# rule 1): testing this function's status at the call site suppresses `set -e` for its whole
+# body, so an unguarded failure anywhere below would fall through into the comparison and
+# either accuse a blameless overlay or, worse, report a comparison that never ran as one
+# that found nothing.
+merge_toml_config() { # base overlay output
 	local base="$1"
 	local overlay="$2"
 	local output="$3"
+	local diagnostic
+	local erased
+	local erased_path
+	local status=0
 
-	if [[ -f "$overlay" ]]; then
-		{
-			emit_root_settings "$base"
-			printf '\n'
-			emit_root_settings "$overlay"
-			printf '\n'
-			emit_table_settings "$base"
-			printf '\n'
-			emit_table_settings "$overlay"
-		} >"$output"
-		printf 'install: applied private overlay %s\n' "$overlay"
-	else
-		{
-			emit_root_settings "$base"
-			printf '\n'
-			emit_table_settings "$base"
-		} >"$output"
+	if [[ ! -f "$overlay" ]]; then
+		render_base_toml "$base" "$output"
 		printf 'install: no private overlay at %s\n' "$overlay"
+		return 0
 	fi
-	validate_toml "$output"
+
+	if ! emit_merged_toml "$base" "$overlay" >"$output"; then
+		printf 'install: could not merge private overlay %s into %s\n' "$overlay" "$base" >&2
+		exit 1
+	fi
+
+	diagnostic="$(validate_toml "$output")" || status=$?
+	case "$status" in
+	0) ;;
+	1)
+		report_toml_overlay "$overlay" 'does not merge into valid TOML:' \
+			"$diagnostic" \
+			'The line and column above are positions in the merged document, not in your' \
+			'overlay: your file may parse on its own and still be split by the merge, which' \
+			'moves root settings above the base tables. An overlay that opens a multi-line' \
+			'string or array in its root section is the usual cause.'
+		unlink "$output"
+		return 1
+		;;
+	2)
+		report_toml_overlay "$overlay" 'cannot be applied here' \
+			'Applying it means checking that it preserves what the base defines, and that' \
+			'check is a TOML parse. This host has no python3 that can import tomllib,' \
+			'which needs Python 3.11 or newer; install one and re-run. The base alone is' \
+			'all the installer can deploy until then (ADR 0057).'
+		unlink "$output"
+		return 1
+		;;
+	*)
+		printf 'install: could not validate the merged TOML for %s\n' "$overlay" >&2
+		exit 1
+		;;
+	esac
+
+	if ! erased="$(erased_base_toml_paths "$base" "$output")"; then
+		printf 'install: could not compare the merged result against %s\n' "$base" >&2
+		exit 1
+	fi
+	if [[ -n "$erased" ]]; then
+		printf 'install: merging private overlay %s loses values %s defines:\n' \
+			"$overlay" "$base" >&2
+		while IFS= read -r erased_path; do
+			printf 'install:   %s\n' "$erased_path" >&2
+		done <<<"$erased"
+		printf 'install: an overlay may add tables and keys, but every value the base\n' >&2
+		printf 'install:   defines must survive the merge unchanged (ADR 0057).\n' >&2
+		# An overlay that parses on its own did not write anything wrong; the merge's hoist
+		# did, and saying "your overlay may not erase this" would blame a legal file for the
+		# installer's own splitting. This is the row that motivated ADR 0057, so it gets the
+		# cause rather than the rule.
+		if validate_toml "$overlay" >/dev/null; then
+			printf 'install: your overlay is valid TOML on its own, so this is the merge\n' >&2
+			printf 'install:   splitting it: root settings are moved above the base tables, and\n' >&2
+			printf 'install:   a root value that opens a multi-line string or array swallows\n' >&2
+			printf 'install:   them. Put that value inside a table of its own and re-run.\n' >&2
+		fi
+		unlink "$output"
+		return 1
+	fi
+
+	# After the result is accepted, not before it is checked: printed first, this line
+	# appeared on every run that then went on to fail.
+	printf 'install: applied private overlay %s\n' "$overlay"
+	return 0
+}
+
+# The TOML counterpart of `report_deployed_state`, and deliberately weaker. ADR 0049 rule 5
+# names which protected base values a deployed file still carries; that is a parse, and the
+# refusal this reports on may be a refusal *because* there is no parser. What survives
+# without one is a byte comparison against the base, which answers the one question that
+# matters most — whether any overlay of theirs has ever applied here.
+report_deployed_toml_state() { # dest_dir base rel
+	local dest_dir="$1"
+	local base="$2"
+	local path="$dest_dir/$3"
+
+	if [[ -L "$path" ]]; then
+		printf 'install: %s is a symlink; its target was not checked. A successful run\n' \
+			"$path" >&2
+		printf 'install:   replaces it as drift.\n' >&2
+		return 0
+	fi
+	if [[ -d "$path" ]]; then
+		printf 'install: a directory occupies %s; its contents were not inspected\n' \
+			"$path" >&2
+		return 0
+	fi
+	if [[ ! -f "$path" ]]; then
+		printf 'install: no file is deployed at %s\n' "$path" >&2
+		return 0
+	fi
+	if cmp -s "$base" "$path"; then
+		printf 'install: %s is the base alone; no overlay of yours has ever been\n' "$path" >&2
+		printf 'install:   applied there.\n' >&2
+		return 0
+	fi
+
+	printf 'install: %s differs from the base and was left exactly as it is; its\n' \
+		"$path" >&2
+	printf 'install:   contents were not checked against %s, which needs a TOML parse.\n' \
+		"$base" >&2
+	printf 'install: fix or remove the overlay and re-run; the installer then replaces\n' >&2
+	printf 'install:   that file and keeps the current one under\n' >&2
+	printf 'install:   %s/.agent-config-backups/.\n' "$dest_dir" >&2
+}
+
+# One destination path rather than `install_merged_json`'s set: Codex has one TOML file and
+# no TOML document feeds two, so ADR 0049's whole-set handling has nothing to range over.
+install_merged_toml() { # dest_dir base overlay rel
+	local dest_dir="$1"
+	local base="$2"
+	local overlay="$3"
+	local rel="$4"
+	local output
+
+	output="$(new_temp_file)"
+	if merge_toml_config "$base" "$overlay" "$output"; then
+		install_managed_path "$dest_dir" "$output" "$rel"
+		return 0
+	fi
+
+	REFUSED_OVERLAYS+=("$overlay")
+
+	if destination_set_is_empty "$dest_dir" "$rel"; then
+		printf 'install: nothing is deployed at that path, so the base is installed\n' >&2
+		printf 'install:   without your overlay; none of it applies until it is fixed.\n' >&2
+		# A fresh 0600 temp file: the refusal unlinked the merged one, and re-creating it by
+		# redirection would take the umask instead.
+		output="$(new_temp_file)"
+		render_base_toml "$base" "$output"
+		install_managed_path "$dest_dir" "$output" "$rel"
+		return 0
+	fi
+	retain_managed_path "$dest_dir" "$rel"
+	report_deployed_toml_state "$dest_dir" "$base" "$rel"
 }
 
 validate_yaml_if_possible() {
@@ -895,19 +1133,15 @@ install_codex() {
 	local host="$1"
 	local dest_dir
 	local overlay_dir
-	local config_tmp
 
 	start_agent
 	dest_dir="$(canonical_dir "${CODEX_CONFIG_DIR:-$HOME/.codex}")"
 	overlay_dir="$(private_overlay_dir codex "$host")"
-	config_tmp="$(new_temp_file)"
 
-	merge_toml_config \
+	install_merged_toml "$dest_dir" \
 		"$REPO/agents/codex/shared/config.base.toml" \
 		"$overlay_dir/config.overlay.toml" \
-		"$config_tmp"
-
-	install_managed_path "$dest_dir" "$config_tmp" "config.toml"
+		"config.toml"
 	install_managed_path "$dest_dir" "$REPO/agents/codex/shared/AGENTS.md" "AGENTS.md"
 	install_managed_path "$dest_dir" "$SKILLS_STAGING/skills" "skills"
 	install_common_content "$dest_dir"
