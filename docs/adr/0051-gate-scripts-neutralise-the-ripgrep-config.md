@@ -117,6 +117,17 @@ recipe-level `unset` would protect only one of the paths.
   files that are *untracked* and therefore never ship — `CLAUDE.local.md` among them —
   which fails the gate on the host-specific content that file exists to hold. Naming the
   tracked files covers what ships under every ignore mechanism, not `.gitignore` alone.
+- Naming paths explicitly makes ripgrep's exit 2 reachable where the walk alone never made
+  it: 2 means a scan it could not complete, it is returned even when matches were also
+  found, and a bare `if` reads it as "no match". A tracked file deleted from the worktree
+  was enough — `rm` anything, and the gate printed the secret and exited 0. The scan now
+  branches on the status (0 finding, 1 clean, anything else a fault), which is also what
+  bounds the untested `E2BIG` case: at 250 tracked files an over-long argument list is not
+  live, and if it ever becomes so it surfaces as a fault rather than as silence.
+- Tracked symlinks are followed when named explicitly, so a symlink pointing outside the
+  repository would have out-of-tree content scanned — content that does not itself ship.
+  Nothing is missed either way and the tree tracks no symlinks today; if one is ever added,
+  the false positive is loud and this is where to revisit.
 - The other gates' scan sets are unchanged: they still walk with ignore rules applied.
   Their subject is the repository's own content rather than credential exposure, and a
   tracked-but-ignored file is visible to them through the membership and layout manifests.

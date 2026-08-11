@@ -58,9 +58,15 @@ denied_patterns=(
 # searches a path given explicitly on the command line whatever the ignore rules
 # say, so this covers every ignore mechanism rather than .gitignore alone. On a
 # tree with nothing hidden it is the same set the walk already covers.
+#
+# `git ls-files` reports the index, so a tracked file deleted from the worktree
+# and not yet staged names a path with nothing behind it. There is no content to
+# scan there, and the status check below would otherwise turn every such tree
+# into a fault, so those paths are dropped before the scan rather than after.
 scan_targets=("${scan_paths[@]}")
 for scan_path in "${scan_paths[@]}"; do
 	while IFS= read -r -d '' tracked; do
+		[[ -e "$scan_path/$tracked" ]] || continue
 		scan_targets+=("$scan_path/$tracked")
 	done < <(git -C "$scan_path" ls-files -z 2>/dev/null)
 done
@@ -74,12 +80,36 @@ status=0
 # trying to get past it. The trade in --encoding none -- a file genuinely stored
 # as UTF-16 stops being scanned -- is accepted in record 0051: no tracked file
 # here is one, and a documented five-byte bypass is the worse half.
+#
+# ripgrep exits 2 for a scan it could not complete -- an unreadable file, a path
+# it was handed that it cannot open, an argument list too long for exec -- and it
+# does so even when it also found matches. Read as a boolean, that is "no match":
+# the gate would print a secret to stdout and still exit 0. A bare `if` here is
+# what made a plain `rm` of any tracked file turn this gate green. The sibling
+# gates branch on the status for the same reason (check-skill-layout.sh:486,
+# check-shared-standards.sh), so this one does too: 0 is a finding, 1 is clean,
+# anything else is a fault that stops the run.
 for pattern in "${denied_patterns[@]}"; do
-	if rg -n --hidden --text --encoding none \
-		--glob '!.git' --glob '!.git/**' "$pattern" "${scan_targets[@]}"; then
+	rg_status=0
+	matches=$(rg -n --hidden --text --encoding none \
+		--glob '!.git' --glob '!.git/**' "$pattern" "${scan_targets[@]}") ||
+		rg_status=$?
+	case $rg_status in
+	0)
+		# The walk and the explicit paths overlap on every tracked file no
+		# ignore rule hides, so each match arrives twice. Report it once: a real
+		# leak is the worst moment to double the output.
+		printf '%s\n' "$matches" | awk '!seen[$0]++'
 		printf 'public-safety: denied pattern matched: %s\n' "$pattern" >&2
 		status=1
-	fi
+		;;
+	1) ;;
+	*)
+		printf 'public-safety: ripgrep could not complete the scan (exit %s); pattern: %s\n' \
+			"$rg_status" "$pattern" >&2
+		exit 2
+		;;
+	esac
 done
 
 exit "$status"

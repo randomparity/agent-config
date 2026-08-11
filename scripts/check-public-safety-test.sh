@@ -205,6 +205,78 @@ for ignore_file in .gitignore .ignore; do
 	fi
 done
 
+# ripgrep exits 2 when it cannot open a path it was given explicitly, and it does
+# so even when it also found matches. `git ls-files` reports the index, so a
+# tracked file deleted from the worktree and not staged names a path with nothing
+# behind it -- and a bare `if` on ripgrep read that 2 as "no match". `rm` of any
+# tracked file turned this gate green while printing the secret to stdout.
+deleted="$SCRATCH/deleted-target"
+mkdir -p "$deleted/sub"
+git init -q -b main "$deleted"
+git -C "$deleted" config user.name 'Fixture Developer'
+git -C "$deleted" config user.email fixture@example.invalid
+printf '%s\n' "$hidden_secret" >"$deleted/sub/leak.txt"
+printf 'sub/leak.txt\n' >"$deleted/.gitignore"
+printf 'ordinary content\n' >"$deleted/doomed.txt"
+git -C "$deleted" add -f sub/leak.txt .gitignore doomed.txt
+git -C "$deleted" commit -qm 'tracked but ignored, plus a doomed file'
+rm "$deleted/doomed.txt"
+if "$CHECKER" "$deleted" >"$SCRATCH/output" 2>&1; then
+	printf 'public-safety-test: a deleted tracked file turned the scan green\n' >&2
+	cat "$SCRATCH/output" >&2
+	exit 1
+fi
+if ! grep -qF 'denied pattern matched' "$SCRATCH/output"; then
+	printf 'public-safety-test: the secret must still be reported\n' >&2
+	cat "$SCRATCH/output" >&2
+	exit 1
+fi
+
+# A scan ripgrep genuinely could not complete is a fault, not a verdict: exit 2,
+# distinct from both the clean 0 and the finding 1. Root can read a 000 file, so
+# the case proves nothing there and is skipped rather than asserted falsely.
+if [ "$(id -u)" -ne 0 ]; then
+	unreadable="$SCRATCH/unreadable-target"
+	mkdir -p "$unreadable"
+	git init -q -b main "$unreadable"
+	git -C "$unreadable" config user.name 'Fixture Developer'
+	git -C "$unreadable" config user.email fixture@example.invalid
+	printf 'ordinary content\n' >"$unreadable/secret-free.txt"
+	git -C "$unreadable" add secret-free.txt
+	git -C "$unreadable" commit -qm 'a file that becomes unreadable'
+	chmod 000 "$unreadable/secret-free.txt"
+	fault_status=0
+	"$CHECKER" "$unreadable" >"$SCRATCH/output" 2>&1 || fault_status=$?
+	chmod 644 "$unreadable/secret-free.txt"
+	if [ "$fault_status" -ne 2 ]; then
+		printf 'public-safety-test: an incomplete scan must fault, got %s\n' \
+			"$fault_status" >&2
+		cat "$SCRATCH/output" >&2
+		exit 1
+	fi
+fi
+
+# A tracked file no ignore rule hides is reached by the walk and by its explicit
+# path, so the same match arrives twice. A real leak is the worst moment to
+# double the output.
+duplicate="$SCRATCH/duplicate-report"
+mkdir -p "$duplicate"
+git init -q -b main "$duplicate"
+git -C "$duplicate" config user.name 'Fixture Developer'
+git -C "$duplicate" config user.email fixture@example.invalid
+printf '%s\n' "$hidden_secret" >"$duplicate/plain.txt"
+git -C "$duplicate" add plain.txt
+git -C "$duplicate" commit -qm 'a plainly tracked secret'
+if "$CHECKER" "$duplicate" >"$SCRATCH/output" 2>&1; then
+	printf 'public-safety-test: a plainly tracked secret must fail the gate\n' >&2
+	exit 1
+fi
+if [ "$(grep -cF 'plain.txt' "$SCRATCH/output")" -ne 1 ]; then
+	printf 'public-safety-test: the match should be reported once\n' >&2
+	cat "$SCRATCH/output" >&2
+	exit 1
+fi
+
 # The other half of the same rule: an ignored file that is *untracked* never
 # ships, so scanning it would fail the gate on host-specific content that is
 # ignored precisely to keep it out of the tracked tree -- CLAUDE.local.md here.
