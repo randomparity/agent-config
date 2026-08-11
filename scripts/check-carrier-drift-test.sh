@@ -219,4 +219,37 @@ printf 'interaction: <unchanged root value>\nnot a carrier\n' \
 	>"$testdata_root/content/skills/design/testdata/fixture.md"
 assert_passes 'testdata excluded' "$testdata_root"
 
+# ripgrep applies RIPGREP_CONFIG_PATH's contents as arguments ahead of the gate's
+# own, so a developer's personal ripgreprc would otherwise choose how many
+# occurrences the scan reports. This gate counts them against a manifest, so it
+# fails closed rather than green -- but the verdict still depends on the
+# environment, and both directives below turned the canonical tree red with no
+# usable diagnostic. --max-count=1 hides every occurrence after the first;
+# --files-without-match replaces the numbered lines with bare paths, which the
+# counter then reads as line numbers. Record 0051.
+while IFS= read -r directive; do
+	printf -- '%s\n' "$directive" >"$tmp_root/rgconfig"
+	if ! RIPGREP_CONFIG_PATH="$tmp_root/rgconfig" "$gate" "$pass_root" \
+		>"$tmp_root/output" 2>&1; then
+		fail "a ripgrep config of $directive changed the verdict: $(cat "$tmp_root/output")"
+	fi
+done <<'DIRECTIVES'
+--max-count=1
+--files-without-match
+DIRECTIVES
+
+# ripgrep judges a file binary on one NUL byte and skips it while walking the
+# tree. A carrier in a file the manifest does not name is window-checked (see
+# 'carrier in a new file' above) but its file is not counted, so a NUL there is
+# a silent miss rather than a short count: the drifted carrier disappears and
+# the gate exits 0. --text keeps it in view.
+nul_root=$tmp_root/nul
+cp -R "$pass_root" "$nul_root"
+write_skill "$nul_root" scope "# Scope
+
+${template/surface: <frozen permitted surface>/surface: <whatever the reviewer allows>}"
+printf '\000\n' >>"$nul_root/content/skills/scope/SKILL.md"
+assert_fails 'drift hidden behind a NUL byte' "$nul_root" \
+	'carrier drifted from the canonical template'
+
 printf 'carrier-drift-test: pass\n'

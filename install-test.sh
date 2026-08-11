@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# ripgrep applies the contents of RIPGREP_CONFIG_PATH as arguments ahead of the
+# ones this suite passes, so a personal ripgreprc would otherwise decide what
+# assert_tree_contains matches. --invert-match alone makes it pass on a file the
+# installer never wrote (record 0051).
+unset RIPGREP_CONFIG_PATH
+
 fail() {
 	printf 'install-test: %s\n' "$*" >&2
 	exit 1

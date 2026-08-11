@@ -23,6 +23,13 @@ set -euo pipefail
 # repository, which is how the suite exercises fixtures; the manifest is
 # interpreted relative to that root.
 
+# ripgrep applies the contents of RIPGREP_CONFIG_PATH as arguments ahead of the
+# ones the scan below passes, so without this a developer's personal ripgreprc
+# decides how many occurrences this gate sees. --max-count=1 and
+# --files-without-match each turned a canonical tree red with no usable
+# diagnostic. One unset covers every ripgrep this file runs (record 0051).
+unset RIPGREP_CONFIG_PATH
+
 fail() {
 	printf 'carrier-drift: %s\n' "$*" >&2
 	exit 1
@@ -62,7 +69,11 @@ work-issue/SKILL.md 2'
 # subject, not a clean scan: zero carriers means the protocol was deleted and
 # a green gate would certify nothing. Exit 2 is a scan error and propagates.
 set +e
-occurrences=$(rg -n --fixed-strings --glob '*.md' \
+# --text: ripgrep judges a file binary on one NUL byte and skips it while
+# walking the tree. For a file the manifest names that is a short count and a
+# loud failure, but a carrier in any other file is window-checked without being
+# counted, so a NUL there makes a drifted carrier vanish and the gate exit 0.
+occurrences=$(rg -n --fixed-strings --text --glob '*.md' \
 	--glob '!testdata' --glob '!testdata/**' -- "$first_line" "$skills")
 status=$?
 set -e

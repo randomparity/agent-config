@@ -3,6 +3,11 @@
 
 set -euo pipefail
 
+# ripgrep applies RIPGREP_CONFIG_PATH's contents as arguments ahead of the ones
+# passed below, so a personal ripgreprc would otherwise steer this suite's own
+# matching.
+unset RIPGREP_CONFIG_PATH
+
 # Hooks export repository-local Git variables that override `git -C`. Clear
 # Git's complete reported set before any fixture repository is discovered.
 while IFS= read -r variable; do
