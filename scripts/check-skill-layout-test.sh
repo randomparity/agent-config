@@ -35,6 +35,41 @@ assert_fails() { # expected root [locale]
 	case_count=$((case_count + 1))
 }
 
+# Occupies one sink path inside the workspace the gate asks `mktemp` for, and asserts
+# the gate stops with that sink's own message. This is the only way to reach a sink
+# failure without root or a full filesystem, and the shim leaves every other path alone
+# so the case fails on the proof rather than on an unusable workspace.
+assert_sink_proof() { # occupied-entry expected
+	local occupied="$1"
+	local expected="$2"
+	local shim="$tmpdir/sabotage-$occupied"
+	local root output status
+
+	mkdir -p "$shim"
+	cat >"$shim/mktemp" <<EOF
+#!/usr/bin/env bash
+real='$(command -v mktemp)'
+occupied='$occupied'
+EOF
+	cat >>"$shim/mktemp" <<'EOF'
+set -euo pipefail
+target="$("$real" "$@")"
+mkdir "$target/$occupied"
+printf '%s\n' "$target"
+EOF
+	chmod 755 "$shim/mktemp"
+	root="$(new_fixture)"
+	set +e
+	output="$(cd "$root" && PATH="$shim:$PATH" bash scripts/check-skill-layout.sh 2>&1)"
+	status="$?"
+	set -e
+	[[ "$status" -ne 0 ]] ||
+		fail "expected failure when the $occupied sink cannot be created; got: $output"
+	printf '%s\n' "$output" | rg --no-config -Fq "$expected" ||
+		fail "expected the $occupied sink proof to fire; got: $output"
+	case_count=$((case_count + 1))
+}
+
 write_skill() {
 	local root="$1"
 	local inventory="$2"
@@ -83,6 +118,14 @@ tmpdir="$(mktemp -d "$tmp_base/skill-layout-test.XXXXXX")"
 # terminal -- so a case that failed before restoring the mode would hang cleanup.
 trap 'chmod -R u+rwX "$tmpdir" 2>/dev/null || true; rm -R "$tmpdir"' EXIT
 case_count=0
+
+# The gate's encoding messages, shared so a case cannot assert a string the gate no
+# longer prints. `payload_remedy` is what the payload rules append and `SKILL.md`
+# deliberately does not; both directions are pinned below.
+payload_remedy='convert it to UTF-8, delete it, or move it out of the delivered tree'
+payload_utf8_error='file must be valid UTF-8'
+payload_text_error='deployed content must be UTF-8 text'
+payload_nul_error="$payload_text_error (file contains a NUL byte); $payload_remedy"
 
 # The ASCII-portability rules are bracket expressions, and bash takes a bracket
 # range from the locale's collation -- so the property worth asserting is that
@@ -314,6 +357,42 @@ assert_fails \
 	'content/skills/skill-01/SKILL.md: file must be valid UTF-8 (first malformed line 7)' \
 	"$root" "$utf8_locale"
 
+# And the remedy the payload rule appends must not follow it here. A `SKILL.md` is a
+# required file, so "delete it or move it out of the delivered tree" is not a remedy --
+# fixing the bytes is the only way out, and the message would be advising the reader to
+# break the skill. The suite matches by substring, so nothing else would notice.
+set +e
+output="$(cd "$root" && bash scripts/check-skill-layout.sh 2>&1)"
+set -e
+if printf '%s\n' "$output" | rg --no-config -Fq "$payload_remedy"; then
+	fail "SKILL.md must not carry the payload remedy: $output"
+fi
+case_count=$((case_count + 1))
+
+# The other direction into the same exemption, and the one that is easy to miss: U+0000
+# satisfies the acceptor, so a `SKILL.md` carrying a NUL reaches the NUL rule rather than
+# the UTF-8 one. Same reasoning, separate code path, separate case.
+root="$(new_fixture)"
+printf '%b' 'trailing\0000 nul\n' >>"$root/content/skills/skill-01/SKILL.md"
+assert_fails "content/skills/skill-01/SKILL.md: $payload_text_error (file contains a NUL byte)" \
+	"$root"
+set +e
+output="$(cd "$root" && bash scripts/check-skill-layout.sh 2>&1)"
+set -e
+if printf '%s\n' "$output" | rg --no-config -Fq "$payload_remedy"; then
+	fail "a SKILL.md with a NUL must not carry the payload remedy: $output"
+fi
+case_count=$((case_count + 1))
+
+# The exemption is the required path, not the basename. A nested `SKILL.md` under a skill
+# is ordinary payload -- nothing requires it and deleting it is a fine remedy -- so it
+# must keep the remedy a basename test would take away. Neither case above can reach this
+# direction, because both plant the NUL in the required top-level file.
+root="$(new_fixture)"
+mkdir -p "$root/content/skills/skill-01/assets"
+printf '%b' 'nested\0000 nul\n' >"$root/content/skills/skill-01/assets/SKILL.md"
+assert_fails "content/skills/skill-01/assets/SKILL.md: $payload_nul_error" "$root"
+
 # rg's binary detection triggers on a single NUL byte. For a file named explicitly on
 # the command line it converts rather than quits, so the verdict survives -- but the
 # reported position does not, and the position is the half of the message worth having.
@@ -404,8 +483,8 @@ root="$(new_fixture)"
 printf '%s\n' 'Use ~/.codex/skills here.' >>"$root/content/skills/skill-01/SKILL.md"
 assert_fails 'installed config-root reference is forbidden' "$root"
 
-# The config-root scan excludes `testdata` exactly as `stage_skills` does (ADR
-# 0025), and no path on the repository tree exercises that exclusion -- a fixture
+# The config-root scan excludes `testdata` exactly as `stage_skills` does (ADR 0028,
+# superseding ADR 0025), and no path on the repository tree exercises that exclusion -- a fixture
 # is the only place the excluded content exists, so it is the only place the
 # exclusion can be shown to work.
 root="$(new_fixture)"
@@ -469,19 +548,122 @@ root="$(new_fixture)"
 printf '%s\n' 'State goes in .codex/campaigns/x.md here.' >>"$root/content/languages/python.md"
 assert_fails "$repo_state_error" "$root"
 
-# rg calls a file binary on the strength of one NUL byte and skips it while walking a
-# directory, so a forbidden reference sharing a file with a NUL was invisible and the
-# gate printed ok. The scan reads it as text now; this is what keeps it doing so.
+# The deployed payload's encoding contract (ADR 0050). Every file the scan walks is
+# proven UTF-8 text before either pattern rule reads it, so the two fixtures below --
+# a NUL byte and a UTF-16 BOM, the pair issue #101 added `--text` and `--encoding none`
+# for -- now stop at the encoding rule instead of reaching the config-root rule. That is
+# the point of the contract: neither file is a legitimate delivery, and rejecting it for
+# what it is beats guessing how to read it.
+#
+# The flags those cases pin are unchanged and still pinned here, because
+# `run_content_scan` carries one flag list for all four rules. Drop `--text` and the NUL
+# pattern becomes impossible to match -- rg exits 2, `run_content_scan` reports a failed
+# scan, and the clean-tree assertions above go red. Drop `--encoding none` and the BOM
+# file is transcoded into well-formed UTF-8 with its NULs consumed, so both encoding
+# rules clear it and this case goes red. Each fixture keeps a forbidden reference in its
+# body so that reverting the encoding rule alone leaves the case failing on the
+# config-root message rather than passing.
+
 root="$(new_fixture)"
 printf '%b' 'lead\0000\nUse ~/.claude/skills here.\n' >"$root/content/languages/binary.md"
-assert_fails 'installed config-root reference is forbidden' "$root"
+assert_fails "content/languages/binary.md: $payload_nul_error" "$root"
 
-# The same hole through the other door: two leading bytes that look like a UTF-16 BOM
-# make rg transcode a file that is really UTF-8, and the reference comes out as
-# mojibake matching nothing. The content after the prefix is deliberately ordinary.
 root="$(new_fixture)"
 printf '%b' '\0377\0376Use ~/.claude/skills here.\n' >"$root/content/languages/bom.md"
-assert_fails 'installed config-root reference is forbidden' "$root"
+assert_fails \
+	"content/languages/bom.md: $payload_utf8_error (first malformed line 1); $payload_remedy" \
+	"$root"
+
+# BOM-less UTF-16 is the half the UTF-8 grammar cannot reach on its own: UTF-16LE text
+# drawn from ASCII is a run of `[\x00-\x7F]` bytes, so it satisfies the acceptor exactly
+# as written, and rg never transcoded it either -- `--encoding auto` sniffs a BOM and
+# this file has none. It is unscannable rather than misread, which is what the NUL rule
+# is for. The body is a forbidden reference no pattern rule can see through the
+# interleaved NULs.
+# Asserted whole, not by substring: an author's UTF-16 document is the case whose right
+# remedy is conversion, and the `.DS_Store` case below would happily pin a message that
+# offered only "delete it".
+root="$(new_fixture)"
+printf '%b' 'U\0000s\0000e\0000 \0000~\0000.\0000c\0000l\0000a\0000u\0000d\0000e\0000\n' \
+	>"$root/content/references/utf16le.md"
+assert_fails "content/references/utf16le.md: $payload_nul_error" "$root"
+
+# The contract covers every root the config-root scan walks, not just the two that
+# deploy verbatim: the non-SKILL.md payload under `content/skills` installs too, and had
+# no encoding rule at all before this (issue #127). One case per root, because the scan
+# reaches `content/skills` through a separate rg call with its own globs.
+for payload_path in \
+	'content/skills/skill-01/reference.md' \
+	'content/languages/rust.md' \
+	'content/references/orchestration.md'; do
+	root="$(new_fixture)"
+	printf '%b\n' 'a clean line' >"$root/$payload_path"
+	printf '%b\n' 'and a \0377 byte' >>"$root/$payload_path"
+	assert_fails \
+		"$payload_path: $payload_utf8_error (first malformed line 2); $payload_remedy" "$root"
+done
+
+# The other direction, and the one that matters most in a repository whose content is
+# prose: well-formed multi-byte UTF-8 in the payload has to pass. Every alternative in
+# the acceptor is already pinned for SKILL.md; this pins that the payload rule uses the
+# same acceptor rather than a stricter reading of its own.
+root="$(new_fixture)"
+{
+	printf '%b\n' 'caf\0303\0251 \0342\0200\0224 dash \0342\0206\0222 arrow'
+	printf '%b\n' 'CJK \0344\0270\0255\0346\0226\0207 emoji \0360\0237\0232\0200'
+	printf '%b\n' 'floor \0340\0240\0200 pre \0355\0237\0277 post \0356\0200\0200'
+} >"$root/content/languages/unicode.md"
+printf '%b\n' 'plane1 \0360\0220\0200\0200 last \0364\0217\0277\0277' \
+	>"$root/content/skills/skill-01/reference.md"
+output="$(cd "$root" && bash scripts/check-skill-layout.sh)"
+[[ "$output" == 'skills-check: ok (1 canonical skills, 1 project review examples)' ]] ||
+	fail "valid multi-byte UTF-8 in the payload must pass: $output"
+
+# The encoding rule honours the `testdata` exclusion the config-root rules already apply
+# (ADR 0028, superseding ADR 0025), and honours its scoping too: `content/skills` is the
+# one root the installer filters, so a `testdata` entry under `content/languages` really
+# does ship and is held to the contract. Both halves, because a rule that excluded the
+# name everywhere would blind the gate over a deployed path.
+root="$(new_fixture)"
+mkdir -p "$root/content/skills/skill-01/testdata"
+printf '%b\n' 'malformed \0377 fixture' >"$root/content/skills/skill-01/testdata/bad.md"
+printf '%b' 'utf16\0000 fixture\n' >"$root/content/skills/skill-01/testdata/utf16.md"
+output="$(cd "$root" && bash scripts/check-skill-layout.sh)"
+[[ "$output" == 'skills-check: ok (1 canonical skills, 1 project review examples)' ]] ||
+	fail "testdata must stay excluded from the encoding rule: $output"
+
+root="$(new_fixture)"
+mkdir -p "$root/content/languages/testdata"
+printf '%b\n' 'malformed \0377 fixture' >"$root/content/languages/testdata/bad.md"
+assert_fails "content/languages/testdata/bad.md: $payload_utf8_error" "$root"
+
+# `--hidden` and `--no-ignore` decide *which* files the contract covers, and the contract
+# is only as wide as the traversal that carries it. Both were pinned by nothing: the live
+# tree has no dot-prefixed or ignored file under the three roots, so a fixture is the only
+# place the property exists -- the same argument the `testdata` case above makes for
+# itself. `install_managed_path` copies both roots with `cp -pR`, so a dot-prefixed or
+# gitignored file really is delivered, and dropping either flag would reopen the
+# scanned-narrower-than-delivered hole silently, over the encoding rules as well as the
+# pattern ones. rg reads `.ignore` outside a git repository, so the second fixture needs
+# no git state.
+root="$(new_fixture)"
+printf '%b\n' 'malformed \0377 dotfile' >"$root/content/languages/.notes.md"
+assert_fails "content/languages/.notes.md: $payload_utf8_error" "$root"
+
+root="$(new_fixture)"
+printf '%s\n' 'ignored.md' >"$root/.ignore"
+printf '%b\n' 'malformed \0377 ignored file' >"$root/content/references/ignored.md"
+assert_fails "content/references/ignored.md: $payload_utf8_error" "$root"
+
+# The reachable case, and the reason the NUL message names a remedy: Finder writes
+# `.DS_Store` into any directory a developer opens, `content/languages` and
+# `content/references` are the two roots no path rule covers, and the file is gitignored
+# so `git status` stays clean. `content/skills` already rejected it on the portable-ASCII
+# path rule. macOS is a CI leg and the bash floor, so this is normal use rather than a
+# hypothetical.
+root="$(new_fixture)"
+printf '%b' 'Bud1\0000\0000\0000\0000\0000' >"$root/content/references/.DS_Store"
+assert_fails "content/references/.DS_Store: $payload_nul_error" "$root"
 
 # rg exits 2 for any scan it could not complete, and the gate used to read that
 # as "no matches" and report ok. Root reads an unreadable file, so there the case
@@ -491,7 +673,7 @@ if [[ "$EUID" -ne 0 ]]; then
 	root="$(new_fixture)"
 	printf '%s\n' 'Use ~/.claude/skills here.' >"$root/content/languages/unreadable.md"
 	chmod 000 "$root/content/languages/unreadable.md"
-	assert_fails 'config-root scan failed' "$root"
+	assert_fails 'content scan failed' "$root"
 	chmod 644 "$root/content/languages/unreadable.md"
 
 	root="$(new_fixture)"
@@ -523,33 +705,23 @@ case_count=$((case_count + 1))
 # having read no bytes. `shopt -s inherit_errexit` is not the fix to lean on: bash 3.2
 # is the macOS system shell this repo targets and does not have it.
 #
-# A mktemp shim is what reaches the failure without root or a full filesystem. It hands
-# back the workspace the gate asked for, with one sink path already occupied by a
-# directory, and leaves every other path alone -- so the case fails on the sink proof
-# rather than on a workspace that was never usable.
-sabotage_bin="$tmpdir/sabotage-bin"
-mkdir -p "$sabotage_bin"
-cat >"$sabotage_bin/mktemp" <<EOF
-#!/usr/bin/env bash
-real='$(command -v mktemp)'
-EOF
-cat >>"$sabotage_bin/mktemp" <<'EOF'
-set -euo pipefail
-target="$("$real" "$@")"
-mkdir "$target/utf8-bad"
-printf '%s\n' "$target"
-EOF
-chmod 755 "$sabotage_bin/mktemp"
-root="$(new_fixture)"
-set +e
-output="$(cd "$root" && PATH="$sabotage_bin:$PATH" bash scripts/check-skill-layout.sh 2>&1)"
-status="$?"
-set -e
-[[ "$status" -ne 0 ]] ||
-	fail "expected failure when a UTF-8 scan sink cannot be created; got: $output"
-printf '%s\n' "$output" | rg --no-config -Fq 'UTF-8 scan failed: cannot create' ||
-	fail "expected the sink proof to fire; got: $output"
-case_count=$((case_count + 1))
+# Four of the gate's six sink proofs, one case each. Only `utf8-bad` was pinned before;
+# `utf8-error` was not, and its mutant is a live fail-open -- occupy that sink and rg
+# never runs, so its unrun 1 lands in the arm meaning "every line is well-formed" and the
+# gate reports a malformed file valid. Each proof is redundant with set -e at today's call
+# sites, which is exactly why the mutations survive without a case, and why the proofs are
+# written per-sink rather than trusted to the caller.
+#
+# The two not listed are named rather than left to a reader: `run_content_scan`'s
+# appending results sink cannot fail without `scan_deployed_payload`'s truncating one
+# failing first, and `validate_portable_tree`'s `paths` sink carries no proof at all and
+# predates this rule. `scan_deployed_payload` truncates the results file before
+# `run_content_scan` appends, so occupying `malformed-utf8` reaches the outer proof and
+# `rg-error` the inner one.
+assert_sink_proof 'utf8-bad' 'UTF-8 scan failed: cannot create the scan output file'
+assert_sink_proof 'utf8-error' 'UTF-8 scan failed: cannot create the scan error file'
+assert_sink_proof 'malformed-utf8' 'content scan failed: cannot create the results file'
+assert_sink_proof 'rg-error' 'content scan failed: cannot create the scan error file'
 
 # An absent rg has to be an error too: `if rg -Fxq` reads exit 127 as "not a
 # reserved name" and the config-root scan read it as "no matches". The shim
