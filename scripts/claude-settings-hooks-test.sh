@@ -83,10 +83,11 @@ set -euo pipefail
 # Consumed in the option section, so they do not exempt the command:
 #   - a `--` option whose first letter is not d, i or e — `--quiet`, `--force`, `--f`,
 #     `--fo`, and `--no-dry-run`, which deletes;
-#   - `--e` and the longer prefixes of `--exclude`, together with the pattern, which is
-#     mandatory as it is for git: attached as `--exclude=-n`, or the following token as in
-#     `--exclude -n`. Both delete. git resolves every prefix from `--e` up, so `--e pat`
-#     and `--exc=pat` are that option too;
+#   - `--e` and the longer prefixes of `--exclude` taking the following token as the
+#     pattern, which is mandatory as it is for git — `--exclude -n` deletes. git resolves
+#     every prefix from `--e` up, so `--e pat` is that option too. An attached
+#     `--exclude=-n` is consumed by the rule below instead, the `=` being the non-letter it
+#     looks for, and it deletes as well;
 #   - a single-dash bundle holding no n, i or e — `-fd`, `-fdx`, `-x`, `-q`;
 #   - a single-dash bundle where e precedes any n or i, together with the pattern -e takes,
 #     again mandatory: the rest of the token where there is one (`-epat`, `-e-n`, `-fen`),
@@ -97,13 +98,14 @@ set -euo pipefail
 #     the tail, swallowing a preview git did honour: `git clean -e -e -n`,
 #     `git clean -fde -e -n` and `git clean -e -- -n` all preview and are pinned as allowed;
 #   - a bare `-`, which git reads as an ordinary pathspec — `git clean -fdx - .` deletes;
-#   - a `--e…` token carrying anything but lowercase letters after the `--e`, which covers
-#     every spelling a shell mangles on the way to git: `--end"-of-options"`,
-#     `--end'-of-options'` and `--end$SUF` all reach git as `--end-of-options` and delete.
-#     The matcher sees the pre-expansion text and git sees post-expansion argv, so this
-#     alternative exists to keep the gap between them from turning a valid option into an
-#     unconsumable token. It also matches the unquoted `--end-of-options`, harmlessly: the
-#     tail parse below blocks that one regardless, since a match by any parse is a match;
+#   - a `--e…` token carrying anything but lowercase letters after the `--e`. That covers
+#     the attached `--exclude=pat` above, and every spelling a shell mangles on the way to
+#     git: `--end"-of-options"`, `--end'-of-options'` and `--end$SUF` all reach git as
+#     `--end-of-options` and delete. The matcher sees the pre-expansion text and git sees
+#     post-expansion argv, so this alternative exists to keep the gap between them from
+#     turning a valid option into an unconsumable token. It also matches the unquoted
+#     `--end-of-options`, harmlessly: the tail parse blocks that one regardless, since a
+#     match by any parse is a match;
 #   - any other token that does not begin with `-`, which is a pathspec.
 #
 # Stops the option section, so the command is allowed:
