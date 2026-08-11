@@ -319,9 +319,10 @@ assert_fails_open "$MASK_HOOK" 'masked exit hook'
 # The shell Claude Code runs a hook body in is not this suite's to choose, so both hook
 # bodies stay inside POSIX shell. Only a run whose sh rejects bashisms proves that, which
 # across the environments this gate runs in is the ubuntu leg of .github/workflows/verify.yml
-# alone: macOS ships bash 3.2 as /bin/sh, and so do the Fedora developer hosts. Everywhere
-# else the suite reports the property unchecked instead of printing a green line it has not
-# earned. That leaves one proving ground and nothing that turns red if it stops being one —
+# alone: macOS ships bash 3.2 as /bin/sh and the Fedora developer hosts ship bash 5, so
+# neither can reject a bashism. Everywhere else the suite reports the property unchecked
+# instead of printing a green line it has not earned. Only one proving ground is left, and
+# nothing turns red if it stops being one —
 # enforcing it needs a workflow edit or a CI prerequisite, and is issue #136.
 if [[ $SH_ACCEPTS_BASHISMS == yes ]]; then
 	printf 'claude-settings-hooks-test: SKIP POSIX assertions: %s accepts [[ ]], so it is\n' \
