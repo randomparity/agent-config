@@ -35,32 +35,27 @@ file-granularity trees, as a second declared list compared by the same rule at d
 granularity.** Record 0045's siting objection is answered rather than accepted, on three
 grounds.
 
-*The objection counts rules where there is one.* What the gate asserts is set equality between
-what a wholesale-installed tree contains and what a list declares. That rule does not change
-here; only the enumerator does — `find <trees> ! -type d` for the three file-granularity trees,
-and for the one whose unit of delivery is the directory, its top-level children not descended
-into (`find "$root" ! -path "$root" -prune`, the idiom `validate_inventory` already uses, over
-the `$ROOT`-absolute path the script builds for every tree).
-Two enumerators feeding one comparison is not two comparison rules, and the script
-already carries per-tree structure: a tree filter, a surviving-tree list, and a member class
-(`non-regular-member`) that is a property of enumerated entries rather than of the manifest.
+*The objection counts rules where there is one.* The gate asserts set equality between what a
+wholesale-installed tree contains and what a list declares. That rule is unchanged; only the
+enumerator differs — `find <trees> ! -type d` for the three file-granularity trees, and the
+top-level children not descended into (`find "$root" ! -path "$root" -prune`, the idiom
+`validate_inventory` uses, over the `$ROOT`-absolute path this script builds for every tree) for
+the one whose unit of delivery is the directory. Two enumerators feeding one comparison is not
+two comparison rules.
 
-*The alternative siting mixes two subjects, which is the stronger version of the same
-complaint.* `check-skill-layout.sh` answers "is each skill well-formed"; membership answers
-"which skills exist". Those are different questions with different remedies, and a reader asking
-"what is declared to install for every user" would have to read two scripts and get half the
-answer from each, with neither summary line stating the whole. Keeping both declarations in one
-gate keeps one script able to say what the repository deploys.
+*The alternative siting mixes two subjects.* `check-skill-layout.sh` answers "is each skill
+well-formed"; membership answers "which skills exist". Split that way, a reader asking what the
+repository installs for every user reads two scripts and gets half the answer from each, with
+neither summary stating the whole.
 
 *The receiving script's discipline is what a membership comparison needs, and the alternative
-does not have it.* 0045's exit-code split — exit 1 for a difference the comparison found, exit 2
-for input the gate cannot make sense of, and never the reverse — is load-bearing here, because a
-membership answer that an unwritable `TMPDIR` can forge is not an answer. The receiving script
-routes every `mktemp`, `sort`, `comm` and truncation through a `fault` helper for exactly that
-reason. `check-skill-layout.sh` exits 1 from `skill_error` for every condition it
-names, including a missing `reserved-skill-names.txt`; siting membership there would mean either
-importing that discipline into a script that does not have it, or accepting a rule whose
-environmental failures are indistinguishable from its findings.
+does not have it.* 0045's exit-code split — exit 1 for a difference found, exit 2 for input the
+gate cannot make sense of, never the reverse — is load-bearing, because a membership answer an
+unwritable `TMPDIR` can forge is not an answer; the receiving script routes every `mktemp`,
+`sort`, `comm` and truncation through a `fault` helper for that reason. `check-skill-layout.sh`
+exits 1 from `skill_error` for every condition it names, a missing `reserved-skill-names.txt`
+included, so siting membership there means importing that discipline or accepting a rule whose
+environmental failures read as findings.
 
 **The declared unit is the directory name, not the directory plus its required file.**
 `content/skills/<name>/SKILL.md` is already required of every top-level child by
