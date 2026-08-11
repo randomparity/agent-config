@@ -71,10 +71,14 @@ set -euo pipefail
 # Flags. The guard reads the tokens after `clean` in two sections: options, then a pathspec
 # tail that a bare `--` or the exact token `--end-of-options` opens. The command is allowed
 # when no parse of the token run reaches the separator — not when a left-to-right scan meets
-# a token it cannot consume. `grep -E` backtracks across the alternatives, so a token run
-# that any parse can consume matches. In the tail every remaining token is consumed whatever
-# it looks like. Each form named below was run against the shipped hook body, and against
-# git 2.55.0 to establish which of them delete.
+# a token it cannot consume. That is POSIX ERE matching, which asks whether any parse
+# matches, so an alternative the scan meets first does not commit the match. It is a
+# guarantee every conformant engine owes rather than a property of one grep, and it is not
+# backtracking: GNU grep matches this with a DFA. A leftmost-first engine — Perl, Python
+# `re` — would commit to the first locally-matching alternative and allow forms this grammar
+# blocks, so the pattern does not carry over to one unchanged. In the tail every remaining
+# token is consumed whatever it looks like. Each form named below was run against the
+# shipped hook body, and against git 2.55.0 to establish which of them delete.
 #
 # Consumed in the option section, so they do not exempt the command:
 #   - a `--` option whose first letter is not d, i or e — `--quiet`, `--force`, `--f`,
@@ -128,14 +132,20 @@ set -euo pipefail
 # value. `--end-of-options` is spelled in full or not at all — parse-options does not
 # abbreviate it, and `--end` is an unknown option — which is what lets the two `--e…` rules
 # sit side by side. An option added to git that broke any of those premises would be
-# misread and nothing here would notice.
+# misread and nothing here would notice: a value-less `clean` option beginning with e would
+# leave a token the grammar cannot consume and exempt a command that deletes. The guard
+# cannot query git, and re-blocking every unconsumable `--e…` token would also re-block the
+# value-less class above, so the premises are owned by issue #170 rather than closed here.
 #
 # The guard reads where a preview flag sits, not whether a later flag cancels it. git
-# options are last-one-wins, so `git clean -fdn --no-dry-run` and `git clean -fn
-# --no-dry-run` delete and are allowed — the `-fdn` stops the option section before the
-# negation is reached. That is unchanged from before #141 and is issue #160; the deny
-# entries reach the uncompounded form, and `cd sub && git clean -fdn --no-dry-run` has no
-# cover.
+# options are last-one-wins, so a preview flag stops the option section even when a later
+# `--no-dry-run` or `--no-interactive` turns it back off, and the command deletes while the
+# guard allows it. That is a class, not a list: every preview spelling above crossed with
+# either negation, so `git clean -fdn --no-dry-run`, `git clean -fd --dry-run --no-dry-run`,
+# `git clean -fd -i --no-interactive` and `git clean -fdi --no-interactive` are four of its
+# members, all four run and all four deleting. It is unchanged from before #141 and is issue
+# #160; the deny entries reach the uncompounded form, and `cd sub && git clean -fdn
+# --no-dry-run` has no cover.
 #
 # Issue #141 is what the two sections and the mandatory -e value close. Before them the
 # option section ran to the end of the line, so a preview flag git would not parse as a flag
@@ -146,9 +156,12 @@ set -euo pipefail
 # separate decision and not a consequence of this fix.
 #
 # A differential over 1838 generated invocations — each run against git 2.55.0 in a
-# throwaway repository and against the shipped hook body — found the two #160 forms as the
-# only commands git deletes on and the guard allows, and no command git previews on that the
-# guard blocks. Run against the pre-#141 body over the same set, 97 commands that delete
+# throwaway repository and against the shipped hook body — found no command git previews on
+# that the guard blocks, and two that git deletes on and the guard allows. Those two are
+# #160-class, and two is the corpus's count rather than the guard's residual: the pool holds
+# `--no-dry-run` but not `--no-interactive`, so it samples that class without covering it.
+# Size #160 from the class described above, not from this number. Against the pre-#141 body
+# over the same set, 97 commands that delete
 # move from allowed to blocked and none that preview move the other way; the 112 that stop
 # being blocked are all ones git rejects: 75 for a missing `-e`/`--exclude` value and 37 as
 # an unknown `--e…` option. That second group is the part whose safety rests on git's option
