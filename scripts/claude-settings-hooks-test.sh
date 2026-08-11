@@ -23,7 +23,7 @@ set -euo pipefail
 # Both hooks read the command as text. The destructive guard fires only where three things
 # hold at once: a recognised command position, then an unbroken `git ... clean` on that one
 # line, then every token between `clean` and the next `;`, `&`, `|`, `)` or end of line
-# consumable by its flag alternation. Those are separate axes, and the gaps below are
+# accounted for by its option grammar. Those are separate axes, and the gaps below are
 # grouped by the one each exploits — `sudo \git clean -fd` is allowed despite sudo being a
 # recognised position, because it fails the second. Every form named was run against the
 # shipped hook body.
@@ -68,21 +68,47 @@ set -euo pipefail
 # were run and are allowed. Only the Flags section below is specific to the destructive
 # guard.
 #
-# Flags. The guard walks the tokens after `clean`, up to that same separator, and stops at
-# the first one its alternation cannot consume, which leaves the whole command unmatched
-# and allowed. Two rules, not one: a single-dash token stops it when n or i appears
-# anywhere in it (`-n`, `-i`, `-fdn`), while a `--` token stops it only on the first letter
-# after the dashes being d or i — so `--dry-run` and `--interactive` are allowed while
-# `--quiet` and `--force` still block, as the assertions below pin, and `--exclude=-n`
-# blocks despite ending in -n. That last one was run against the hook body and is not
-# pinned. A token no alternative consumes at all, such as a bare `-`, stops it too. git
-# need not agree that a stopping token is a preview, and `--` is not what makes the
-# difference: after `--` a flag is a
-# pathspec, so `git clean -fd -- build/ -n` deletes and is allowed (git 2.55.0), and in
-# `git clean -fd -e -n` the -n is consumed as -e's exclude pattern. The git clean deny
-# entries are the only cover left, and they reach the simple uncompounded command only
-# (see the note on them below), so `cd sub && git clean -fd -- build/ -n` has no cover at
-# all. Issue #141.
+# Flags. The guard reads the tokens after `clean` in two sections: options, then a pathspec
+# tail that a bare `--` opens. In the option section it stops at the first token it cannot
+# consume, which leaves the whole command unmatched and allowed. In the tail it consumes
+# every remaining token up to that same separator, whatever the token looks like. Each form
+# named below was run against the shipped hook body, and against git 2.55.0 to establish
+# which of them delete.
+#
+# Consumed in the option section, so they do not exempt the command:
+#   - a `--` option whose first letter is not d, i or e — `--quiet`, `--force`, `--f`,
+#     `--fo`, and `--no-dry-run`, which deletes;
+#   - `--e` and the longer prefixes of `--exclude`, together with the pattern: attached as
+#     `--exclude=-n`, or the following token as in `--exclude -n`. Both delete;
+#   - a single-dash bundle holding no n, i or e — `-fd`, `-fdx`, `-x`, `-q`;
+#   - a single-dash bundle where e precedes any n or i, together with the pattern -e takes:
+#     the rest of the token where there is one (`-epat`, `-e-n`, `-fen`), otherwise the
+#     following token (`-e -n`, `-fde -n`, `-f -e node_modules`). All of those delete. In a
+#     bundle everything after the first e is -e's value, so the n in `-fen` is part of a
+#     pattern and not a preview;
+#   - a token that does not begin with `-`, which is a pathspec.
+#
+# Stops the option section, so the command is allowed:
+#   - a single-dash bundle where n or i precedes any e — `-n`, `-i`, `-fdn`, `-nd`, `-id`;
+#   - a `--` option whose first letter is d or i — `--dry-run`, `--interactive`, and the
+#     abbreviations `--d` and `--i`. All four preview;
+#   - a token no alternative consumes at all, of which a bare `-` is the only one known.
+#     That one is not a preview: git reads `-` as a pathspec, so `git clean -fd -` is
+#     allowed and deletes a file literally named `-`.
+#
+# The two letter rules encode git 2.55.0's option table for `clean` rather than a parser for
+# it: d and i are the only long names that mean a preview, and -e/--exclude is the only
+# option taking a value. An option added to git that broke either premise would be misread
+# and nothing here would notice. `git clean -fd -e` and `git clean -fd --exclude` block,
+# though git rejects both for a missing value rather than deleting.
+#
+# Issue #141 is what the two sections close. Before it the option section ran to the end of
+# the line, so a preview flag git would not parse as a flag exempted the command anyway:
+# `git clean -fd -- build/ -n` and `git clean -fd -e -n` were allowed and deleted. The two
+# `git clean` deny entries were the only cover, and they reach the uncompounded command
+# only, so `cd sub && git clean -fd -- build/ -n` had none at all. Both are pinned below.
+# The deny entries stay in place; whether they are still wanted is a separate decision and
+# not a consequence of this fix.
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 SETTINGS="$ROOT/agents/claude/shared/settings.base.json"
@@ -223,6 +249,8 @@ assert_blocked "$CLEAN_HOOK" 'git clean hook' 'git clean -f -e node_modules'
 # A flag that merely contains n or i is not a dry run.
 assert_blocked "$CLEAN_HOOK" 'git clean hook' 'git clean -fd --quiet'
 assert_blocked "$CLEAN_HOOK" 'git clean hook' 'git clean -fdx --exclude=node_modules'
+assert_blocked "$CLEAN_HOOK" 'git clean hook' 'git clean -fd --exclude=-n'
+assert_blocked "$CLEAN_HOOK" 'git clean hook' 'git clean -fd --no-dry-run'
 assert_blocked "$CLEAN_HOOK" 'git clean hook' 'cd /tmp && git clean -fd --quiet'
 # Shell wrappers are command positions too.
 assert_blocked "$CLEAN_HOOK" 'git clean hook' 'bash -c "git clean -fd"'
@@ -250,6 +278,24 @@ assert_blocked "$CLEAN_HOOK" 'git clean hook' $'if [ -d build ]; then\n  git cle
 assert_blocked "$CLEAN_HOOK" 'git clean hook' 'git clean -fd -- build/'
 assert_blocked "$CLEAN_HOOK" 'git clean hook' 'git clean -fd --'
 assert_blocked "$CLEAN_HOOK" 'git clean hook' 'cd sub && git clean -fd -- .'
+# git stops parsing options at `--`, so every token after it is a pathspec. A preview flag
+# there is a filename, and each of these deletes on git 2.55.0.
+assert_blocked "$CLEAN_HOOK" 'git clean hook' 'git clean -fd -- build/ -n'
+assert_blocked "$CLEAN_HOOK" 'git clean hook' 'git clean -fdx -- . -n'
+assert_blocked "$CLEAN_HOOK" 'git clean hook' 'git clean -fd -- -n'
+assert_blocked "$CLEAN_HOOK" 'git clean hook' 'git clean -fd -- . --dry-run'
+assert_blocked "$CLEAN_HOOK" 'git clean hook' 'git clean -fd -- -i'
+assert_blocked "$CLEAN_HOOK" 'git clean hook' 'git clean -q -- -n'
+assert_blocked "$CLEAN_HOOK" 'git clean hook' 'cd sub && git clean -fd -- build/ -n'
+assert_blocked "$CLEAN_HOOK" 'git clean hook' 'git submodule foreach git clean -fd -- . -n'
+# -e/--exclude takes the next token as its pattern, so a preview flag in that slot is a
+# value, not a flag. In a short bundle everything after the first e is that value, which is
+# why -fen and -fde -n delete. All five were run against git 2.55.0.
+assert_blocked "$CLEAN_HOOK" 'git clean hook' 'git clean -fd -e -n'
+assert_blocked "$CLEAN_HOOK" 'git clean hook' 'git clean -fd --exclude -n'
+assert_blocked "$CLEAN_HOOK" 'git clean hook' 'git clean -fd -e-n'
+assert_blocked "$CLEAN_HOOK" 'git clean hook' 'git clean -fen'
+assert_blocked "$CLEAN_HOOK" 'git clean hook' 'git clean -fde -n'
 # A preview beside a real delete must not disarm the guard for the delete.
 assert_blocked "$CLEAN_HOOK" 'git clean hook' 'git clean -n && git clean -fd'
 assert_blocked "$CLEAN_HOOK" 'git clean hook' 'git clean -n; git clean -fd'
@@ -272,6 +318,17 @@ assert_allowed "$CLEAN_HOOK" 'git clean hook' 'git clean -f -n'
 assert_allowed "$CLEAN_HOOK" 'git clean hook' 'git clean -dn'
 assert_allowed "$CLEAN_HOOK" 'git clean hook' 'git clean -n -- build/'
 assert_allowed "$CLEAN_HOOK" 'git clean hook' 'git submodule foreach git clean -n'
+# The other side of the two rules above: a preview flag ahead of the separator is still a
+# preview whatever pathspecs follow, and once -e has taken its pattern the next token is a
+# flag again. These pin the over-reach direction — they stay green if the fix is reverted
+# and redden if it blocks a real dry run. Each previewed rather than deleted on git 2.55.0.
+assert_allowed "$CLEAN_HOOK" 'git clean hook' 'git clean -n -- -f'
+assert_allowed "$CLEAN_HOOK" 'git clean hook' 'git clean -q -n'
+assert_allowed "$CLEAN_HOOK" 'git clean hook' 'git clean -e pat -n'
+assert_allowed "$CLEAN_HOOK" 'git clean hook' 'git clean -epat -n'
+assert_allowed "$CLEAN_HOOK" 'git clean hook' 'git clean -fd -epat -n'
+assert_allowed "$CLEAN_HOOK" 'git clean hook' 'git clean --exclude pat -n'
+assert_allowed "$CLEAN_HOOK" 'git clean hook' 'git clean --exclude=pat -n'
 assert_allowed "$CLEAN_HOOK" 'git clean hook' 'git status --porcelain'
 assert_allowed "$CLEAN_HOOK" 'git clean hook' 'git stash push --include-untracked'
 assert_allowed "$CLEAN_HOOK" 'git clean hook' 'git worktree remove /tmp/wt --force'
