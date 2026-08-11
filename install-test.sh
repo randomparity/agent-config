@@ -502,8 +502,15 @@ assert_json_equal "$CLAUDE_CONFIG_DIR/settings.json" "$BASE_SETTINGS" '.hooks' \
 assert_json_equal "$CLAUDE_CONFIG_DIR/settings.json" "$BASE_SETTINGS" \
 	'.permissions.deny' 'deployed permissions.deny'
 
-# 2. The reported defect. Before this change the install succeeds and deploys a
+# 2. The reported defect. Before ADR 0043 the install succeeds and deploys a
 #    settings.json carrying one hook instead of the base's five.
+#
+#    The destination is empty here, so ADR 0049's empty-destination rule fills it from
+#    the base rather than leaving it bare: what must not survive is the *merged* result,
+#    not the file. Asserting the base's five hooks and the absence of the overlay's own
+#    hook is the assertion that distinguishes the two — `assert_not_file` did so before
+#    0049 and would now pass against an implementation that deployed nothing at all,
+#    which is the state 0049 rule 4 exists to prevent.
 start_overlay_case claude
 write_json "$OVERLAY_FILE/settings.overlay.json" \
 	'{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"true"}]}]}}'
@@ -512,7 +519,10 @@ assert_overlay_refused 'clobbering hooks overlay'
 assert_stream_contains "$OVERLAY_ERR" "$OVERLAY_FILE/settings.overlay.json" \
 	'clobbering hooks overlay'
 assert_stream_contains "$OVERLAY_ERR" 'hooks.PreToolUse' 'clobbering hooks overlay'
-assert_not_file "$OVERLAY_DEST/claude/settings.json"
+assert_json_equal "$OVERLAY_DEST/claude/settings.json" "$BASE_SETTINGS" '.hooks' \
+	'clobbering hooks overlay'
+assert_json_equal "$OVERLAY_DEST/claude/settings.json" "$BASE_SETTINGS" '.' \
+	'clobbering hooks overlay'
 
 # 3. The same loss reached through an object rather than an array: `*` replaces the
 #    whole subtree, so the base's four privacy defaults leave without being named.
