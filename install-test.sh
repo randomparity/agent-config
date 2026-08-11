@@ -957,6 +957,24 @@ assert_stream_contains "$OVERLAY_ERR" 'could not read base settings' \
 	'normalize guard fails closed'
 assert_stream_lacks "$OVERLAY_ERR" 'has every array and object' 'normalize guard fails closed'
 
+# 26b. A directory occupying a destination path is occupied, not bare. It is retained and
+#      listed like any other withheld path, so reporting "no file is deployed" would tell
+#      the operator the destination is empty while something sits on it.
+start_overlay_case claude
+write_json "$OVERLAY_FILE/settings.overlay.json" '{"env":{"AGENT_CONFIG_TEST":"first"}}'
+run_overlay_case claude
+assert_overlay_installed 'directory at the destination setup'
+rm "$OVERLAY_DEST/claude/settings.json"
+mkdir "$OVERLAY_DEST/claude/settings.json"
+write_json "$OVERLAY_FILE/settings.overlay.json" "$CLOBBERING_OVERLAY"
+run_overlay_case claude
+assert_overlay_refused 'directory at the destination'
+assert_stream_contains "$OVERLAY_ERR" 'a directory occupies' 'directory at the destination'
+assert_stream_lacks "$OVERLAY_ERR" 'no file is deployed at' 'directory at the destination'
+[[ -d "$OVERLAY_DEST/claude/settings.json" ]] ||
+	fail 'directory at the destination: the directory must be left in place'
+assert_line "$OVERLAY_DEST/claude/.agent-config-manifest" 'settings.json'
+
 # 27. The honest scope of the clean verdict. ADR 0043's check covers non-empty base
 #     arrays and objects, so a deployed file that dropped a scalar or emptied an object
 #     passes it. Saying it carries every value the base *defines* would be a definite

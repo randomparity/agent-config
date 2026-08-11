@@ -487,6 +487,14 @@ report_deployed_state() { # dest_dir base rel
 		printf 'install:   replaces it as drift.\n' >&2
 		return 0
 	fi
+	if [[ -d "$path" ]]; then
+		# Occupied, like the symlink above: `destination_set_is_empty` counts it, so it is
+		# retained and listed. "No file is deployed" would say the destination is bare
+		# when something is sitting on it.
+		printf 'install: a directory occupies %s; its contents were not inspected\n' \
+			"$path" >&2
+		return 0
+	fi
 	if [[ ! -f "$path" ]]; then
 		printf 'install: no file is deployed at %s\n' "$path" >&2
 		return 0

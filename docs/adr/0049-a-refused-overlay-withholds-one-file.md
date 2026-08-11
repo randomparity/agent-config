@@ -67,7 +67,9 @@ design spec carries.
    **deployed** file and says whether it is the base alone — no overlay of theirs has ever applied —
    or carries every protected base path, or is missing some, or cannot be read as JSON. Same
    derived-protected-set check, pointed at what is loaded rather than at what would have been
-   written. Where paths are missing it also names `<dest>/.agent-config-backups/`: if an earlier run
+   written. Where the path is not a file — a symlink, a directory, or nothing at all — it says
+   which; only the last may report that nothing is deployed, since the other two are occupied and
+   are listed among the withheld paths in the same output. Where paths are missing it also names `<dest>/.agent-config-backups/`: if an earlier run
    replaced that file, its predecessor was copied there. It only reports — a deliberate hand edit
    that erased a guard is named and left exactly as the operator wrote it.
 

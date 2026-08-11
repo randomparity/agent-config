@@ -86,6 +86,11 @@ exception rather than the shape to expect, and what a refused agent stops receiv
 only its settings file but the rest of its managed content: skills, `CLAUDE.md`, the shared
 `content/` tree.
 
+Failure containment narrowed by
+[ADR 0049](0049-a-refused-overlay-withholds-one-file.md) (2026-08-10); the protected-set
+rule above is unchanged. The last two paragraphs no longer describe the installer — see the
+final entry under Consequences for which statements they are.
+
 ## Consequences
 
 - The documented `permissions.allow` overlay in `examples/hosts/example-host/` keeps

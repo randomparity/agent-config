@@ -111,7 +111,13 @@ Withholding a path means:
 3. A retained path is counted `retained` in the agent's summary line, and the path is recorded so
    the end-of-run summary can name it. A path filled from the base is an ordinary `added`.
 4. For a path that was retained, the base is compared against the **deployed** file and the result
-   reported:
+   reported. Three of the cases are not a deployed file at all, and each says what is there rather
+   than that nothing is: a **symlink**, whose target the installer does not own and did not check;
+   a **directory** occupying the path, whose contents were not inspected; and a genuinely
+   **absent** path. Only the last may say nothing is deployed — the other two are occupied,
+   `destination_set_is_empty` counts them, and they are listed among the withheld paths, so
+   claiming the destination is bare would contradict that in the same output. Then, for a real
+   file:
    - deployed file is byte-identical to the normalized base → say that no overlay has ever been
      applied there. This is the state rule 1 leaves behind, and without its own verdict every later
      refused run would report it as carrying every protected value — true, and reassuring about a
