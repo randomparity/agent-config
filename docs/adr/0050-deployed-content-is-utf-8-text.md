@@ -125,13 +125,22 @@ the trees a contributor adds files to.
   outside the acceptor, so a UTF-16 document with a BOM fails the UTF-8 rule and the
   same document without one fails the NUL rule. It offers conversion first, because the
   other way to reach either rule is an author's own document written in UTF-16, for whom
-  "delete it" is the wrong instruction. `SKILL.md` is the one file that gets no remedy
-  clause, from either rule: it is required, so its bytes are the only thing that can
-  change, and "delete it" would send the next run to `required regular file is missing`.
-  The exemption has to be stated twice because a `SKILL.md` reaches whichever rule its
-  bytes decide — U+0000 satisfies the acceptor, so a NUL in one lands on the NUL rule. The prek hook runs `commit-check`, not
-  `skills-check` (ADR 0039), so a commit is unaffected; this is the local full run and
-  CI.
+  "delete it" is the wrong instruction. The required `content/skills/<name>/SKILL.md` is the
+  one file that gets no remedy clause: it is required, so its bytes are the only thing
+  that can change, and "delete it" would send the next run to `required regular file is
+  missing`. The qualifier is load-bearing — a *nested* `SKILL.md`, say under a skill's
+  `assets/`, is ordinary payload that nothing requires, and it gets the remedy from both
+  rules.
+
+  The two rules reach that exemption differently, and neither states it twice. The NUL
+  rule tests the required path explicitly, because a `SKILL.md` carrying a NUL satisfies
+  the acceptor (U+0000 is a well-formed scalar) and so lands there rather than on the
+  UTF-8 rule. The UTF-8 rule needs no test: `validate_frontmatter` runs before the
+  payload scan and passes no remedy, so a required `SKILL.md` with a malformed sequence
+  has already failed by the time the payload rule could add one. That is an ordering
+  property rather than a check, which is why the NUL rule cannot borrow it. The prek
+  hook runs `commit-check`, not `skills-check` (ADR 0039), so a commit is unaffected;
+  this is the local full run and CI.
 - **`agents/*/shared` is delivered and unguarded, and this record does not close it.**
   Ten files install verbatim there, including a shell script and three JSON/TOML
   configs, and a NUL byte planted in any of them passes every gate today. Widening the
@@ -150,14 +159,26 @@ the trees a contributor adds files to.
   contract is only as wide as the traversal carrying it, and the live tree holds no
   dot-prefixed or ignored file under the three roots, so a fixture is the only place the
   property can be shown at all.
-- **One residual, named so a later review can reopen it against an Accepted record.** A
-  UTF-16 file whose every code unit has both bytes in `[\x01-\x7F]` — no space, no
-  newline, no ASCII anywhere — satisfies the acceptor and holds no NUL, so it passes both
+- **What the pair actually decides, and the residual worth naming.** The two rules
+  together prove a file is well-formed UTF-8 and free of NUL bytes. That is not the same
+  as proving it *is* UTF-8: any 7-bit-clean encoding clears both by construction, UTF-7
+  being the named instance, since a UTF-7 file is pure ASCII. No evasion has been
+  demonstrated end to end — a UTF-7 encoding of a forbidden reference leaves the ASCII
+  path literal, so the pattern rules still fire on it — and accidental UTF-7 in a
+  Markdown tree is not a thing that happens. This is a bound on the claim, not an
+  exposure.
+
+  The residual worth naming is the UTF-16 one. A UTF-16 file whose every code unit has
+  both bytes in `[\x01-\x7F]` satisfies the acceptor and holds no NUL, so it passes both
   rules and the pattern rules read it as mojibake. The bytes `30 04 31 04 32 04`
-  (Cyrillic) are such a file, and the gate reports ok on it. The shape is close to
-  unreachable for a real document, and closing it would mean a byte-frequency heuristic —
-  a guess about encoding, which is the thing this record exists to retire. Recorded
-  rather than fixed, and rather than left implied by a completeness claim.
+  (Cyrillic) are such a file, and the gate reports ok on it. That bound is deliberately
+  narrower than "no ASCII anywhere": it also excludes the Latin-1 supplement (`é` is
+  `E9 00`) and every scalar U+xx00, each of which reintroduces a zero byte. The reachable
+  instance is a single-line non-ASCII document with no trailing newline; anything longer
+  acquires a newline and fails. Closing it would mean a byte-frequency heuristic — a
+  guess about encoding, which is the thing this record exists to retire. Recorded rather
+  than fixed, and rather than left implied by a completeness claim of the kind this
+  record set out to stop making.
 - `--encoding none` and `--text` are load-bearing in a way that is now directly pinned.
   Removing either turns `scripts/check-skill-layout-test.sh` red through the encoding
   cases, and removing `--text` does so loudly: ripgrep exits 2 rather than quietly
