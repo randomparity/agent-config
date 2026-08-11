@@ -141,7 +141,12 @@ emission order, and covers these calls unchanged.
 
 The non-directory list goes through `sort -u` as well. It is built by walking `find -print0`
 output, which returns readdir order, so without its own sort its block would emit in whatever
-order the filesystem gave — the one class whose ordering nothing else pins.
+order the filesystem gave. That sort is defensive and its removal is **not** detectable by this
+suite: whether an unsorted block differs from C order is decided by readdir, which no fixture
+controls portably — tmpfs, ext4 with `dir_index` and APFS on the `macos-latest` leg each answer
+differently, so a creation order chosen to force disorder under one is already C-ordered under
+another. The suite pins the class's multiplicity and its position between blocks; the collation
+rests on the code being read.
 
 `sort -u` makes a duplicated list line inert, as it does for the file manifest.
 
@@ -155,10 +160,16 @@ order the filesystem gave — the one class whose ordering nothing else pins.
 | 2 | a skill directory name contains a newline | `deployed-membership: a skill directory name contains a newline and cannot be compared` |
 | 2 | the enumeration fails on a surviving tree | `deployed-membership: could not enumerate the skills tree` |
 | 2 | a skills-half workspace write fails | `deployed-membership: could not write to the workspace` |
-| 2 | a skills-half `sort` fails | `deployed-membership: could not sort the enumerated skill directories` |
+| 2 | a skills-half `sort` of enumerated names fails | `deployed-membership: could not sort the enumerated skill directories` |
+| 2 | a skills-half `sort` of the declared list fails | `deployed-membership: could not sort the declared skill directories` |
 | 2 | a skills-half `comm` fails | `deployed-membership: could not compare the enumerated skill directories against the declared set` |
 
-The last two are deliberately not the three-tree half's strings. `could not sort the enumerated
+The two sorts are distinguished for the reason the three-tree half distinguishes
+`could not sort the enumerated members` from `could not sort the manifest`: a full disk during
+one should not report the other. The workspace-write string is deliberately shared across halves,
+because the remedy is identical and the message names no half's data.
+
+The sort and comparison strings are deliberately not the three-tree half's. `could not sort the enumerated
 members` and `could not compare the enumerated members against the manifest` both name the file
 manifest, and reusing them would leave an operator unable to tell which half faulted — which is
 also what makes the suite row below able to assert the half it landed in.
@@ -178,10 +189,6 @@ the other block has to work out which it addresses.
 ### Emission order
 
 Unchanged for the three trees, then the skills block:
-
-The internal sequence is pinned too, and not only the emission: the three trees' enumeration,
-sorts and comparisons run first, then the skills half's, then all emission. Without that, a
-suite row keyed to a mocked tool's invocation index cannot say which half it lands in.
 
 1. `unexpected-member`, `non-regular-member`, `missing-member` — each in `LC_ALL=C` order;
 2. the existing remedy line, when `unexpected-member` fired;
@@ -248,7 +255,9 @@ third arriving as a red suite.
 | `content/skills` replaced by a symlink to a directory | all declared names missing; no entry from behind the link |
 | the skills tree made unreadable | exit 2, `could not enumerate the skills tree`, with no `missing-skill-directory` line; skipped as root, announcing the skip |
 | a three-tree finding and a skills finding in one run | the file block, its remedy, then the skills block, then its remedy — the ordering guarantee |
-| a `comm` that fails only on the skills-half comparison | exit 2 and the skills-half comparison message exactly. The existing mock exits 1 unconditionally and so faults inside the three-tree half, leaving the skills-half routing unasserted; this one counts invocations and fails the third, which the pinned internal sequence makes well-defined, and asserting the distinct string is what fails the row if it lands in the wrong half |
+| a `comm` that fails only on the skills-half comparison | exit 2 and the skills-half comparison message exactly. The existing mock exits 1 unconditionally and so faults inside the three-tree half, leaving the skills-half routing unasserted. The mock discriminates on its **operands** — the skills workspace files are distinctly named — and delegates otherwise, so it lands in exactly one half by construction, with no counter, no cross-process state, and no dependence on which half the script computes first |
+| a `sort` that fails only on the skills-half enumerated names | exit 2 and the skills-half sort message exactly, by the same operand discrimination |
+| `content/skills` replaced by a regular file | all declared names as `missing-skill-directory`, no `unexpected-skill-entry` — the survival filter's third case, and the one a bad merge most plausibly produces |
 | two stray top-level files beside a declared directory removed | `unexpected-skill-entry` twice, `non-directory-skill-entry` twice, then `missing-skill-directory`, then the skills remedy — the skills-half counterpart of the file half's multiplicity-and-inter-block row, and the only place the non-directory class's ordering and multiplicity are pinned |
 | a three-tree finding beside an unreadable `content/skills` | exit 2, no `unexpected-member` line — pins the global ordering consequence above; skipped as root |
 | a fixture root holding a well-formed bracket expression | passes, with the same summary. Reddens under either pattern-matching form: `! -path` fails to self-match a bracket root, so the row is a form-pin and not merely a hostile-path case |
@@ -261,6 +270,12 @@ no-regression criterion.
 Two of them are re-read rather than merely re-run: the `.ignore` and dot-prefix rows for the
 three trees, and the `missing-member` rows, are the behaviors the issue names as
 must-not-regress, and their expected sequences are unchanged bytes.
+
+Of the six exit-2 conditions, five have a row. The skills-half workspace-write fault does not:
+the existing `mktemp` mock makes the whole workspace read-only, so it faults on the three-tree
+half's first truncation and never reaches the skills half, and discriminating a `: >` redirection
+by operand is not something a PATH mock can do. That string rests on being read, and it is the
+one the shared message makes least consequential.
 
 The `assert_findings` helper already compares whole stderr sequences in order, so the block
 ordering above is asserted rather than described. `assert_fails` and `assert_absent` cover the
@@ -282,9 +297,14 @@ because this change widens the surface they cover:
 
 ## Sequencing
 
-The comment edits in `install.sh` and in the gate script describe a rule, so they land in or
-after the commit that adds it. A commit that documents a gate the branch does not yet carry
-reads as reassurance and is harder to notice than a missing gate.
+The gate script's own comment edits land in the commit that adds the rule, which they do by
+construction — they sit in the file the rule is added to.
+
+`install.sh`'s pointers landed earlier on this branch, in the record commits, so for a window of
+a few commits the installer names a gate the branch does not yet carry. That is disclosed rather
+than rewritten: the commits are the branch's own history, the repository does not squash-merge,
+and re-landing the hunks would cost two noise commits to close a window no `git bisect` over
+this branch would be run inside. The rule stated here governs the next such edit.
 
 ## Verification
 
