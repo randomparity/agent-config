@@ -100,13 +100,20 @@ assert_posix_agrees() { # hook-command label command-string expected-status
 	[[ $status == "$4" ]] || fail "$2 under sh must exit $4 for [$3], got $status: $output"
 }
 
-# `sh` is a POSIX shell only by convention, and on a host where it is bash the assertions
-# above re-run bash and establish nothing. Resolve it by asking it what it is rather than
-# by following /bin/sh: macOS reaches bash 3.2 through a real file rather than a symlink,
-# and it is the shell `sh -c` actually reaches, not the path, that decides the answer.
+# `sh` is a POSIX shell only by convention, and where it is not one the assertions above
+# establish nothing. Resolve it by what it accepts, not by where /bin/sh points: macOS
+# reaches bash 3.2 through a real file rather than a symlink, and it is the shell `sh -c`
+# lands on that decides the answer. `[[ ]]` is not in POSIX, so a shell that accepts it is
+# an extended one — bash, zsh or ksh — and running a hook body under it re-runs an extended
+# shell. Asking for a bash version instead would clear zsh and ksh, and would read an
+# exported BASH_VERSION out of the ambient environment rather than out of the shell.
 POSIX_SHELL=$(command -v sh || :)
 [[ -n $POSIX_SHELL ]] || fail 'no sh on PATH: the hook bodies cannot be checked for POSIX'
-POSIX_SHELL_BASH_VERSION=$(sh -c 'printf %s "${BASH_VERSION-}"' 2>/dev/null || :)
+if sh -c '[[ -n x ]]' 2>/dev/null; then
+	SH_ACCEPTS_BASHISMS=yes
+else
+	SH_ACCEPTS_BASHISMS=no
+fi
 
 assert_deny_entry() { # pattern
 	jq -e --arg pattern "$1" '.permissions.deny | index($pattern)' "$SETTINGS" >/dev/null ||
@@ -310,16 +317,19 @@ assert_blocked "$MASK_HOOK" 'masked exit hook' $'cat >note.md <<EOF\njust ci | t
 assert_fails_open "$MASK_HOOK" 'masked exit hook'
 
 # The shell Claude Code runs a hook body in is not this suite's to choose, so both hook
-# bodies stay inside POSIX shell. Only a run whose sh is not bash proves that, which across
-# the environments this gate runs in is the ubuntu CI leg alone: macOS ships bash 3.2 as
-# /bin/sh, and so do the Fedora developer hosts. Everywhere else the suite says the property
-# went unchecked instead of printing a green line it has not earned.
-if [[ -n $POSIX_SHELL_BASH_VERSION ]]; then
-	printf 'claude-settings-hooks-test: SKIP POSIX assertions: %s is bash %s, so running\n' \
-		"$POSIX_SHELL" "$POSIX_SHELL_BASH_VERSION"
-	printf 'claude-settings-hooks-test: the hook bodies under it would only re-run bash.\n'
-	printf 'claude-settings-hooks-test: POSIX is proven on the ubuntu CI leg, where sh is\n'
-	printf 'claude-settings-hooks-test: dash — this run did not check it.\n'
+# bodies stay inside POSIX shell. Only a run whose sh rejects bashisms proves that, which
+# across the environments this gate runs in is the ubuntu leg of .github/workflows/verify.yml
+# alone: macOS ships bash 3.2 as /bin/sh, and so do the Fedora developer hosts. Everywhere
+# else the suite reports the property unchecked instead of printing a green line it has not
+# earned. That leaves one proving ground and nothing that turns red if it stops being one —
+# enforcing it needs a workflow edit or a CI prerequisite, and is issue #136.
+if [[ $SH_ACCEPTS_BASHISMS == yes ]]; then
+	printf 'claude-settings-hooks-test: SKIP POSIX assertions: %s accepts [[ ]], so it is\n' \
+		"$POSIX_SHELL"
+	printf 'claude-settings-hooks-test: an extended shell and running the hook bodies under\n'
+	printf 'claude-settings-hooks-test: it proves nothing. Only the ubuntu leg of\n'
+	printf 'claude-settings-hooks-test: .github/workflows/verify.yml, where sh is dash, proves\n'
+	printf 'claude-settings-hooks-test: them — this run did not check.\n'
 	posix_verdict='POSIX assertions SKIPPED'
 else
 	assert_posix_agrees "$CLEAN_HOOK" 'git clean hook' 'git clean -fd' 2
