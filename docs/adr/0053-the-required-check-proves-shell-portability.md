@@ -44,20 +44,17 @@ so an unrecognised value reds on every host whatever `sh` turns out to be. A gat
 reads as wired and is not is the failure this record exists to prevent, and it arrives as
 readily by `true` being ignored as by `0` meaning its opposite.
 
-`verify` is the home because it is the one job in this workflow the matrix cannot reach: it
-already exists to keep a stable required-check context and already runs unconditionally on
-`ubuntu-latest`. The matrix legs are left alone — the ubuntu leg still proves the property
-as a by-product and macOS still skips.
+`verify` is the home because it is the one job the matrix cannot reach. The matrix legs are
+left alone: the ubuntu leg still proves the property as a by-product and macOS still skips.
+Two sentences in the suite's POSIX region name that leg as the sole proving ground and
+point at #136 as open work; both stop being true here and are corrected in the same change.
+What the notice says changes; what it does does not.
 
 The bound is deliberate. Removed are the routes that take the proving ground away as a side
 effect of an unrelated decision — the leg dropped from the matrix, the leg moved into a
 container — and image drift becomes a red build. Deleting the step or its `env:` line is
 not defended against: it returns the suite to the skip branch and a green log, and
 `verify.runs-on` is now load-bearing in the way `matrix.os` was.
-
-Two sentences in the suite's POSIX region name the ubuntu leg as the sole proving ground
-and point at #136 as open work. Both stop being true here, so both are corrected in the
-same change. What the notice says changes; what it does does not.
 
 ## Consequences
 
