@@ -1,0 +1,158 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# `install_managed_path` ends in `cp -pR`, so a call whose source is a directory
+# ships that whole subtree into the agent's configuration directory verbatim.
+# Three of those trees hold files that are deployed content in their own right,
+# and nothing else counts their entries: check-shared-standards.sh names one file
+# inside the rules tree, and check-deployed-references.sh scans these trees for
+# what a deployed file may say. So a file dropped into one of them reaches every
+# user's global configuration with no gate asking whether it belongs, which is
+# the residual ADR 0041 disclosed and this gate closes.
+#
+# The manifest is the answer to "should this be deployed", and it is source: this
+# gate cannot defend against edits to itself. Narrowing the manifest is the one
+# edit that leaves it green over a tree that still installs.
+#
+# An optional argument names a repository root to check instead of this one,
+# which is how the suite points the checker at a fixture.
+
+# Pinned for the whole run, not per-sort. `comm` collates by locale too, so
+# C-sorted inputs read back under another locale make it emit spurious lines and
+# `not in sorted order` diagnostics -- a green run that is wrong and noisy. One
+# export keeps the caller's environment out of the verdict entirely.
+export LC_ALL=C
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+if (($# > 1)); then
+	printf 'usage: %s [repository-root]\n' "${0##*/}" >&2
+	exit 2
+fi
+
+if (($# == 1)); then
+	# Not `cd || exit`: an unreadable or misspelled root is a fault, and every
+	# other fault here exits 2. Letting errexit take it would exit 1, the status
+	# that means this gate found a difference.
+	if ! ROOT="$(cd "$1" 2>/dev/null && pwd)"; then
+		printf 'deployed-membership: repository root is not a directory: %s\n' "$1" >&2
+		exit 2
+	fi
+fi
+
+# Every tree the installer copies whole whose members are deployed content in
+# their own right. `content/skills` is deliberately absent: its unit of delivery
+# is the skill directory, check-skill-layout.sh gates that unit's shape, and a
+# per-file manifest there would churn on ordinary work (ADR 0045).
+trees='agents/bob/shared/rules
+content/languages
+content/references'
+
+# Every file those trees may contain. A line here is the deliberate act of
+# deploying a file to every user; adding one without it fails this gate.
+manifest='agents/bob/shared/rules/global-development-standards.md
+content/languages/bash.md
+content/languages/github-actions.md
+content/languages/python.md
+content/languages/rust.md
+content/languages/typescript.md
+content/references/orchestration.md'
+
+workspace="$(mktemp -d "${TMPDIR:-/tmp}/deployed-membership.XXXXXX")"
+trap 'rm -R "$workspace"' EXIT
+
+result_status=0
+
+report() { # class relative-path
+	printf 'deployed-membership: %s: %s\n' "$1" "$2" >&2
+	result_status=1
+}
+
+# `-d` alone would be wrong: test -d dereferences, so a tree replaced by a
+# symlink to a directory would survive it and find would then print the tree path
+# itself as a non-directory entry -- a finding naming a path the manifest can
+# never hold. A tree that is absent, a regular file, or a symlink contributes no
+# members instead, and its declared files report as missing below. That is the
+# no-fault-for-a-missing-tree decision: two of these trees hold exactly one file
+# and Git does not track empty directories, so deleting that file removes the
+# directory from every fresh checkout, and a fault would tell CI the gate could
+# not run about the very deletion it exists to describe.
+surviving=()
+while IFS= read -r tree; do
+	if [[ -d "$ROOT/$tree" && ! -L "$ROOT/$tree" ]]; then
+		surviving+=("$ROOT/$tree")
+	fi
+done <<<"$trees"
+
+# find is used in place of the repository's usual rg because it is total by
+# construction: no ignore file and no RIPGREP_CONFIG_PATH can subtract a path
+# from it. That matters beyond a dirty working tree -- ripgrep applies
+# .gitignore to tracked files too, so a tracked file the repository also ignores
+# ships under cp -pR and is invisible to a default ripgrep scan, in CI as much as
+# locally.
+#
+# The guard is not decoration. GNU find given no path operand defaults to `.` and
+# would report every file under the current directory as an unexpected member,
+# while BSD find on the macos-latest leg errors instead -- two different wrong
+# answers from one unstated case. Trees are passed without a trailing slash,
+# which would force find to dereference the argument.
+#
+# The status is captured directly rather than through a pipeline, so a scan that
+# did not happen cannot read as an empty one. Enumeration completes before any
+# comparison, so this fault can never suppress a finding already made.
+: >"$workspace/absolute"
+if ((${#surviving[@]} > 0)); then
+	if ! find "${surviving[@]}" ! -type d -print >"$workspace/absolute"; then
+		printf 'deployed-membership: could not enumerate the installed trees\n' >&2
+		exit 2
+	fi
+fi
+
+# A member that is not a regular file is a finding whatever the manifest says,
+# and is still a member for the comparison -- so a declared symlink reports
+# non-regular-member alone rather than also reporting as missing. `-f` follows a
+# symlink to a file, hence the explicit `-L` test beside it.
+: >"$workspace/present-unsorted"
+: >"$workspace/non-regular-unsorted"
+while IFS= read -r absolute; do
+	relative="${absolute#"$ROOT/"}"
+	printf '%s\n' "$relative" >>"$workspace/present-unsorted"
+	if [[ ! -f "$absolute" || -L "$absolute" ]]; then
+		printf '%s\n' "$relative" >>"$workspace/non-regular-unsorted"
+	fi
+done <"$workspace/absolute"
+
+# `sort -u` is what makes a manifest line duplicated by a careless edit inert:
+# the duplicate collapses before any comparison, so it can never surface as a
+# missing-member for a file that is plainly there. Bash associative arrays would
+# say this more directly and are unavailable -- declare -A is Bash 4.0+ and the
+# macos-latest leg runs system Bash 3.2.
+sort -u "$workspace/present-unsorted" -o "$workspace/present"
+sort -u "$workspace/non-regular-unsorted" -o "$workspace/non-regular"
+printf '%s\n' "$manifest" | sort -u >"$workspace/declared"
+
+comm -23 "$workspace/present" "$workspace/declared" >"$workspace/unexpected"
+comm -13 "$workspace/present" "$workspace/declared" >"$workspace/missing"
+
+# Every finding before the run exits, not the first one: a branch that adds a
+# file and deletes another has to be told about both rather than sent round the
+# loop twice. The order is fixed so the suite can assert it.
+while IFS= read -r relative; do
+	report unexpected-member "$relative"
+done <"$workspace/unexpected"
+
+while IFS= read -r relative; do
+	report non-regular-member "$relative"
+done <"$workspace/non-regular"
+
+while IFS= read -r relative; do
+	report missing-member "$relative"
+done <"$workspace/missing"
+
+if ((result_status == 0)); then
+	printf 'deployed-membership: ok (%s declared members across %s installed trees)\n' \
+		"$(wc -l <"$workspace/declared" | tr -d '[:space:]')" \
+		"${#surviving[@]}"
+fi
+
+exit "$result_status"
