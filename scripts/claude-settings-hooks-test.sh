@@ -322,15 +322,15 @@ assert_fails_open "$MASK_HOOK" 'masked exit hook'
 # alone: macOS ships bash 3.2 as /bin/sh and the Fedora developer hosts ship bash 5, so
 # neither can reject a bashism. Everywhere else the suite reports the property unchecked
 # instead of printing a green line it has not earned. Only one proving ground is left, and
-# nothing turns red if it stops being one —
-# enforcing it needs a workflow edit or a CI prerequisite, and is issue #136.
+# nothing turns red if it stops being one — enforcing that needs a workflow edit or a CI
+# prerequisite, and is issue #136.
 if [[ $SH_ACCEPTS_BASHISMS == yes ]]; then
-	printf 'claude-settings-hooks-test: SKIP POSIX assertions: %s accepts [[ ]], so it is\n' \
-		"$POSIX_SHELL"
-	printf 'claude-settings-hooks-test: an extended shell and running the hook bodies under\n'
-	printf 'claude-settings-hooks-test: it proves nothing. Only the ubuntu leg of\n'
-	printf 'claude-settings-hooks-test: .github/workflows/verify.yml, where sh is dash, proves\n'
-	printf 'claude-settings-hooks-test: them — this run did not check.\n'
+	printf 'claude-settings-hooks-test: %s\n' \
+		"SKIP POSIX assertions: $POSIX_SHELL accepts [[ ]], so it is" \
+		'an extended shell and running the hook bodies under' \
+		'it proves nothing. Only the ubuntu leg of' \
+		'.github/workflows/verify.yml, where sh is dash, proves' \
+		'them — this run did not check.'
 	posix_verdict='POSIX assertions SKIPPED'
 else
 	assert_posix_agrees "$CLEAN_HOOK" 'git clean hook' 'git clean -fd' 2
