@@ -100,6 +100,21 @@ assert_posix_agrees() { # hook-command label command-string expected-status
 	[[ $status == "$4" ]] || fail "$2 under sh must exit $4 for [$3], got $status: $output"
 }
 
+# `sh` is a POSIX shell only by convention, and where it is not one the assertions above
+# establish nothing. Resolve it by what it accepts, not by where /bin/sh points: macOS
+# reaches bash 3.2 through a real file rather than a symlink, and it is the shell `sh -c`
+# lands on that decides the answer. `[[ ]]` is not in POSIX, so a shell that accepts it is
+# an extended one — bash, zsh or ksh — and running a hook body under it re-runs an extended
+# shell. Asking for a bash version instead would clear zsh and ksh, and would read an
+# exported BASH_VERSION out of the ambient environment rather than out of the shell.
+POSIX_SHELL=$(command -v sh || :)
+[[ -n $POSIX_SHELL ]] || fail 'no sh on PATH: the hook bodies cannot be checked for POSIX'
+if sh -c '[[ -n x ]]' 2>/dev/null; then
+	SH_ACCEPTS_BASHISMS=yes
+else
+	SH_ACCEPTS_BASHISMS=no
+fi
+
 assert_deny_entry() { # pattern
 	jq -e --arg pattern "$1" '.permissions.deny | index($pattern)' "$SETTINGS" >/dev/null ||
 		fail "permissions.deny is missing $1"
@@ -302,10 +317,27 @@ assert_blocked "$MASK_HOOK" 'masked exit hook' $'cat >note.md <<EOF\njust ci | t
 assert_fails_open "$MASK_HOOK" 'masked exit hook'
 
 # The shell Claude Code runs a hook body in is not this suite's to choose, so both hook
-# bodies stay inside POSIX shell and are asserted under sh as well as bash.
-assert_posix_agrees "$CLEAN_HOOK" 'git clean hook' 'git clean -fd' 2
-assert_posix_agrees "$CLEAN_HOOK" 'git clean hook' 'git clean -n' 0
-assert_posix_agrees "$MASK_HOOK" 'masked exit hook' 'just ci | tail' 2
-assert_posix_agrees "$MASK_HOOK" 'masked exit hook' 'just ci | tee /tmp/ci.log' 0
+# bodies stay inside POSIX shell. Only a run whose sh rejects bashisms proves that, which
+# across the environments this gate runs in is the ubuntu leg of .github/workflows/verify.yml
+# alone: macOS ships bash 3.2 as /bin/sh and the Fedora developer hosts ship bash 5, so
+# neither can reject a bashism. Everywhere else the suite reports the property unchecked
+# instead of printing a green line it has not earned. Only one proving ground is left, and
+# nothing turns red if it stops being one — enforcing that needs a workflow edit or a CI
+# prerequisite, and is issue #136.
+if [[ $SH_ACCEPTS_BASHISMS == yes ]]; then
+	printf 'claude-settings-hooks-test: %s\n' \
+		"SKIP POSIX assertions: $POSIX_SHELL accepts [[ ]], so it is" \
+		'an extended shell and running the hook bodies under' \
+		'it proves nothing. Only the ubuntu leg of' \
+		'.github/workflows/verify.yml, where sh is dash, proves' \
+		'them — this run did not check.'
+	posix_verdict='POSIX assertions SKIPPED'
+else
+	assert_posix_agrees "$CLEAN_HOOK" 'git clean hook' 'git clean -fd' 2
+	assert_posix_agrees "$CLEAN_HOOK" 'git clean hook' 'git clean -n' 0
+	assert_posix_agrees "$MASK_HOOK" 'masked exit hook' 'just ci | tail' 2
+	assert_posix_agrees "$MASK_HOOK" 'masked exit hook' 'just ci | tee /tmp/ci.log' 0
+	posix_verdict="POSIX assertions ran under $POSIX_SHELL"
+fi
 
-printf 'claude-settings-hooks-test: ok\n'
+printf 'claude-settings-hooks-test: ok (%s)\n' "$posix_verdict"
