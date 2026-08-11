@@ -445,8 +445,7 @@ project_review_count="$(validate_inventory "$project_review_root" \
 # `content/references` that `install_common_content` delivers to all three agents
 # as the same bytes. `testdata` entries are excluded exactly as `stage_skills`
 # excludes them (ADR 0028, superseding ADR 0025); the portability checks above still
-# cover them, because
-# those are repository hygiene rather than delivery.
+# cover them, because those are repository hygiene rather than delivery.
 #
 # `agents/*/shared` is deliberately not scanned: an agent's own instructions may
 # name that agent's own config root, and `CLAUDE.md` and `AGENTS.md` legitimately do.
