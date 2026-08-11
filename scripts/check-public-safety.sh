@@ -63,10 +63,16 @@ denied_patterns=(
 # and not yet staged names a path with nothing behind it. There is no content to
 # scan there, and the status check below would otherwise turn every such tree
 # into a fault, so those paths are dropped before the scan rather than after.
+#
+# The test is -f, not -e: the walk only ever opened regular files, and naming a
+# path explicitly makes ripgrep open whatever is there. A tracked path replaced
+# by a FIFO blocks the scan forever with no writer, which is a burned CI timeout
+# rather than a wrong answer, but the walk-only shape never had it. -f drops a
+# dangling symlink and a directory substitution in the same breath.
 scan_targets=("${scan_paths[@]}")
 for scan_path in "${scan_paths[@]}"; do
 	while IFS= read -r -d '' tracked; do
-		[[ -e "$scan_path/$tracked" ]] || continue
+		[[ -f "$scan_path/$tracked" ]] || continue
 		scan_targets+=("$scan_path/$tracked")
 	done < <(git -C "$scan_path" ls-files -z 2>/dev/null)
 done

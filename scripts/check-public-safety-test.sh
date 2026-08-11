@@ -254,6 +254,52 @@ if [ "$(id -u)" -ne 0 ]; then
 		cat "$SCRATCH/output" >&2
 		exit 1
 	fi
+else
+	printf 'public-safety-test: SKIP unreadable-scan fixture: running as root, which\n'
+	printf 'public-safety-test: reads a mode-000 file, so the scan completes and the\n'
+	printf 'public-safety-test: fault path is never reached. This run did not check it.\n'
+fi
+
+# The walk only ever opened regular files; naming a path explicitly makes ripgrep
+# open whatever is there. A tracked path replaced by a FIFO blocks forever with no
+# writer -- a burned CI timeout rather than a wrong answer, and one the walk-only
+# shape did not have. The scan target test is -f for that reason.
+#
+# The gate is run in the background and polled rather than wrapped in timeout(1),
+# which macOS does not ship (ADR 0027's leg would fail on it). A regression here
+# reddens this case instead of hanging the suite.
+fifo="$SCRATCH/fifo-target"
+mkdir -p "$fifo"
+git init -q -b main "$fifo"
+git -C "$fifo" config user.name 'Fixture Developer'
+git -C "$fifo" config user.email fixture@example.invalid
+printf 'ordinary content\n' >"$fifo/pipe.txt"
+printf '%s\n' "$hidden_secret" >"$fifo/leak.txt"
+git -C "$fifo" add pipe.txt leak.txt
+git -C "$fifo" commit -qm 'a file that becomes a FIFO'
+rm "$fifo/pipe.txt"
+mkfifo "$fifo/pipe.txt"
+
+"$CHECKER" "$fifo" >"$SCRATCH/output" 2>&1 &
+fifo_pid=$!
+waited=0
+while kill -0 "$fifo_pid" 2>/dev/null && [ "$waited" -lt 30 ]; do
+	sleep 1
+	waited=$((waited + 1))
+done
+if kill -0 "$fifo_pid" 2>/dev/null; then
+	kill -9 "$fifo_pid" 2>/dev/null || :
+	wait "$fifo_pid" 2>/dev/null || :
+	printf 'public-safety-test: a FIFO scan target blocked the gate\n' >&2
+	exit 1
+fi
+fifo_status=0
+wait "$fifo_pid" || fifo_status=$?
+if [ "$fifo_status" -ne 1 ]; then
+	printf 'public-safety-test: the FIFO tree should still report its secret, got %s\n' \
+		"$fifo_status" >&2
+	cat "$SCRATCH/output" >&2
+	exit 1
 fi
 
 # A tracked file no ignore rule hides is reached by the walk and by its explicit
