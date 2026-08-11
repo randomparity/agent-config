@@ -212,7 +212,9 @@ With that satisfied, clean the row up in this order:
 
 Name whatever is still uncleaned in the final report, each row with **the reason it was deferred** — end of run not observed, worktree not clean, or branch did not land. The three are not interchangeable and only the first can resolve itself.
 
-The operator owns them from there, and usually alone. `$clean-branches` looks like the standing sweep and mostly is not: it enumerates candidates by an upstream reading `[gone]`, and merging a PR leaves `origin/<branch>` in place, so the track field is empty rather than `[gone]` and the sweep passes the branch over. A repo that deletes head branches on merge is the exception — there a pruned fetch does surface it. Don't let the report depend on which repo you are in.
+The operator owns them from there, though no longer alone. `$clean-branches` is the standing sweep for them: it enumerates every local branch and classifies on push evidence, so a merged worker branch reaches its delete rows in either setting of `deleteBranchOnMerge`. Two kinds of leftover it still reports as skips rather than collecting — a branch whose commits never reached the remote, and one pushed without `-u` or to a remote not named `origin`, which leaves no local evidence under the branch's own name. Those stay the operator's by hand.
+
+**Never point that sweep at a campaign that is still running.** It has no liveness signal of its own, and its clean-`git status --porcelain` row is not one: that catches a worker which left modified or untracked files, not one which has committed and is mid-`push`. Sweeping mid-wave therefore removes a live worktree — the failure the observed-end-of-run precondition above exists to prevent, reached by another route. Your deferred rows are the worst case for it, being by construction the ones whose agent's end you never observed. So keep naming them in the report: the sweep is the operator's move once the campaign is over and its agents have stopped, not a substitute for the report.
 
 ## 7. Re-Enqueue New Issues
 
