@@ -67,8 +67,18 @@ that reads as wired, which is the inert guard this issue is about. Treating any 
 value as yes fails the other way: `POSIX_ASSERTIONS_REQUIRED=0` would require the
 assertions. Rejecting the unrecognised value costs one branch and avoids both.
 
-The variable is read once, at the point of decision, and nothing else in the repository
-sets it. It is a new contract on a tracked script, so it is documented where it is read.
+**The value is validated before the skip predicate is consulted**, beside the other
+environment resolution, not inside the skip branch. Validating it where the skip is decided
+would mean a mistyped `POSIX_ASSERTIONS_REQUIRED: 'true'` in the workflow never reds on the
+runner it targets — `sh` is dash there, the branch is never taken, and the typo surfaces
+only on the day the image drifts, which is the one day the gate had to work. Nothing else
+in the repository sets the variable. It is a new contract on a tracked script, so it is
+documented where it is read.
+
+`just ci` never sets it, so `just verify`, `just ci` and the `scripts/verify-push.sh`
+pre-push rehearsal all keep taking #112's skip on a developer host. That is deliberate —
+the alternative reds every local run — and it means the pre-push rehearsal no longer covers
+the whole required check. ADR 0053 records that as a bounded amendment to ADR 0039.
 
 ### The `verify` job
 

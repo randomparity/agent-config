@@ -39,29 +39,25 @@ Two halves, which must land in the same change or the guard ships inert:
 2. The `verify` job checks the repository out and runs that suite with
    `POSIX_ASSERTIONS_REQUIRED=1`.
 
-The variable takes `1` or nothing. Any other non-empty value is a hard error naming the
-variable, so a wiring that says `true` reds instead of being silently ignored, and `0` reds
-instead of meaning its opposite. Both are the same failure — a guard that reads as wired
-and is not — and neither is worth a convention a reader has to remember.
+The variable takes `1` or nothing, and is validated before the skip predicate is consulted
+so an unrecognised value reds on every host whatever `sh` turns out to be. A gate that
+reads as wired and is not is the failure this record exists to prevent, and it arrives as
+readily by `true` being ignored as by `0` meaning its opposite.
 
 `verify` is the home because it is the one job in this workflow the matrix cannot reach: it
 already exists to keep a stable required-check context and already runs unconditionally on
 `ubuntu-latest`. The matrix legs are left alone — the ubuntu leg still proves the property
 as a by-product and macOS still skips.
 
-What this delivers is bounded, and the bound is the point. It removes the two silent routes
-— the leg dropped from the matrix, the leg moved into a container — because neither can
-reach the `verify` job, and it turns the third, image drift, into a red build. It does not
-defend against deleting the step or its `env:` line, which returns the suite to the skip
-branch and a green log; nothing here detects that, and `verify.runs-on` is now load-bearing
-in the way `matrix.os` was, fail-closed but equally single-line.
+The bound is deliberate. Removed are the routes that take the proving ground away as a side
+effect of an unrelated decision — the leg dropped from the matrix, the leg moved into a
+container — and image drift becomes a red build. Deleting the step or its `env:` line is
+not defended against: it returns the suite to the skip branch and a green log, and
+`verify.runs-on` is now load-bearing in the way `matrix.os` was.
 
 Two sentences in the suite's POSIX region name the ubuntu leg as the sole proving ground
 and point at #136 as open work. Both stop being true here, so both are corrected in the
 same change. What the notice says changes; what it does does not.
-
-`scripts/claude-settings-posix-guard-test.sh` exercises the refusal on every host and every
-CI leg, since the guard's failure path is otherwise never taken anywhere.
 
 ## Consequences
 
@@ -75,14 +71,15 @@ CI leg, since the guard's failure path is otherwise never taken anywhere.
   mechanism rather than forever. It costs nothing to skip while the image supplies dash, and
   if the image stops, the choice is forced and is the operator's. Relaxing or deleting the
   gate under a red required check is the outcome this bullet exists to prevent.
-- **The required check asserts something `just ci` cannot reproduce.** The gate is a bare
-  script invocation with an inline environment variable, outside the guardrail recipe ADR
-  0039 makes the proof boundary. That is deliberate and unavoidable: folding it into
-  `just ci` would red on every developer host, which is exactly what #112 settled against.
-  The divergence predates this record — the ubuntu leg already proved something no local run
-  did — and this moves it rather than creating it. A `just` recipe would not close it either,
-  since such a recipe fails by design everywhere but a POSIX-`sh` host, which is worse than
-  having no recipe.
+- **ADR 0039's "added to the recipe, never to the hook" is amended here for a CI-only gate.**
+  Every required-check assertion about repository content was reachable through `just ci`
+  until now; this one is not, and cannot be — folding it into `just ci` would red on every
+  developer host, which is what #112 settled against. The concrete loss is that
+  `scripts/verify-push.sh` rehearses CI by running `just ci` in a disposable worktree, so
+  from here a contributor can pass every local gate and the pre-push rehearsal and still red
+  the required check. A `just` recipe would not close that: `just` is not installed on the
+  `verify` runner, and a recipe reproducing the gate would fail by design on every host but a
+  POSIX-`sh` one.
 - The guarantee is two of five hook bodies, and behavioural rather than structural: a
   non-POSIX construct on a branch the chosen inputs do not reach is not detected. Issue
   #157 owns widening it.
@@ -111,7 +108,8 @@ CI leg, since the guard's failure path is otherwise never taken anywhere.
 - **Check the extracted bodies statically with `shellcheck -s sh` instead.** Simpler,
   broader and unskippable, but it proves the bodies contain no non-POSIX construct rather
   than that they still exit 0 and 2 for the right inputs under a real POSIX shell. The right
-  addition, not the right substitution: issue #157.
+  addition, not the right substitution: issue #157. Nor a reason to wait for it — #157 is
+  unscheduled, and the guarantee that exists today is the one that can be lost today.
 - **Require the assertions only on push to `main` or on a schedule**, leaving pull requests
   to the matrix leg. It bounds the blast radius above — an upstream image change would stop
   merges rather than blocking every open pull request — and it still fails loudly. Rejected
@@ -125,10 +123,15 @@ CI leg, since the guard's failure path is otherwise never taken anywhere.
   suite in `verify` provides outright.
 - **Parse the suite's log line from the aggregating job.** Rejected: it makes a green build
   depend on the exact wording of a `printf`, which a later change is entitled to improve.
-- **Assert in `verify` only that this runner's `sh` rejects bashisms**, without running the
-  suite. Cheaper, and it catches image drift. Rejected because it proves an environment
-  exists rather than that the hook bodies pass in it, so a body that acquired a bashism would
-  still ship green wherever the matrix no longer covered it.
+- **Assert in `verify` that this runner's `sh` rejects bashisms, then run the suite
+  unmodified.** The cheapest option that still delivers both halves, and it drops the
+  environment variable, its grammar, and the guard suite that exists only to exercise the
+  refusal. Rejected because the workflow would then carry its own copy of the "is this `sh`
+  POSIX" predicate the suite implements: the two can drift, and the drift is silent in the
+  direction that matters — a workflow predicate that passes while the suite's stricter one
+  still skips restores exactly the green-log skip #136 opened against. Refusing the skip
+  inside the suite keeps one predicate, and asserts the thing that actually matters, which is
+  that the assertions ran.
 - **Do nothing.** Rejected: nothing regressed at #112, but a single-legged guarantee whose
   loss is silent is one nobody is told they have lost. The narrowness conceded above is an
   argument for #157, not for leaving the remaining guarantee undefended.
