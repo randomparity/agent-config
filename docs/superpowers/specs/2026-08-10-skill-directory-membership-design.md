@@ -75,12 +75,21 @@ is 0045's no-fault-for-a-missing-tree decision applied unchanged, and it is why 
 is guarded by the filter rather than by a fault.
 
 Surviving, the top-level children are enumerated with
-`find "$ROOT/content/skills" ! -path "$ROOT/content/skills" -prune -print0` — the idiom
-`check-skill-layout.sh`'s `validate_inventory` already uses. `find` is used rather than the
-repository's usual `rg` for 0045's reason, which is stronger here than there: `cp -pR` ships
-dot-prefixed and gitignored entries, ripgrep applies `.gitignore` to tracked files too, and
-`find` reads no ignore file and no `RIPGREP_CONFIG_PATH`, so there is no flag for a later edit
-to drop.
+`find "$ROOT/content/skills/." ! -name . -prune -print0`. This deviates deliberately from
+`validate_inventory`'s `! -path "$root"` form: `-path` matches by fnmatch rather than literally,
+so a repository root holding `[`, `*` or `?` fails to match itself, `find` then prints the tree
+root as an entry and descends no further, and the gate emits one `unexpected-skill-entry` for
+`content/skills` beside all 36 declared names as missing — a total false red decided by the
+checkout path. The three-tree half is immune because it passes its operands to `find` directly
+and never pattern-matches them, and this script's own rule is that the environment must not
+reach the verdict. The `/.` form compares only the last component, which cannot carry a
+glob-bearing prefix; entries come back as `content/skills/./<name>`, and since only the basename
+is used the interior `/.` never reaches a message.
+
+`find` is used rather than the repository's usual `rg` for 0045's reason, which is stronger here
+than there: `cp -pR` ships dot-prefixed and gitignored entries, ripgrep applies `.gitignore` to
+tracked files too, and `find` reads no ignore file and no `RIPGREP_CONFIG_PATH`, so there is no
+flag for a later edit to drop.
 
 The status is captured directly rather than through a pipeline, so a scan that did not happen
 cannot read as an empty one; failure is `fault 'could not enumerate the skills tree'`, exit 2.
@@ -158,17 +167,27 @@ the same bytes it asserts today. That is the executable form of "the existing be
 unchanged".
 
 All enumeration and both comparisons complete before any finding is emitted, preserving 0045's
-invariant that a fault can never suppress a finding already made or emit a partial set.
+invariant that a fault can never suppress a finding already made or emit a partial set. That
+ordering is global, and the consequence is worth stating rather than discovering: a skills-side
+fault — an unreadable tree, a name holding a newline, a workspace write that fails — now
+withholds the three-tree findings of the same run, which today would print. The run exits 2 and
+says why, so nothing is lost silently, but the operator gets one answer instead of two. Record
+0054 carries it in its residual list, and a suite row pins it.
 
 ### Summary
 
 ```
-deployed-membership: ok (<n> declared members across <m> installed trees, <k> declared skill directories)
+deployed-membership: ok (<n> declared members across <m> installed trees, <k> declared skill directories in content/skills)
 ```
 
 `<k>` is the number of distinct declared names, so a duplicated list line does not inflate it.
 The summary states both granularities because the script now answers at two, and a reader who
-saw only `<n>` would take it for the whole deployment.
+saw only `<n>` would take it for the whole deployment. The clause names the tree because
+`content/skills` is a fourth installed tree the same gate now covers, and without the name a
+reader has to infer that the 36 directories are not among the `<m>`. `<m>` stays the count of
+*surviving* file-granularity trees and the skills tree is deliberately not folded into it: the
+two numbers mean different things — `<m>` drops when a tree is absent, `<k>` never does — and
+the suite pins `<m>` against the three trees it lists.
 
 ## Suite
 
@@ -201,6 +220,9 @@ third arriving as a red suite.
 | `content/skills` replaced by a symlink to a directory | all declared names missing; no entry from behind the link |
 | the skills tree made unreadable | exit 2, `could not enumerate the skills tree`, with no `missing-skill-directory` line; skipped as root, announcing the skip |
 | a three-tree finding and a skills finding in one run | the file block, its remedy, then the skills block, then its remedy — the ordering guarantee |
+| a `comm` that fails only on the skills-half comparison | exit 2 and a `deployed-membership:` line — the existing `comm` mock exits 1 unconditionally and so faults inside the three-tree half, leaving the skills-half routing unasserted |
+| a three-tree finding beside an unreadable `content/skills` | exit 2, no `unexpected-member` line — pins the global ordering consequence above; skipped as root |
+| a fixture root whose path contains `[` | passes, with the same summary — pins the enumerator against the fnmatch form |
 
 The existing rows are re-run unchanged, which is the evidence for the no-regression criterion.
 Two of them are re-read rather than merely re-run: the `.ignore` and dot-prefix rows for the

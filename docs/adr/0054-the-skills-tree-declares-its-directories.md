@@ -111,6 +111,11 @@ directory count, which edits the expected string in the rows that pin the summar
     *this* list while the licensing one goes stale in the same commit. Issue #159 owns it.
   - *Directory names only.* The gate says nothing about whether a declared skill should ship, or
     what it contains.
+  - *A skills-side fault now withholds the three-tree findings of the same run.* Every
+    comparison completes before any finding is emitted, so an unreadable skills tree or a name
+    holding a newline exits 2 with its own diagnostic and the `unexpected-member` line that
+    would have printed does not. Nothing is lost silently; the operator gets one answer where
+    they would previously have had two, and re-running after the fault gives the other.
   - *The sibling gate this record argues from is itself undisciplined.* `check-skill-layout.sh`
     exits 1 for every condition it names, including a missing `reserved-skill-names.txt` and an
     unwritable scan sink, so a fault there is indistinguishable from a finding. The siting
