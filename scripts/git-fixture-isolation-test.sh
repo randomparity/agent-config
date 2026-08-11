@@ -113,6 +113,7 @@ suites=(
 	.github/scripts/check-records-test.sh
 	content/skills/decision-records/assets/check-records-test.sh
 	scripts/check-deployed-membership-test.sh
+	scripts/check-ripgrep-config-test.sh
 )
 
 for suite in "${suites[@]}"; do
