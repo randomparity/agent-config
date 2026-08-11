@@ -21,13 +21,14 @@ route around [ADR 0043](0043-overlays-may-not-replace-a-base-array.md)'s protect
 is silent data loss against the operator's stated intent, which is why #110 left it here
 rather than absorbing it.
 
-Three neighbouring shapes fail rather than lose, but fail badly. An empty or
-whitespace-only overlay, a top-level value that is not an object, and a file that is not
-valid JSON at all each abort the run with a raw jq message: `object ({"$schema":...) and
-null (null) cannot be multiplied`, or a parse error at a line number in a file it does not
-name. The message that follows names both files with equal weight — `could not merge
-private overlay X into Y` — so it reads as an installer failure over a pair of inputs
-rather than as a diagnosis of one of them, and it offers no remedy. All three then take
+Four neighbouring shapes fail rather than lose, but fail badly. An empty or
+whitespace-only overlay, a top-level value that is not an object, a file that is not valid
+JSON at all, and a file whose only fault is a leading UTF-8 byte-order mark each abort the
+run with a raw jq message: `object ({"$schema":...) and null (null) cannot be multiplied`,
+or a parse error at a line number in a file it does not name. The message that follows
+names both files with equal weight — `could not merge private overlay X into Y` — so it
+reads as an installer failure over a pair of inputs rather than as a diagnosis of one of
+them, and it offers no remedy. All four then take
 `exit 1` inside `merge_json_settings`, which is the whole-run abort
 [ADR 0049](0049-a-refused-overlay-withholds-one-file.md) removed for the refusal sitting
 four lines below: a bad Claude overlay costs the operator their Codex and Bob installs too.
@@ -95,7 +96,7 @@ before.
   now refuses. That is the point, and it is the only behaviour change visible to an
   operator whose file was previously accepted. There is no in-repo or published example
   overlay in that shape; `examples/hosts/example-host/` ships single objects.
-- The three failing shapes stop aborting the run. An operator with an empty Claude overlay
+- The four failing shapes stop aborting the run. An operator with an empty Claude overlay
   now gets their Codex and Bob trees, their Claude skills and instructions, and a named
   withheld `settings.json` — where before they got nothing and a jq type error. It inherits
   ADR 0049's cost too: the refusal is no longer the last thing on the screen, and the
@@ -140,7 +141,7 @@ before.
   warn-and-continue: the deployed file is not what the operator's file says, and a warning
   mid-log is not a stop. It also leaves the deployed result dependent on document order,
   which nothing in the file expresses.
-- **Refuse only the multi-document case and leave the other three as hard exits.** The
+- **Refuse only the multi-document case and leave the other four as hard exits.** The
   minimal reading of the issue title. Rejected because the issue's own comment puts the
   empty and non-object shapes in this scope, and because it would leave one class of
   operator mistake with two failure regimes — a guard-erasing overlay withholds one file

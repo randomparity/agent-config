@@ -464,7 +464,10 @@ overlay_is_one_object() { # overlay
 	# parse error this whole precondition exists to remove. It gets a verdict of its own
 	# rather than folding into the one below, because `jq . <overlay>` — the remedy that
 	# verdict prints — succeeds on it and shows the operator a well-formed object.
-	if [[ "$(head -c 3 "$overlay")" == $'\357\273\277' ]]; then
+	# stderr discarded like `overlay_shape`'s below: an unreadable overlay would otherwise
+	# print `head: cannot open ...` ahead of the verdict, which is the raw tool message this
+	# precondition exists to replace.
+	if [[ "$(head -c 3 "$overlay" 2>/dev/null)" == $'\357\273\277' ]]; then
 		report_overlay_shape "$overlay" 'begins with a UTF-8 byte-order mark' \
 			'The mark is invisible in an editor and jq accepts the file on its own, but' \
 			'the merge reads it second and stops there. Save the file as UTF-8 with no BOM.'

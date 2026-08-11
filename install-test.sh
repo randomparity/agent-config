@@ -1121,6 +1121,24 @@ assert_stream_lacks "$OVERLAY_ERR" 'could not merge private overlay' \
 jq -e . "$OVERLAY_FILE/settings.overlay.json" >/dev/null ||
 	fail 'byte-order-marked overlay: fixture must parse on its own'
 
+# 32c. An unreadable overlay. Both reads of the file are guarded, so what the operator sees
+#      is a verdict and not `head: cannot open ...` — a raw tool message naming their file
+#      is what this section replaces, and the BOM test added the second one. Skipped for
+#      root, which reads a 0000 file and would take the ordinary path.
+if [[ "$(id -u)" != 0 ]]; then
+	start_overlay_case claude
+	write_json "$OVERLAY_FILE/settings.overlay.json" '{"env":{"AGENT_CONFIG_TEST":"first"}}'
+	chmod 000 "$OVERLAY_FILE/settings.overlay.json"
+	run_overlay_case claude
+	chmod 600 "$OVERLAY_FILE/settings.overlay.json"
+	assert_overlay_refused 'unreadable overlay'
+	assert_stream_lacks "$OVERLAY_ERR" 'cannot open' 'unreadable overlay'
+	assert_stream_lacks "$OVERLAY_ERR" 'Permission denied' 'unreadable overlay'
+	assert_stream_contains "$OVERLAY_ERR" 'must be exactly one JSON object' 'unreadable overlay'
+else
+	printf 'install-test: SKIP unreadable overlay case (running as root)\n'
+fi
+
 # 33. The refusal takes ADR 0049's terms rather than aborting. Built on a destination
 #     produced by a *real* install: `prune_removed` returns early where there is no
 #     `.agent-config-manifest`, so a hand-built destination leaves rule 3 unexercised and
