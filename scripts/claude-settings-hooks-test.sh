@@ -175,6 +175,19 @@ else
 	SH_ACCEPTS_BASHISMS=no
 fi
 
+# POSIX_ASSERTIONS_REQUIRED turns the skip below into a failure, and the verify job of
+# .github/workflows/verify.yml sets it (ADR 0053). Resolved here rather than at the skip so
+# an unrecognised value is rejected on every host: validated inside the skip branch it would
+# never be reached on the dash runner the gate targets, and a workflow that said `true`
+# would sit green until the day the gate was needed. `1` or nothing, for the same reason —
+# matching only `1` and ignoring the rest fails open, and accepting any non-empty value
+# makes POSIX_ASSERTIONS_REQUIRED=0 mean its opposite.
+case ${POSIX_ASSERTIONS_REQUIRED:-} in
+"") POSIX_ASSERTIONS_REQUIRED=no ;;
+1) POSIX_ASSERTIONS_REQUIRED=yes ;;
+*) fail "POSIX_ASSERTIONS_REQUIRED must be 1 or unset, got [$POSIX_ASSERTIONS_REQUIRED]" ;;
+esac
+
 assert_deny_entry() { # pattern
 	jq -e --arg pattern "$1" '.permissions.deny | index($pattern)' "$SETTINGS" >/dev/null ||
 		fail "permissions.deny is missing $1"
@@ -393,18 +406,24 @@ assert_blocked "$MASK_HOOK" 'masked exit hook' $'cat >note.md <<EOF\njust ci | t
 assert_fails_open "$MASK_HOOK" 'masked exit hook'
 
 # The shell Claude Code runs a hook body in is not this suite's to choose, so both hook
-# bodies stay inside POSIX shell. Only a run whose sh rejects bashisms proves that, which
-# across the environments this gate runs in is the ubuntu leg of .github/workflows/verify.yml
-# alone: macOS ships bash 3.2 as /bin/sh and the Fedora developer hosts ship bash 5, so
-# neither can reject a bashism. Everywhere else the suite reports the property unchecked
-# instead of printing a green line it has not earned. Only one proving ground is left, and
-# nothing turns red if it stops being one — enforcing that needs a workflow edit or a CI
-# prerequisite, and is issue #136.
+# bodies stay inside POSIX shell. Only a run whose sh rejects bashisms proves that, and most
+# environments cannot: macOS ships bash 3.2 as /bin/sh and the Fedora developer hosts ship
+# bash 5, so neither can reject a bashism. There the suite reports the property unchecked
+# instead of printing a green line it has not earned.
+#
+# The verify job of .github/workflows/verify.yml is the environment that must prove it. It
+# sets POSIX_ASSERTIONS_REQUIRED, which makes the skip below a failure, so an image whose
+# /bin/sh stops being dash reds the required check instead of quietly skipping (ADR 0053).
 if [[ $SH_ACCEPTS_BASHISMS == yes ]]; then
+	[[ $POSIX_ASSERTIONS_REQUIRED == no ]] ||
+		fail "POSIX_ASSERTIONS_REQUIRED is set, but $POSIX_SHELL accepts [[ ]], so it is an" \
+			'extended shell and running the hook bodies under it proves nothing. This' \
+			'environment is required to prove them: give this step a POSIX sh, or fix the' \
+			'hook bodies so they need no proving here.'
 	printf 'claude-settings-hooks-test: %s\n' \
 		"SKIP POSIX assertions: $POSIX_SHELL accepts [[ ]], so it is" \
 		'an extended shell and running the hook bodies under' \
-		'it proves nothing. Only the ubuntu leg of' \
+		'it proves nothing. The verify job of' \
 		'.github/workflows/verify.yml, where sh is dash, proves' \
 		'them — this run did not check.'
 	posix_verdict='POSIX assertions SKIPPED'

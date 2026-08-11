@@ -345,7 +345,12 @@ just verify
 Run `just format` to apply shell formatting. Commits run the fast static gates
 through the repository-owned `just commit-check` recipe (lint, format-check,
 public-safety). Native pre-push verification and GitHub CI both run `just ci`,
-which selects and times one complete `just verify` run.
+which selects and times one complete `just verify` run. One assertion sits
+outside that: the required `verify` check runs the Claude hook suite with
+`POSIX_ASSERTIONS_REQUIRED=1`, which `just ci` never sets. A local run or
+pre-push rehearsal therefore skips the POSIX assertions wherever `sh` is an
+extended shell, and never fails for their absence. See
+[ADR 0053](docs/adr/0053-the-required-check-proves-shell-portability.md).
 
 `./install-test.sh` installs every agent into temporary directories, applies
 private overlay fixtures, verifies every installed skill tree against
