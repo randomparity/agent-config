@@ -195,6 +195,31 @@ assert_posix_agrees() { # hook-command label command-string expected-status
 	[[ $status == "$4" ]] || fail "$2 under sh must exit $4 for [$3], got $status: $output"
 }
 
+# The helper-failure branches are the newest shell in these bodies and the least like the
+# rest of them: a function that exits the shell from inside a `&&` chain and from inside a
+# `!` negation. Asserting them only under bash would leave the code this file exists to
+# prove POSIX exercised under one shell and claimed for another.
+assert_posix_fails_closed() { # hook-command label stub-dir command-string
+	local status=0 output payload
+	payload=$(jq -nc --arg command "$4" '{tool_input: {command: $command}}')
+	output=$(printf '%s' "$payload" | PATH="$SCRATCH/$3:$PATH" sh -c "$1" 2>&1) || status=$?
+	[[ $status == 2 ]] ||
+		fail "$2 under sh must fail closed under $3 for [$4], got exit $status: $output"
+	[[ $output == BLOCKED:* ]] ||
+		fail "$2 under sh must say why it failed closed under $3: $output"
+}
+
+# Enumerated, not named. Everything else in this file reaches a hook through hook_command,
+# which finds it by a string from its own block message — so a hook added later is simply
+# absent from the suite, and absence is not a failure. This reads the array itself, so the
+# floor below applies to a sixth hook nobody has written yet: whatever it guards, it may not
+# answer 0 when it could not evaluate its input. A hook that genuinely should permit the
+# call when its helpers are broken has to say so by failing this assertion and being argued
+# for, which is the recorded-decision requirement expressed as a gate.
+all_hook_commands() {
+	jq -r '.hooks.PreToolUse[].hooks[] | select(.type == "command") | .command' "$SETTINGS"
+}
+
 # `sh` is a POSIX shell only by convention, and where it is not one the assertions above
 # establish nothing. Resolve it by what it accepts, not by where /bin/sh points: macOS
 # reaches bash 3.2 through a real file rather than a symlink, and it is the shell `sh -c`
@@ -433,22 +458,27 @@ assert_blocked "$MASK_HOOK" 'masked exit hook' $'cat >note.md <<EOF\njust ci | t
 # it. That second half is this repository only; in the other repositories these hooks ship
 # to, nothing re-checks it, which is why the hooks check it themselves.
 #
-# awk is the one helper deliberately left unguarded, and the reason is specific to how the
-# masked-exit guard uses it. awk extracts only the text preceding `just ci`, and that text
-# is read by exactly one test: the `set -o pipefail` exemption. A broken awk empties it, so
-# the exemption is lost and `set -o pipefail; just ci | tail` is blocked — which is already
-# failing closed, in the only branch whose answer awk affects, with no branch left where a
-# broken awk lets something through. A command that matches no masking pattern is untouched,
-# because nothing reads the empty text. Guarding awk explicitly would therefore trade a
-# false positive on one command shape for a block on every command, which is strictly worse.
-# The cost is a false positive, not a hole; issue #113's text says the opposite and is
-# wrong. Both halves are pinned below.
+# awk is checked, but only where its answer is read, and the placement is the whole point.
+# The masked-exit guard uses awk to extract the text preceding `just ci`, and exactly one
+# test reads that text: the `set -o pipefail` exemption. So the awk call sits inside the
+# branch that has already matched a masking pattern, and a broken awk refuses there, naming
+# awk. Placed where it used to be — before the `if`, run on every Bash call — the same check
+# would refuse every command, including the overwhelming majority that match no masking
+# pattern and never read the result. Lazy placement blocks exactly the command shapes an
+# unguarded broken awk already blocked, and improves only the diagnostic; eager placement
+# would have blocked everything. That difference is the decision, not whether to check awk.
+#
+# The consequence for `set -o pipefail; just ci | tail -50` is unchanged either way: with awk
+# broken it is refused, though with awk healthy the exemption allows it. That is a false
+# positive, not a hole. Issue #113's text says the opposite and is wrong. Both halves are
+# pinned below.
 assert_fails_closed "$CLEAN_HOOK" 'git clean hook' broken-jq 'git clean -fd'
 assert_fails_closed "$MASK_HOOK" 'masked exit hook' missing-jq 'just ci | tail'
 assert_fails_closed "$MASK_HOOK" 'masked exit hook' broken-grep 'just ci | tail'
-# awk: fail-closed on the one command shape whose verdict it decides, and inert everywhere
-# else. The first line is the accepted false positive — with awk healthy this command is
-# allowed, as the exemption assertions above pin.
+# awk: refused where its answer is read, inert everywhere else. The first line is the
+# accepted false positive — with awk healthy this command is allowed, as the exemption
+# assertions above pin. The two `0` lines are what lazy placement buys: neither command
+# reaches the awk call, so a broken awk does not touch them.
 assert_fails_closed "$MASK_HOOK" 'masked exit hook' broken-awk 'set -o pipefail; just ci | tail -50'
 assert_unaffected_by "$MASK_HOOK" 'masked exit hook' broken-awk 'just ci | tee /tmp/ci.log' 0
 assert_unaffected_by "$MASK_HOOK" 'masked exit hook' broken-awk 'git status --porcelain' 0
@@ -506,12 +536,20 @@ for stub in broken-printf broken-echo; do
 	assert_unaffected_by "$RG_HOOK" 'rg -r hook' "$stub" 'rg -n foo src/' 0
 done
 
-# Enumeration-free: no PATH, so every external command fails, named here or not.
-assert_fails_closed_without_path "$RM_HOOK" 'rm -rf hook' 'rm -rf /tmp/scratch'
-assert_fails_closed_without_path "$CLEAN_HOOK" 'git clean hook' 'git clean -fd'
-assert_fails_closed_without_path "$MASK_HOOK" 'masked exit hook' 'just ci | tail'
-assert_fails_closed_without_path "$PUSH_HOOK" 'push-to-main hook' 'git push origin main'
-assert_fails_closed_without_path "$RG_HOOK" 'rg -r hook' 'rg -r foo src/'
+# The floor, over every hook in the array rather than the five this file names: with no PATH
+# at all, every external command a body reaches for fails — including one added after this
+# file was written, and including a helper nobody here thought to stub. Any command serves as
+# the payload, since no hook gets far enough to look at it.
+hook_count=0
+while IFS= read -r body; do
+	[[ -n $body ]] || continue
+	hook_count=$((hook_count + 1))
+	assert_fails_closed_without_path "$body" "PreToolUse hook $hook_count" 'git status'
+done < <(all_hook_commands)
+# A miscount here means the enumeration silently matched nothing and the loop above asserted
+# nothing — the failure mode of every gate that iterates over a query result.
+((hook_count >= 5)) ||
+	fail "expected at least 5 PreToolUse command hooks, enumerated $hook_count"
 
 # The shell Claude Code runs a hook body in is not this suite's to choose, so both hook
 # bodies stay inside POSIX shell. Only a run whose sh rejects bashisms proves that, which
@@ -534,6 +572,21 @@ else
 	assert_posix_agrees "$CLEAN_HOOK" 'git clean hook' 'git clean -n' 0
 	assert_posix_agrees "$MASK_HOOK" 'masked exit hook' 'just ci | tail' 2
 	assert_posix_agrees "$MASK_HOOK" 'masked exit hook' 'just ci | tee /tmp/ci.log' 0
+	# The degraded paths, under the same shell. hgrep exits the shell from three call shapes
+	# and each is checked: the `&&` chain in the rm -rf guard, the plain `if` in the git clean
+	# guard, and the `||`-tested call in the masked-exit guard's pipefail branch. A function
+	# that exits from inside a compound command is where a shell difference would show up.
+	assert_posix_fails_closed "$RM_HOOK" 'rm -rf hook' broken-grep 'rm -rf /tmp/scratch'
+	assert_posix_fails_closed "$CLEAN_HOOK" 'git clean hook' broken-grep 'git clean -fd'
+	assert_posix_fails_closed "$MASK_HOOK" 'masked exit hook' broken-grep 'just ci | tail'
+	assert_posix_fails_closed "$PUSH_HOOK" 'push-to-main hook' broken-grep 'git push origin main'
+	assert_posix_fails_closed "$RG_HOOK" 'rg -r hook' broken-grep 'rg -r foo src/'
+	assert_posix_fails_closed "$CLEAN_HOOK" 'git clean hook' missing-jq 'git clean -fd'
+	# The awk branch reached only under sh: a broken awk must still refuse rather than crash
+	# through, and must leave a command that matches no masking pattern alone.
+	assert_posix_fails_closed "$MASK_HOOK" 'masked exit hook' broken-awk \
+		'set -o pipefail; just ci | tail -50'
+	assert_posix_agrees "$MASK_HOOK" 'masked exit hook' 'set -o pipefail; just ci | tail -50' 0
 	posix_verdict="POSIX assertions ran under $POSIX_SHELL"
 fi
 

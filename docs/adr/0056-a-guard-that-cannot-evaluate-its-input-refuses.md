@@ -59,13 +59,15 @@ instead of the user seeing a message about `git clean` after typing `rg -r`. Fou
 whose silence is safe only because of a fifth hook's behaviour, stated nowhere, is the
 coupling this record removes.
 
-**`awk` is deliberately not guarded**, and this is the one place the rule does not apply
-mechanically. The masked-exit guard uses `awk` to extract the text preceding `just ci`, and
-exactly one test reads that text: the `set -o pipefail` exemption. A broken `awk` empties it,
-the exemption is lost, and `set -o pipefail; just ci | tail` is **blocked** — already failing
-closed, in the only branch whose answer `awk` affects. A command matching no masking pattern
-is untouched, because nothing reads the empty text. Guarding `awk` explicitly would convert a
-false positive on one command shape into a block on every command, with no hole closed.
+**`awk` is checked where its answer is read, not before.** The masked-exit guard used `awk`
+to extract the text preceding `just ci` on every Bash call, though exactly one test reads
+that text: the `set -o pipefail` exemption. The call now sits inside the branch that has
+already matched a masking pattern, and a broken `awk` refuses there, naming `awk`. Placement
+is the decision, not whether to check: guarding `awk` where it used to sit would refuse every
+command, including the overwhelming majority that match no masking pattern and never read the
+result. Lazy placement refuses exactly the command shapes an unguarded broken `awk` already
+refused — `set -o pipefail; just ci | tail` loses its exemption either way — and changes only
+the diagnostic. A command matching no masking pattern no longer runs `awk` at all.
 
 `printf` and `echo` are shell builtins in every shell these bodies run under, so a `PATH`
 entry of either name is never reached. The suite asserts this rather than assuming it, which
@@ -75,8 +77,14 @@ is what makes the helper list — `jq`, `grep`, `awk` — a checked claim.
 
 A broken or absent `jq` or `grep` now blocks every Bash tool call, with five diagnostics
 instead of one. That was already true for `jq` via the `git clean` guard; the change makes it
-true for `grep` and makes the reason legible. The recovery is stated in each message: repair
-the helper on `PATH`.
+true for `grep` and makes the reason legible.
+
+The recovery is not reachable from the tool being refused, and the messages say so. Repairing
+`PATH` is itself a Bash command, so an agent that has hit this cannot fix it: the block is
+total until a human repairs the helper outside the session. That is the correct end state for
+a guard that cannot evaluate anything — the alternative is a bypass flag, which is the hole
+under another name — but it is a hard stop rather than a degraded mode, and the messages name
+the helper precisely so the human has something to act on.
 
 The hook bodies grow a function definition each and stay POSIX shell, which
 `scripts/claude-settings-hooks-test.sh` proves under a `sh` that rejects bashisms.
@@ -105,9 +113,18 @@ advisory hooks fail-open. Rejected on evidence rather than principle: the cost t
 justify the split does not exist, since one guard already blocks the shared tool call. The
 split would buy a worse diagnostic and a hidden dependency between hooks.
 
-**Guard `awk` the same way as `grep`.** Rejected: see the Decision. It is the one helper
-whose failure already produces a refusal in the only branch that reads its output, so the
-rule would add blocking without closing anything.
+**Guard `awk` where the call already sat**, ahead of the `if`, alongside the `jq` check.
+Rejected: the extraction runs on every Bash call but is read only in the pipefail-exemption
+branch, so a check there would refuse every command to protect one branch. Moving the call
+into that branch and checking it there gets the diagnostic without the blocking, which is
+what the Decision adopts. Leaving `awk` unchecked entirely was also rejected, though it is
+not unsafe: the branch already fails closed, so the cost was a message naming nothing.
+
+**Assert the fail-closed floor against the five hooks by name.** Rejected: the suite reaches
+a hook through a string in its own block message, so a sixth hook is simply absent and its
+absence is not a failure — the gate would go green on a newly reintroduced defect. The floor
+is asserted by enumerating the `PreToolUse` array instead, with a count assertion under it so
+an enumeration that matches nothing cannot pass as an enumeration that found no problem.
 
 **Treat `grep`'s status ≥ 2 as a no-match and carry on**, on the grounds that a guard should
 not stop work it cannot justify stopping. Rejected: that is the current behaviour and it is
