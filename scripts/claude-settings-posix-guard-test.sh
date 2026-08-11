@@ -56,33 +56,52 @@ output=$(PATH="$SCRATCH:$PATH" POSIX_ASSERTIONS_REQUIRED='' "$SUITE" 2>&1) || st
 [[ $output == *'POSIX assertions SKIPPED'* ]] ||
 	fail "the skip verdict is missing from an unrequired run: $output"
 
-# 3. The wiring is present. Read at step granularity rather than as a match over the file:
-#    the same key on another step, the same text in a comment, a deleted `run:` under a
-#    surviving `env:`, and a step neutralised with continue-on-error all pass a bare grep.
-#    There is no YAML parser in this repository's toolchain, so the step's block is the lines
-#    from its `- name:` to the next list item at that indent, comments dropped.
+# 3. The wiring is present, in the job ADR 0053 names. Read as blocks rather than as matches
+#    over the file: the same key on another step, the same text in a comment, a deleted `run:`
+#    under a surviving `env:`, a `|| true` suffix, an `if:` that skips the step, and
+#    continue-on-error all pass a bare grep, and every one of them leaves a gate that reads as
+#    wired and is not. There is no YAML parser in this repository's toolchain, so a block is
+#    the lines from its key to the next key at that indent, whole-line comments dropped.
+#
+#    Scoping to the verify job is load-bearing rather than tidy: the same step inside a matrix
+#    leg satisfies every other assertion here while putting the guarantee back inside
+#    matrix.os, which is the arrangement ADR 0053 rejects.
 [[ -f $WORKFLOW ]] || fail "no workflow at $WORKFLOW"
-block=$(awk -v step="- name: $STEP" '
-	function indent(s,   i) { i = match(s, /[^ ]/); return i == 0 ? -1 : i - 1 }
-	!found {
-		if (substr($0, indent($0) + 1) == step) { base = indent($0); found = 1 }
-		next
-	}
-	{
-		if ($0 ~ /^[ \t]*#/) next
-		if (indent($0) >= 0 && indent($0) <= base) exit
-		print
-	}
-' "$WORKFLOW")
+
+block_of() { # file indent key
+	awk -v want="$3" -v base="$2" '
+		function indent(s,   i) { i = match(s, /[^ ]/); return i == 0 ? -1 : i - 1 }
+		!found {
+			if (indent($0) == base && substr($0, base + 1) == want) found = 1
+			next
+		}
+		{
+			if ($0 ~ /^[ \t]*#/) next
+			if (indent($0) >= 0 && indent($0) <= base) exit
+			print
+		}
+	' "$1"
+}
+
+job=$(block_of "$WORKFLOW" 2 'verify:')
+[[ -n $job ]] || fail "$WORKFLOW has no verify job: the required check is gone"
+printf '%s\n' "$job" >"$SCRATCH/verify-job.yml"
+
+block=$(block_of "$SCRATCH/verify-job.yml" 6 "- name: $STEP")
 [[ -n $block ]] ||
-	fail "$WORKFLOW has no '$STEP' step: the required check no longer proves the hook bodies"
-[[ $block == *'./scripts/claude-settings-hooks-test.sh'* ]] ||
-	fail "the '$STEP' step does not run the hooks suite"
+	fail "the verify job of $WORKFLOW has no '$STEP' step: the required check no longer proves the hook bodies"
+printf '%s\n' "$block" |
+	grep -qE '^ +run: \./scripts/claude-settings-hooks-test\.sh *$' ||
+	fail "the '$STEP' step does not run the hooks suite unconditionally: a suffix such as '|| true' swallows the refusal"
 printf '%s\n' "$block" |
 	grep -qE "^ +POSIX_ASSERTIONS_REQUIRED: *'?1'? *$" ||
 	fail "the '$STEP' step does not set POSIX_ASSERTIONS_REQUIRED to 1: the guard is inert"
-if printf '%s\n' "$block" | grep -q 'continue-on-error'; then
-	fail "the '$STEP' step carries continue-on-error: the gate cannot fail the check"
+if printf '%s\n' "$block" | grep -qE '^ +if:'; then
+	fail "the '$STEP' step carries an if: condition: a skipped step reports as success"
+fi
+# Job level as well as step level: continue-on-error on the job greens it whatever the step did.
+if printf '%s\n' "$job" | grep -q 'continue-on-error'; then
+	fail "the verify job carries continue-on-error: the gate cannot fail the required check"
 fi
 
 printf 'claude-settings-posix-guard-test: ok (guard refuses, skip intact, wiring present)\n'
