@@ -22,7 +22,8 @@ set -euo pipefail
 #
 # Both hooks read the command as text. The destructive guard fires only where three things
 # hold at once: a recognised command position, then an unbroken `git ... clean` on that one
-# line, then every token after `clean` consumable by its flag alternation. Those are
+# line, then every token between `clean` and the next `;`, `&`, `|`, `)` or end of line
+# consumable by its flag alternation. Those are
 # separate axes, and the gaps below are grouped by the one each exploits — `sudo \git clean
 # -fd` is allowed despite sudo being a recognised position, because it fails the second.
 # Every form named was run against the shipped hook body.
@@ -41,8 +42,10 @@ set -euo pipefail
 # Text. These break the token run itself, so no alternation entry closes them and chasing
 # them is a matcher arms race this approach cannot win:
 #   - quoting and escaping a shell strips and a matcher does not — `\git clean -fd`,
-#     `git "clean" -fd`, `git cl""ean -fd`. Quoting the command whole is different and
-#     still fires: see the accepted false positive below;
+#     `git "clean" -fd`, `git cl""ean -fd`. Quoting the command whole is different: it
+#     still fires where a recognised position precedes the quotes (`bash -c "git clean
+#     -fd"`) or a separator inside them makes one (the accepted false positive below).
+#     `su -c` above shows the position axis still governs;
 #   - a backslash-newline continuation falling between `git` and `clean`, since the match
 #     is per line; one falling after `clean`, or inside `-fd`, is still caught;
 #   - a command assembled rather than written — `C="git clean -fd"; $C`, backticks, or
@@ -51,15 +54,20 @@ set -euo pipefail
 # These are deliberate routes around the guard. The wrappers above are not: they are
 # ordinary usage the guard does not reach, so a clean on a remote host or in a nested
 # checkout is unguarded whether or not anyone meant to evade. A form missing from this
-# comment is not thereby covered.
+# comment is not thereby covered. All of it applies to the masked-exit guard too, which is
+# the same text matcher over the same POS: `\just ci | tail` and `C="just ci | tail"; $C`
+# were run and are allowed. Only the Flags section below is specific to the destructive
+# guard.
 #
-# Flags. The guard walks the tokens after `clean` and stops at the first one its
+# Flags. The guard walks the tokens after `clean`, up to that same separator, and stops at
+# the first one its
 # alternation cannot consume, which leaves the whole command unmatched and allowed. Two
 # rules, not one: a single-dash token stops it when n or i appears anywhere in it (`-n`,
 # `-i`, `-fdn`), while a `--` token stops it only on the first letter after the dashes
 # being d or i — so `--dry-run` and `--interactive` are allowed while `--quiet` and
-# `--force` still block, as the assertions below pin, and so does `--exclude=-n`, which
-# was run against the hook body but is not pinned. A token no alternative
+# `--force` still block, as the assertions below pin. `--exclude=-n` blocks too, despite
+# ending in -n, because the double-dash rule reads only the first letter after the dashes;
+# it was run against the hook body but is not pinned. A token no alternative
 # consumes at all, such as a bare `-`, stops it too. git need not agree that a stopping
 # token is a preview, and `--` is not what makes the difference: after `--` a flag is a
 # pathspec, so `git clean -fd -- build/ -n` deletes and is allowed (git 2.55.0), and in
