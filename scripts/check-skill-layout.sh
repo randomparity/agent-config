@@ -489,6 +489,13 @@ done
 # well-formed scalar and a legitimate thing for a *binary* to hold, but the payload here
 # is prose, code and configuration, so a NUL in it means the delivery is not text.
 #
+# The pair is not exhaustive, and ADR 0050 records the residual rather than implying it
+# away. The NUL rule reaches every UTF-16 file holding a code unit with a zero byte --
+# any ASCII character, so any document with a space or a newline. A file whose every code
+# unit has both bytes in [\x01-\x7F] satisfies both rules; `30 04 31 04` (Cyrillic, no
+# ASCII at all) is such a file. Closing that would mean a byte-frequency heuristic, which
+# is the guessing this rule exists to retire.
+#
 # The acceptor is validate_utf8's, unchanged. It was differential-tested against a strict
 # decoder over the byte sequences the classes distinguish, and a second copy written to a
 # different shape is how the two readings drift apart.
@@ -525,8 +532,14 @@ if [[ -n "$nul_byte_file" ]]; then
 	# the acceptor's first alternative, so a `SKILL.md` carrying a NUL reaches this rule
 	# rather than the UTF-8 one, and two of the three remedies are wrong for it -- delete
 	# it and the next run reports the required file missing.
+	#
+	# Matched on the required path shape rather than the basename. `validate_inventory`
+	# requires exactly `content/skills/<name>/SKILL.md`; a nested one is ordinary payload
+	# that nothing requires and deleting is a fine remedy for, so a basename test would
+	# withhold the remedy from a file that has one. A `case` glob cannot express this --
+	# `*` matches slashes -- so the class is spelled out.
 	nul_message='deployed content must be UTF-8 text (file contains a NUL byte)'
-	[[ "${nul_byte_file##*/}" == 'SKILL.md' ]] ||
+	[[ "$nul_byte_file" =~ ^content/skills/[^/]+/SKILL\.md$ ]] ||
 		nul_message="$nul_message; $payload_remedy"
 	skill_error "$nul_byte_file" "$nul_message"
 fi

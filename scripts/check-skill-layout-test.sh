@@ -380,6 +380,15 @@ if printf '%s\n' "$output" | rg --no-config -Fq "$payload_remedy"; then
 fi
 case_count=$((case_count + 1))
 
+# The exemption is the required path, not the basename. A nested `SKILL.md` under a skill
+# is ordinary payload -- nothing requires it and deleting it is a fine remedy -- so it
+# must keep the remedy a basename test would take away. Neither case above can reach this
+# direction, because both plant the NUL in the required top-level file.
+root="$(new_fixture)"
+mkdir -p "$root/content/skills/skill-01/assets"
+printf '%b' 'nested\0000 nul\n' >"$root/content/skills/skill-01/assets/SKILL.md"
+assert_fails "content/skills/skill-01/assets/SKILL.md: $payload_nul_error" "$root"
+
 # rg's binary detection triggers on a single NUL byte. For a file named explicitly on
 # the command line it converts rather than quits, so the verdict survives -- but the
 # reported position does not, and the position is the half of the message worth having.

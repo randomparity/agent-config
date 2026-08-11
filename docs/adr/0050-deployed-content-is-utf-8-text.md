@@ -60,12 +60,17 @@ unspecified and pushes the same unanswerable question onto the next tool that re
   surrogates, and scalars above U+10FFFF; a second copy written to a different shape is
   how two readings of the same question drift apart. It catches a UTF-16 file carrying a
   BOM, since `\xFF` and `\xFE` appear in no well-formed sequence.
-- The NUL rule catches what the grammar provably cannot. UTF-16LE text drawn from ASCII
-  is a run of bytes in `[\x00-\x7F]`, so it satisfies the acceptor exactly as written —
-  and ripgrep would not have transcoded it either, because BOM sniffing needs a BOM.
-  That file is *unscannable* rather than misread, and no reading of it is safe. U+0000
-  is a well-formed scalar and a legitimate thing for a binary to hold, but this payload
-  is prose, code and configuration, so a NUL in it means the delivery is not text.
+- The NUL rule catches what the grammar cannot. UTF-16LE text drawn from ASCII is a run
+  of bytes in `[\x00-\x7F]`, so it satisfies the acceptor exactly as written — and
+  ripgrep would not have transcoded it either, because BOM sniffing needs a BOM. That
+  file is *unscannable* rather than misread, and no reading of it is safe. U+0000 is a
+  well-formed scalar and a legitimate thing for a binary to hold, but this payload is
+  prose, code and configuration, so a NUL in it means the delivery is not text.
+
+  Stated exactly, because the Consequences below depend on the bound: the NUL rule
+  reaches every UTF-16 file holding a code unit with a zero byte, which is every UTF-16
+  document containing a space, a newline, or any other ASCII character. It is not a
+  decision procedure for UTF-16 in general, and this record does not claim one.
 
 **`--text` and `--encoding none` stay, and stop being a trade.** They are now what the
 encoding rules themselves require: a NUL byte is unmatchable without `--text` (ripgrep
@@ -145,6 +150,14 @@ the trees a contributor adds files to.
   contract is only as wide as the traversal carrying it, and the live tree holds no
   dot-prefixed or ignored file under the three roots, so a fixture is the only place the
   property can be shown at all.
+- **One residual, named so a later review can reopen it against an Accepted record.** A
+  UTF-16 file whose every code unit has both bytes in `[\x01-\x7F]` — no space, no
+  newline, no ASCII anywhere — satisfies the acceptor and holds no NUL, so it passes both
+  rules and the pattern rules read it as mojibake. The bytes `30 04 31 04 32 04`
+  (Cyrillic) are such a file, and the gate reports ok on it. The shape is close to
+  unreachable for a real document, and closing it would mean a byte-frequency heuristic —
+  a guess about encoding, which is the thing this record exists to retire. Recorded
+  rather than fixed, and rather than left implied by a completeness claim.
 - `--encoding none` and `--text` are load-bearing in a way that is now directly pinned.
   Removing either turns `scripts/check-skill-layout-test.sh` red through the encoding
   cases, and removing `--text` does so loudly: ripgrep exits 2 rather than quietly
@@ -194,7 +207,18 @@ the trees a contributor adds files to.
   meet the requirement it was written for. A BOM-less UTF-16LE file of ASCII text
   satisfies the grammar byte-for-byte, so the gate would report ok on a delivery no
   pattern rule can read — the exact state this record set out to end. Verified against
-  ripgrep 14.1.1 rather than reasoned about.
+  ripgrep 14.1.1 rather than reasoned about. The NUL rule closes that class; the
+  residual above is what it does not close.
+- **Scope the encoding rules to the git-tracked set,** leaving the pattern rules'
+  traversal alone. It would drop the entire tool-artifact false positive above at a
+  stroke — a swap file, a `.DS_Store` and patch residue are all untracked, and an
+  untracked non-UTF-8 file is delivered to nobody but its own author, so the delivery
+  argument that justifies `--no-ignore` for the pattern rules is genuinely weaker for
+  these two. Rejected because it splits the file set the four rules share, which is the
+  property the whole design rests on: one flag list, one traversal, so the set the
+  encoding rules cover cannot drift from the set the deployment rules cover. Buying back
+  some editing-session friction with the drift this record exists to prevent is the wrong
+  trade, and a two-traversal gate is a second thing to keep in agreement forever.
 - **Forbid `\x00` by narrowing the acceptor's first alternative to `[\x01-\x7F]`.** One
   character, and it would fold both rules into one pattern. Rejected because that
   acceptor is `SKILL.md`'s too, and it is a UTF-8 grammar — U+0000 is a well-formed
