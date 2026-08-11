@@ -618,8 +618,8 @@ output="$(cd "$root" && bash scripts/check-skill-layout.sh)"
 # The encoding rule honours the `testdata` exclusion the config-root rules already apply
 # (ADR 0028, superseding ADR 0025), and honours its scoping too: `content/skills` is the
 # one root the installer filters, so a `testdata` entry under `content/languages` really
-# does ship and is held to the contract. Both halves, because a rule that excluded the name everywhere would blind
-# the gate over a deployed path.
+# does ship and is held to the contract. Both halves, because a rule that excluded the
+# name everywhere would blind the gate over a deployed path.
 root="$(new_fixture)"
 mkdir -p "$root/content/skills/skill-01/testdata"
 printf '%b\n' 'malformed \0377 fixture' >"$root/content/skills/skill-01/testdata/bad.md"
