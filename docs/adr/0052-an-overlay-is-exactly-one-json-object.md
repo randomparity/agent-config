@@ -14,10 +14,14 @@ host fragments joined by hand, a generated file written twice — parse fine, an
 after the first is discarded without a word. The install exits 0 and reports
 `applied private overlay`.
 
-A NUL byte is the same loss with the tail hidden further down. jq's lexer stops at one, so
-`{"a":1}\0{"b":2}` slurps to a *single* object: a check that asks jq how many documents the
-file holds gets the same truncated answer the merge gets, and agrees with it. UTF-16 and
-UTF-32 overlays are NUL-dense for the same reason and read as holding no JSON value at all.
+A NUL byte is the same loss with the tail hidden further down, and it is worse than the
+concatenation case because jq's answer about it is not even stable. jq 1.8.1 stops its lexer
+at the NUL, so `{"a":1}\0{"b":2}` slurps to a *single* object and the second is discarded on
+a green run; the jq on both this repository's CI runners reports a parse error on the same
+bytes. A check that asks jq how many documents the file holds therefore gets the merge's own
+answer — right or wrong, and differing by version — and can only ever agree with it. UTF-16
+and UTF-32 overlays are NUL-dense for the same reason and read, where they parse at all, as
+holding no JSON value.
 
 The loss is confined to the operator's own overlay. Verified against the base as it stands:
 a two-document overlay whose *second* document replaces `hooks.PreToolUse` has that

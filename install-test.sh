@@ -1106,9 +1106,14 @@ start_overlay_case claude
 mkdir -p "$OVERLAY_FILE"
 printf '{"env":{"AGENT_CONFIG_TEST":"first"}}\000{"env":{"AGENT_CONFIG_SECOND":"2"}}' \
 	>"$OVERLAY_FILE/settings.overlay.json"
-# The fixture must really read as one document to jq, or it is just case 28 again.
-[[ "$(jq -s 'length' "$OVERLAY_FILE/settings.overlay.json")" == 1 ]] ||
-	fail 'NUL-separated overlay: fixture must slurp to one document'
+# The fixture must really carry a NUL, or the case is just case 28 again — checked with
+# `od` so it does not restate the guard's own `wc`/`tr` expression. What jq makes of the
+# file is deliberately not asserted: jq 1.8.1 slurps past the NUL and reports one document,
+# while the jq on both CI runners reports a parse error. That divergence is the argument
+# for testing bytes rather than asking jq, and pinning either answer would fail on the
+# other's machine.
+od -An -tx1 "$OVERLAY_FILE/settings.overlay.json" | grep -q ' 00' ||
+	fail 'NUL-separated overlay: fixture must contain a NUL byte'
 run_overlay_case claude
 assert_overlay_refused 'NUL-separated overlay'
 assert_stream_contains "$OVERLAY_ERR" 'contains a NUL byte' 'NUL-separated overlay'
