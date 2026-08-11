@@ -109,14 +109,20 @@ Reads bytes, not text: `tomllib.load(open(path, 'rb'))` rather than
 `tomllib.loads(path.read_text())`, so the decode follows TOML 1.0's mandated UTF-8 rather
 than the locale's encoding.
 
-Every way operator bytes can defeat the parser is a rejection, not a machine failure, and
-`TOMLDecodeError` is only the well-formed half of that set. Because `load` decodes the file
-itself, a file saved as latin-1 raises `UnicodeDecodeError`, and a pathologically nested one
-raises `RecursionError` or `MemoryError`. Each gets a verdict: the encoding one names UTF-8
-and the offending byte, the nesting one says the document nests too deeply. Left uncaught,
-all three printed a traceback and exited the run — R10 broken, and the whole-run abort R4
-forbids, reached from a file the operator can fix. Anything else — an `OSError` on the
-temporary file — stays a machine failure and exits (R8).
+What is enumerated is the *machine* failure — an `OSError` reaching the file — and
+everything else is a verdict about the operator's bytes. Enumerating it the other way round
+was wrong twice: `load` decodes the file itself, so a latin-1 file raises
+`UnicodeDecodeError` rather than `TOMLDecodeError`, and `tomllib` parses integers with
+`int(s, 0)`, so a number past Python's 4300-digit conversion limit raises a bare
+`ValueError` from inside the parser. Each printed a traceback and exited the run — R10
+broken, and the whole-run abort R4 forbids, reached from a file the operator can fix.
+
+Four verdicts get their own wording — the parser's own message, an encoding one naming UTF-8
+and the offending byte, a nesting one, and a catch-all carrying the exception's type — and
+the catch-all is the safe direction rather than a shortcut: the result is a refusal, so
+nothing derived from the overlay is written whichever way a novel exception is classified.
+ADR 0052 rule 4 makes the same trade for jq, reading a failure of the shape check as a bad
+overlay.
 
 ### `erased_base_toml_paths <base> <merged>`
 

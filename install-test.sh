@@ -1468,6 +1468,20 @@ assert_stream_contains "$OVERLAY_ERR" 'nests too deeply' 'overlay nested past th
 assert_stream_lacks "$OVERLAY_ERR" 'Traceback' 'overlay nested past the parser limit'
 assert_file "$OVERLAY_DEST/bob/settings.json"
 
+# 40d. `tomllib` parses integers with `int(s, 0)`, so a number past Python's 4300-digit
+#      string-conversion limit raises a bare ValueError from inside the parser. This is the
+#      second time enumerating "what operator bytes can raise" was short by one, which is
+#      why the handler now enumerates the machine failure and treats everything else as a
+#      verdict about the file.
+start_overlay_case codex
+python3 -c 'print("n = " + "9" * 5000)' >"$OVERLAY_FILE/config.overlay.toml"
+run_overlay_case all
+assert_overlay_refused 'overlay integer past the conversion limit'
+assert_stream_contains "$OVERLAY_ERR" "$OVERLAY_FILE/config.overlay.toml" \
+	'overlay integer past the conversion limit'
+assert_stream_lacks "$OVERLAY_ERR" 'Traceback' 'overlay integer past the conversion limit'
+assert_file "$OVERLAY_DEST/bob/settings.json"
+
 # 41. The two duplicate-declaration routes. Both are invalid TOML once concatenated, and
 #     the verdict must name the operator's overlay rather than the temporary file the
 #     merge was built into — the raw parser message this replaces named neither the

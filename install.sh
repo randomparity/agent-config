@@ -840,15 +840,24 @@ validate_toml() { # path
 import sys
 import tomllib
 
-# Every way operator-supplied bytes can defeat the parser is a rejection, not a machine
-# failure. `TOMLDecodeError` is only the well-formed half: `tomllib.load` decodes the file
-# itself, so a file saved as latin-1 raises `UnicodeDecodeError`, and a pathologically
-# nested document raises `RecursionError` or `MemoryError`. Left uncaught, each of those
-# printed a traceback and took the whole run down with it — the abort ADR 0049 removed,
-# reached from a file the operator can fix.
+# What is enumerated here is the *machine* failure -- an OSError reaching the file -- and
+# everything else is a verdict about the operator's bytes. Enumerating it the other way
+# round was wrong twice: `tomllib.load` decodes the file itself, so a latin-1 file raises
+# `UnicodeDecodeError` rather than `TOMLDecodeError`, and it parses integers with
+# `int(s, 0)`, so a number past Python's 4300-digit conversion limit raises a bare
+# `ValueError`. Each of those printed a traceback and took the whole run down -- the abort
+# ADR 0049 removed, reached from a file the operator can fix. The catch-all is the safe
+# direction and the precedent is ADR 0052 rule 4, which reads a failure of the JSON shape
+# check as a bad overlay for the same reason: the result is a refusal, so nothing derived
+# from the overlay is written either way.
 try:
     with open(sys.argv[1], "rb") as handle:
         tomllib.load(handle)
+except OSError as exc:
+    # Not a verdict about the contents -- the caller reports it and stops -- but it travels
+    # as a message rather than as a traceback.
+    sys.stdout.write(f"{exc}\n")
+    raise SystemExit(3) from exc
 except tomllib.TOMLDecodeError as exc:
     sys.stdout.write(f"{exc}\n")
     raise SystemExit(2) from exc
@@ -858,16 +867,12 @@ except UnicodeDecodeError as exc:
         " UTF-8; re-save the file in that encoding.\n"
     )
     raise SystemExit(2) from exc
-except (RecursionError, MemoryError):
-    sys.stdout.write(
-        "it nests too deeply for the TOML parser to read.\n"
-    )
-    raise SystemExit(2)
-except OSError as exc:
-    # Not a verdict about the file's contents -- the caller reports it and stops -- but it
-    # still travels as a message rather than as a traceback.
-    sys.stdout.write(f"{exc}\n")
-    raise SystemExit(3) from exc
+except RecursionError as exc:
+    sys.stdout.write("it nests too deeply for the TOML parser to read.\n")
+    raise SystemExit(2) from exc
+except Exception as exc:
+    sys.stdout.write(f"the TOML parser could not read it: {type(exc).__name__}: {exc}\n")
+    raise SystemExit(2) from exc
 PY
 	case "$status" in
 	0) return 0 ;;
