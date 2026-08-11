@@ -10,7 +10,7 @@ assert_contains() {
 	local expected="$1"
 	local file="$2"
 
-	rg -Fq "$expected" "$file" || fail "expected $file to contain: $expected"
+	rg --no-config -Fq "$expected" "$file" || fail "expected $file to contain: $expected"
 }
 
 assert_fails() { # expected root [locale]
@@ -30,7 +30,7 @@ assert_fails() { # expected root [locale]
 	status="$?"
 	set -e
 	[[ "$status" -ne 0 ]] || fail "expected failure containing: $expected"
-	printf '%s\n' "$output" | rg -Fq "$expected" ||
+	printf '%s\n' "$output" | rg --no-config -Fq "$expected" ||
 		fail "expected failure containing: $expected; got: $output"
 	case_count=$((case_count + 1))
 }
@@ -94,14 +94,14 @@ case_count=0
 # run under the inherited locale -- they stop proving the property, rather than
 # turning a portability check into a host-configuration check.
 utf8_locale="$(locale -a 2>/dev/null |
-	rg -N -m1 '^[a-z]{2}_[A-Z]{2}\.(utf8|UTF-8)$' || true)"
+	rg --no-config -N -m1 '^[a-z]{2}_[A-Z]{2}\.(utf8|UTF-8)$' || true)"
 
 example_skill="$repo_root/examples/project-review-skills/accessibility-reviewer/SKILL.md"
 bob_instructions="$repo_root/examples/bob-project/AGENTS.md"
 repo_instructions="$repo_root/AGENTS.md"
 legacy_bob_skill="$repo_root/examples/bob-project/.bob/skills/project-context/SKILL.md"
-applicability_line="$(rg -n '^## Applicability$' "$example_skill" | cut -d: -f1)"
-policy_line="$(rg -n '^## Required project policy$' "$example_skill" | cut -d: -f1)"
+applicability_line="$(rg --no-config -n '^## Applicability$' "$example_skill" | cut -d: -f1)"
+policy_line="$(rg --no-config -n '^## Required project policy$' "$example_skill" | cut -d: -f1)"
 [[ "$applicability_line" -lt "$policy_line" ]] ||
 	fail 'accessibility applicability must precede project-policy discovery'
 root="$(new_fixture)"
@@ -255,6 +255,17 @@ assert_package_case() {
 	assert_fails "$expected" "$root"
 }
 
+assert_invalid_utf8() { # label bytes
+	local label="$1"
+	local bytes="$2"
+	local root
+
+	root="$(new_fixture)"
+	printf 'malformed %s: %b\n' "$label" "$bytes" \
+		>>"$root/content/skills/skill-01/SKILL.md"
+	assert_fails 'content/skills/skill-01/SKILL.md: file must be valid UTF-8' "$root"
+}
+
 for inventory_name in 'content/skills:skill-01' \
 	'examples/project-review-skills:accessibility-reviewer'; do
 	inventory="${inventory_name%%:*}"
@@ -264,6 +275,115 @@ for inventory_name in 'content/skills:skill-01' \
 		case-fold-collision invalid-utf8; do
 		assert_package_case "$package_case" "$inventory" "$name"
 	done
+done
+
+# The `invalid-utf8` package case above is one byte the grammar rejects. These are
+# the classes a hand-written acceptor gets wrong: admit any of them and the gate is
+# weaker than the `iconv` call it replaced (issue #101). Written as octal escapes
+# because the rule is about bytes -- a surrogate or an overlong encoding has no
+# character to write literally. Each goes in the body of an otherwise-valid skill,
+# so the case fails on the UTF-8 rule rather than on frontmatter it also broke.
+assert_invalid_utf8 'lone continuation byte' '\0200'
+assert_invalid_utf8 'unexpected continuation after ASCII' 'a\0277'
+assert_invalid_utf8 'truncated two-byte sequence' '\0303'
+assert_invalid_utf8 'truncated three-byte sequence' '\0342\0200'
+assert_invalid_utf8 'truncated four-byte sequence' '\0360\0237\0232'
+assert_invalid_utf8 'bad continuation byte' '\0342\0200\0101'
+assert_invalid_utf8 'overlong two-byte solidus' '\0300\0257'
+assert_invalid_utf8 'overlong two-byte lead' '\0301\0277'
+assert_invalid_utf8 'overlong three-byte solidus' '\0340\0200\0257'
+assert_invalid_utf8 'overlong four-byte solidus' '\0360\0200\0200\0257'
+assert_invalid_utf8 'lone high surrogate U+D800' '\0355\0240\0200'
+assert_invalid_utf8 'lone low surrogate U+DFFF' '\0355\0277\0277'
+assert_invalid_utf8 'first scalar above U+10FFFF' '\0364\0220\0200\0200'
+assert_invalid_utf8 'lead byte outside the grammar' '\0365\0200\0200\0200'
+assert_invalid_utf8 'byte that never appears in UTF-8' '\0376\0377'
+
+# Naming the file was what the replaced call did, and issue #101 is what it costs when
+# the name is all you get. The line number is the half a reader can act on, so it is
+# asserted exactly rather than by substring: `write_skill` lays down five lines.
+#
+# Pinned under a territory UTF-8 locale, because that is the only place the rule bites:
+# the line being trimmed is by definition not decodable there, so an unpinned `.*`
+# stops at the first bad byte and drags it into the message. Under the C locale the
+# bug is invisible, exactly as with the ASCII-portability cases below.
+root="$(new_fixture)"
+printf '%b\n' 'a clean line' >>"$root/content/skills/skill-01/SKILL.md"
+printf '%b\n' 'and a \0377 byte' >>"$root/content/skills/skill-01/SKILL.md"
+assert_fails \
+	'content/skills/skill-01/SKILL.md: file must be valid UTF-8 (first malformed line 7)' \
+	"$root" "$utf8_locale"
+
+# rg's binary detection triggers on a single NUL byte. For a file named explicitly on
+# the command line it converts rather than quits, so the verdict survives -- but the
+# reported position does not, and the position is the half of the message worth having.
+# Asserting the whole string is what makes --text bite here; a substring assertion let
+# the flag be deleted with the suite green.
+root="$(new_fixture)"
+{
+	printf '%b\n' '---\nname: skill-01\ndescription: "Test skill."\n---'
+	printf '%b\n' '# Body\0000 then \0377 after the NUL'
+} >"$root/content/skills/skill-01/SKILL.md"
+assert_fails \
+	'content/skills/skill-01/SKILL.md: file must be valid UTF-8 (first malformed line 5)' \
+	"$root"
+
+# rg transcodes a UTF-16 file on sight of its BOM, and the transcoded text is
+# well-formed by construction -- so without BOM sniffing turned off the validator
+# reads UTF-16 as valid UTF-8. Whole-file, because a BOM only counts at offset 0.
+root="$(new_fixture)"
+printf '%b' '\0377\0376h\0000e\0000l\0000l\0000o\0000' \
+	>"$root/content/skills/skill-01/SKILL.md"
+assert_fails 'content/skills/skill-01/SKILL.md: file must be valid UTF-8' "$root"
+
+# The case the replaced gate could not hold green: Apple's iconv CLI rejected a
+# valid UTF-8 skill file by position rather than by content, and the workaround was
+# to strip that file back to ASCII (issue #101, PR #99). Every well-formed width
+# has to pass -- including the 4-byte sequences no skill file carries yet, and the
+# two scalars at the edges of the grammar.
+#
+# Every alternative in the acceptor appears here, not just the ones live content uses.
+# The reject cases below pin each narrow lead range from one side only: they prove the
+# grammar refuses what sits outside it, and would keep passing if an alternative were
+# deleted outright. The last line is the other side -- U+0800 and U+D7FF bracket the
+# surrogate hole, U+E000 reopens after it, and U+10000 and U+40000 cover the two
+# four-byte alternatives the earlier lines miss.
+utf8_root="$(new_fixture)"
+{
+	printf '%b\n' 'caf\0303\0251 \0342\0200\0224 dash \0342\0206\0222 arrow'
+	printf '%b\n' 'CJK \0344\0270\0255\0346\0226\0207 emoji \0360\0237\0232\0200'
+	printf '%b\n' 'first \0302\0200 last \0364\0217\0277\0277'
+	printf '%b\n' 'floor \0340\0240\0200 pre \0355\0237\0277 post \0356\0200\0200'
+	printf '%b\n' 'plane1 \0360\0220\0200\0200 plane3 \0361\0200\0200\0200'
+} >>"$utf8_root/content/skills/skill-01/SKILL.md"
+output="$(cd "$utf8_root" && bash scripts/check-skill-layout.sh)"
+[[ "$output" == 'skills-check: ok (1 canonical skills, 1 project review examples)' ]] ||
+	fail "valid multi-byte UTF-8 must pass: $output"
+
+# rg applies RIPGREP_CONFIG_PATH before the arguments it is given, so a developer's
+# personal config decides what the UTF-8 pattern means: under `--fixed-strings` the
+# grammar becomes a literal that matches no line, every line reads as malformed, and
+# the gate rejects skill files that are fine -- and the config-root patterns become
+# literals that match nothing, so a real violation reports clean. Both directions are
+# pinned: a flag that only holds one of them would not be worth carrying.
+#
+# One option per run, not both in one file. `--fixed-strings` reaches the three calls
+# that pass a regex; `--invert-match` reaches the reserved-name check, which already
+# passes -F and so cannot notice that one. Together they cancel on the Markdown-body
+# check -- inverted, every line lacks the literal `[^[:space:]]`, so the rule answers
+# correctly by accident and the flag can be deleted from it with the suite still green.
+rg_config="$tmpdir/ripgreprc"
+for rg_option in '--fixed-strings' '--invert-match'; do
+	printf '%s\n' "$rg_option" >"$rg_config"
+	export RIPGREP_CONFIG_PATH="$rg_config"
+	output="$(cd "$utf8_root" && bash scripts/check-skill-layout.sh)"
+	[[ "$output" == 'skills-check: ok (1 canonical skills, 1 project review examples)' ]] ||
+		fail "rg config $rg_option must not fail a clean tree: $output"
+	case_count=$((case_count + 1))
+	root="$(new_fixture)"
+	printf '%s\n' 'Use ~/.codex/skills here.' >>"$root/content/skills/skill-01/SKILL.md"
+	assert_fails 'installed config-root reference is forbidden' "$root"
+	unset RIPGREP_CONFIG_PATH
 done
 
 # Both rules below are ranges rewritten as explicit ASCII enumerations. Under a
@@ -349,16 +469,87 @@ root="$(new_fixture)"
 printf '%s\n' 'State goes in .codex/campaigns/x.md here.' >>"$root/content/languages/python.md"
 assert_fails "$repo_state_error" "$root"
 
+# rg calls a file binary on the strength of one NUL byte and skips it while walking a
+# directory, so a forbidden reference sharing a file with a NUL was invisible and the
+# gate printed ok. The scan reads it as text now; this is what keeps it doing so.
+root="$(new_fixture)"
+printf '%b' 'lead\0000\nUse ~/.claude/skills here.\n' >"$root/content/languages/binary.md"
+assert_fails 'installed config-root reference is forbidden' "$root"
+
+# The same hole through the other door: two leading bytes that look like a UTF-16 BOM
+# make rg transcode a file that is really UTF-8, and the reference comes out as
+# mojibake matching nothing. The content after the prefix is deliberately ordinary.
+root="$(new_fixture)"
+printf '%b' '\0377\0376Use ~/.claude/skills here.\n' >"$root/content/languages/bom.md"
+assert_fails 'installed config-root reference is forbidden' "$root"
+
 # rg exits 2 for any scan it could not complete, and the gate used to read that
 # as "no matches" and report ok. Root reads an unreadable file, so there the case
-# would assert nothing.
+# would assert nothing. The UTF-8 rule has the same three-way exit and the same
+# failure mode, so both branches are pinned rather than only the older one.
 if [[ "$EUID" -ne 0 ]]; then
 	root="$(new_fixture)"
 	printf '%s\n' 'Use ~/.claude/skills here.' >"$root/content/languages/unreadable.md"
 	chmod 000 "$root/content/languages/unreadable.md"
 	assert_fails 'config-root scan failed' "$root"
 	chmod 644 "$root/content/languages/unreadable.md"
+
+	root="$(new_fixture)"
+	chmod 000 "$root/content/skills/skill-01/SKILL.md"
+	assert_fails 'content/skills/skill-01/SKILL.md: UTF-8 scan failed' "$root"
+	chmod 644 "$root/content/skills/skill-01/SKILL.md"
 fi
+
+# Every command the gate runs apart from rg. `iconv` is deliberately absent: the
+# UTF-8 rule stopped shelling out to it in issue #101, and the case below is what
+# stops it coming back -- a PATH holding exactly the declared prerequisites has to
+# validate multi-byte content, not fail closed on a tool nobody installs.
+shim_tools=(dirname mktemp find sed jq wc tr sort cut uniq rm)
+
+utf8_shim="$tmpdir/utf8-shim-bin"
+mkdir -p "$utf8_shim"
+for shim_tool in "${shim_tools[@]}" rg; do
+	ln -s "$(command -v "$shim_tool")" "$utf8_shim/$shim_tool"
+done
+output="$(cd "$utf8_root" && PATH="$utf8_shim" "$BASH" scripts/check-skill-layout.sh)"
+[[ "$output" == 'skills-check: ok (1 canonical skills, 1 project review examples)' ]] ||
+	fail "gate must validate UTF-8 with only its declared prerequisites: $output"
+case_count=$((case_count + 1))
+
+# The sink proof has to hold from inside a command substitution, which is where
+# `validate_utf8` actually runs: bash does not carry set -e into `count="$(...)"`, so a
+# bare `: >` failed, execution continued, rg never ran, and its unrun 1 is the same 1
+# that means "every line is well-formed" -- the gate reported 36 valid skill files
+# having read no bytes. `shopt -s inherit_errexit` is not the fix to lean on: bash 3.2
+# is the macOS system shell this repo targets and does not have it.
+#
+# A mktemp shim is what reaches the failure without root or a full filesystem. It hands
+# back the workspace the gate asked for, with one sink path already occupied by a
+# directory, and leaves every other path alone -- so the case fails on the sink proof
+# rather than on a workspace that was never usable.
+sabotage_bin="$tmpdir/sabotage-bin"
+mkdir -p "$sabotage_bin"
+cat >"$sabotage_bin/mktemp" <<EOF
+#!/usr/bin/env bash
+real='$(command -v mktemp)'
+EOF
+cat >>"$sabotage_bin/mktemp" <<'EOF'
+set -euo pipefail
+target="$("$real" "$@")"
+mkdir "$target/utf8-bad"
+printf '%s\n' "$target"
+EOF
+chmod 755 "$sabotage_bin/mktemp"
+root="$(new_fixture)"
+set +e
+output="$(cd "$root" && PATH="$sabotage_bin:$PATH" bash scripts/check-skill-layout.sh 2>&1)"
+status="$?"
+set -e
+[[ "$status" -ne 0 ]] ||
+	fail "expected failure when a UTF-8 scan sink cannot be created; got: $output"
+printf '%s\n' "$output" | rg --no-config -Fq 'UTF-8 scan failed: cannot create' ||
+	fail "expected the sink proof to fire; got: $output"
+case_count=$((case_count + 1))
 
 # An absent rg has to be an error too: `if rg -Fxq` reads exit 127 as "not a
 # reserved name" and the config-root scan read it as "no matches". The shim
@@ -366,7 +557,7 @@ fi
 # rg guard rather than whichever tool PATH happened to drop first.
 shim_bin="$tmpdir/shim-bin"
 mkdir -p "$shim_bin"
-for shim_tool in dirname mktemp find iconv sed jq wc tr sort cut uniq rm; do
+for shim_tool in "${shim_tools[@]}"; do
 	ln -s "$(command -v "$shim_tool")" "$shim_bin/$shim_tool"
 done
 root="$(new_fixture)"
@@ -375,7 +566,7 @@ output="$(cd "$root" && PATH="$shim_bin" "$BASH" scripts/check-skill-layout.sh 2
 status="$?"
 set -e
 [[ "$status" -ne 0 ]] || fail 'expected failure when rg is absent'
-printf '%s\n' "$output" | rg -Fq 'skills-check: rg is required' ||
+printf '%s\n' "$output" | rg --no-config -Fq 'skills-check: rg is required' ||
 	fail "expected the rg guard to fire; got: $output"
 case_count=$((case_count + 1))
 

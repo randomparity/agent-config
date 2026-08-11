@@ -6,6 +6,15 @@ set -euo pipefail
 # reserved", and the config-root scan took it for "no matches". An absent rg
 # would therefore pass this gate rather than fail it, so refuse up front the way
 # check-deployed-references.sh does.
+#
+# Present is not enough, so every rg call below also carries --no-config: rg reads
+# RIPGREP_CONFIG_PATH before its own arguments, and a developer's personal config
+# then decides what these rules match. `--fixed-strings` alone breaks the gate in
+# both directions at once -- the UTF-8 grammar becomes a literal that matches no
+# line, so every skill file reads as malformed, and the config-root patterns become
+# literals that match nothing, so a real violation reports clean. The rule holds for
+# this gate only so far -- the sibling gate scripts in the same `just verify` chain
+# are still steerable, and issue #119 tracks sweeping them.
 if ! command -v rg >/dev/null 2>&1; then
 	printf 'skills-check: rg is required\n' >&2
 	exit 2
@@ -23,6 +32,36 @@ fi
 ascii_lower_digit='abcdefghijklmnopqrstuvwxyz0123456789'
 ascii_alnum="ABCDEFGHIJKLMNOPQRSTUVWXYZ$ascii_lower_digit"
 readonly ascii_lower_digit ascii_alnum
+
+# The UTF-8 rule below used to shell out to `iconv -f UTF-8 -t UTF-8`. Apple's CLI
+# reads its input in fixed-size chunks and batches conversions across them, and
+# rejects some well-formed files by where their multi-byte characters land rather
+# than by what those characters are: the macOS leg failed a skill file that GNU
+# iconv, `isutf8` and Python all accept, under a message naming the wrong cause
+# (issue #101). `iconv` was an undeclared prerequisite besides. rg decides it
+# instead -- this script already refuses to run without rg, `install-tools.sh`
+# declares it, and both CI legs install the same binary, so the rule now costs no
+# dependency the gate did not already have and answers the same on either.
+#
+# Unicode table 3-7 written as bytes, one alternative per well-formed sequence.
+# The narrow lead and trail ranges are the substance, not decoration: they are what
+# rejects overlong encodings (no \xC0-\xC1; \xE0 needs \xA0-\xBF; \xF0 needs
+# \x90-\xBF), UTF-16 surrogates (\xED stops at \x9F) and scalars above U+10FFFF
+# (\xF4 stops at \x8F; no \xF5-\xFF). GNU iconv accepts that last class, so a
+# faithful port of the old behaviour would have been laxer than its own message.
+utf8_scalar='[\x00-\x7F]'
+utf8_scalar+='|[\xC2-\xDF][\x80-\xBF]'
+utf8_scalar+='|\xE0[\xA0-\xBF][\x80-\xBF]'
+utf8_scalar+='|[\xE1-\xEC][\x80-\xBF]{2}'
+utf8_scalar+='|\xED[\x80-\x9F][\x80-\xBF]'
+utf8_scalar+='|[\xEE-\xEF][\x80-\xBF]{2}'
+utf8_scalar+='|\xF0[\x90-\xBF][\x80-\xBF]{2}'
+utf8_scalar+='|[\xF1-\xF3][\x80-\xBF]{3}'
+utf8_scalar+='|\xF4[\x80-\x8F][\x80-\xBF]{2}'
+# `(?-u)` is what lets the classes name raw bytes; the anchors make the match the
+# whole line rather than some well-formed run inside it.
+utf8_line="(?-u)^(?:$utf8_scalar)*\$"
+readonly utf8_scalar utf8_line
 
 skill_error() {
 	local path="$1"
@@ -132,6 +171,62 @@ validate_portable_tree() {
 	[[ -z "$duplicate" ]] || skill_error "$inventory" 'ASCII case-fold path collision'
 }
 
+# rg splits on the line terminator before matching, and a terminator byte cannot
+# occur inside a well-formed sequence -- so "every line is a run of well-formed
+# sequences" is exactly "the file is well-formed UTF-8", and a sequence truncated at
+# end of line fails the anchors instead of running into the next line.
+#
+# --encoding none turns off the BOM sniffing that would otherwise transcode a UTF-16
+# file and report its bytes as valid UTF-8. --text disables binary detection, which
+# triggers on a single NUL byte: for a file named explicitly it converts rather than
+# quits, so the verdict survives without the flag but the reported position does not.
+#
+# The message names the offending line, because the failure it replaces cost hours
+# for want of one. --max-count 1 keeps the early exit --quiet used to give. The line
+# goes to a file rather than a command substitution on purpose: the bytes that failed
+# may include a NUL, which bash drops from a substitution with a warning on stderr,
+# and a guardrail should not emit one. --no-filename is what makes that parse safe:
+# rg omits the name for a single file argument today, but the trim cuts at the first
+# colon, so a prefix would put a path where the line number belongs. sed takes the
+# number and leaves the bytes --
+# under LC_ALL=C, because the line it is trimming is by definition not decodable in a
+# UTF-8 locale, and there `.*` stops at the first bad byte and drags it into the
+# message (ADR 0023's defect in a new place).
+validate_utf8() {
+	local file="$1"
+	local relative="$2"
+	local status=0
+	local bad_line
+
+	# Prove the sinks before trusting the status. A redirection bash cannot open makes
+	# the command fail without running it, and it fails with 1 -- the same 1 that means
+	# "every line is well-formed", so an unwritable workspace reported every skill file
+	# valid having read no bytes.
+	#
+	# The check has to be explicit rather than left to set -e. This function runs inside
+	# `count="$(validate_inventory ...)"`, and bash does not carry errexit into a command
+	# substitution: the failed redirection returns 1, execution continues, and the gate
+	# prints ok. `shopt -s inherit_errexit` would fix that on bash 4.4, but bash 3.2 is
+	# the macOS system shell this repo targets, where the shopt is an unknown option and
+	# aborts the gate outright. So each sink states its own consequence.
+	: >"$workspace/utf8-bad" ||
+		skill_error "$relative" 'UTF-8 scan failed: cannot create the scan output file'
+	: >"$workspace/utf8-error" ||
+		skill_error "$relative" 'UTF-8 scan failed: cannot create the scan error file'
+	rg --text --encoding none --no-config --invert-match --line-number --max-count 1 \
+		--no-filename -- "$utf8_line" "$file" \
+		>"$workspace/utf8-bad" 2>"$workspace/utf8-error" || status=$?
+	# 0 = a line that is not well-formed, 1 = every line is, 2+ = no scan happened.
+	case "$status" in
+	0)
+		bad_line="$(LC_ALL=C sed -n '1s/:.*//p' "$workspace/utf8-bad")"
+		skill_error "$relative" "file must be valid UTF-8 (first malformed line $bad_line)"
+		;;
+	1) ;;
+	*) skill_error "$relative" "UTF-8 scan failed: $(<"$workspace/utf8-error")" ;;
+	esac
+}
+
 validate_frontmatter() {
 	local skill_dir="$1"
 	local inventory="$2"
@@ -142,8 +237,7 @@ validate_frontmatter() {
 
 	[[ -f "$file" && ! -L "$file" ]] ||
 		skill_error "$relative" 'required regular file is missing'
-	iconv -f UTF-8 -t UTF-8 "$file" >/dev/null 2>&1 ||
-		skill_error "$relative" 'file must be valid UTF-8'
+	validate_utf8 "$file" "$relative"
 	line1="$(sed -n '1p' "$file")"
 	line2="$(sed -n '2p' "$file")"
 	line3="$(sed -n '3p' "$file")"
@@ -158,7 +252,7 @@ validate_frontmatter() {
 	printf '%s' "$description" | jq -e \
 		'type == "string" and length >= 1 and length <= 1024' >/dev/null 2>&1 ||
 		skill_error "$relative" 'description must contain 1-1024 Unicode scalars'
-	sed -n '5,$p' "$file" | rg -q '[^[:space:]]' ||
+	sed -n '5,$p' "$file" | rg --no-config -q '[^[:space:]]' ||
 		skill_error "$relative" 'non-empty Markdown must follow frontmatter'
 }
 
@@ -171,7 +265,7 @@ validate_skill() {
 		"$name" == *--* || ${#name} -gt 64 ]]; then
 		skill_error "$inventory/$name" 'invalid skill name'
 	fi
-	if rg -Fxq "$name" "$reserved"; then
+	if rg --no-config -Fxq "$name" "$reserved"; then
 		skill_error "$inventory/$name" 'reserved skill name'
 	fi
 	validate_frontmatter "$skill_dir" "$inventory"
@@ -208,12 +302,46 @@ validate_inventory() {
 # these the scan set is narrower than the delivery set, and a dot-prefixed file
 # under content/skills/ would ship to users unscanned while this gate printed ok.
 # They belong here rather than at the call sites so the two rules cannot drift.
+#
+# --text is the same argument one step further: rg skips a file it decides is binary
+# during traversal, and it decides that on a single NUL byte, so a forbidden
+# config-root reference anywhere in a file carrying one is invisible and the gate
+# reports clean. Every file these roots deliver today is text, so the flag only costs
+# reading an asset that would otherwise be skipped -- the direction a gate should err
+# in, since the alternative is a delivery the scan never saw.
+#
+# --encoding none closes the same hole through the other door. rg sniffs a leading
+# UTF-16 BOM and transcodes on the strength of two bytes, so a UTF-8 file that merely
+# begins \xFF\xFE is decoded as UTF-16, and the reference the scan is looking for
+# comes out as mojibake that matches nothing. Reading raw bytes is also what
+# validate_utf8 does, so both rules now see the file the installer will copy.
+#
+# That is a trade, not a free win: a file under these roots that really is UTF-16 was
+# transcoded and scanned before and is opaque to this rule now. Only SKILL.md has its
+# encoding checked, so this covers all three scanned roots -- `content/languages`,
+# `content/references`, and every non-SKILL.md file `content/skills` delivers. Neither
+# reading is safe for a genuine UTF-16 delivery, and the spoof is the reachable half.
+# Issue #127 tracks giving the scanned payload an encoding rule of its own.
 scan_config_roots() { # results-file rg-argument...
 	local results="$1"
 	local status=0
 	shift
 
-	rg -l --hidden --no-ignore "$@" >>"$results" 2>"$workspace/rg-error" || status=$?
+	# Same reason as validate_utf8's sinks: a redirection that cannot be opened fails
+	# the command with 1, which this function reads as "no matches" and reports ok.
+	# The results sink is appended rather than truncated -- two calls share one file --
+	# so the function proves both its own sinks instead of trusting its callers to.
+	#
+	# Stated explicitly here too. These calls are at top level today, where set -e would
+	# catch a bare `: >`, but that is a property of the call site rather than of this
+	# function: moving one inside a command substitution would silently restore the
+	# fail-open, which is exactly how it survived in validate_utf8.
+	: >>"$results" ||
+		skill_error 'content' 'config-root scan failed: cannot create the results file'
+	: >"$workspace/rg-error" ||
+		skill_error 'content' 'config-root scan failed: cannot create the scan error file'
+	rg --no-config --text --encoding none -l --hidden --no-ignore "$@" >>"$results" \
+		2>"$workspace/rg-error" || status=$?
 	# 0 = matches, 1 = no matches, anything else = the scan did not happen.
 	[[ "$status" -le 1 ]] ||
 		skill_error 'content' "config-root scan failed: $(<"$workspace/rg-error")"
