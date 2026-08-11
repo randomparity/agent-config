@@ -475,7 +475,16 @@ report_deployed_state() { # dest_dir base rel
 	local missing
 	local missing_path
 
-	if [[ -L "$path" || ! -f "$path" ]]; then
+	if [[ -L "$path" ]]; then
+		# Occupied as far as `destination_set_is_empty` is concerned, so it is retained and
+		# listed as kept — saying "nothing is deployed" here would contradict that in the
+		# same output. What is not checked is the target, which the installer does not own.
+		printf 'install: %s is a symlink; its target was not checked. A successful run\n' \
+			"$path" >&2
+		printf 'install:   replaces it as drift.\n' >&2
+		return 0
+	fi
+	if [[ ! -f "$path" ]]; then
 		printf 'install: no file is deployed at %s\n' "$path" >&2
 		return 0
 	fi
@@ -501,11 +510,16 @@ report_deployed_state() { # dest_dir base rel
 		exit 1
 	fi
 	if [[ -z "$missing" ]]; then
-		printf 'install: %s carries every value %s defines\n' "$path" "$base" >&2
+		# "protects", not "defines": `erased_base_paths` covers non-empty base arrays and
+		# objects, so a deployed file that dropped a scalar or emptied an object reaches
+		# here. Claiming it carries everything the base defines would be a definite
+		# statement that is false, which is worse than ADR 0043's hedge — the operator
+		# would have an affirmative reason to stop looking.
+		printf 'install: %s carries every protected value from %s\n' "$path" "$base" >&2
 		return 0
 	fi
 
-	printf 'install: %s is missing values %s defines:\n' "$path" "$base" >&2
+	printf 'install: %s is missing protected values from %s:\n' "$path" "$base" >&2
 	while IFS= read -r missing_path; do
 		printf 'install:   %s\n' "$missing_path" >&2
 	done <<<"$missing"
@@ -576,6 +590,10 @@ install_merged_json() { # dest_dir base overlay rel...
 		# at all, beside an instruction tree that assumes the guards are there.
 		printf 'install: nothing is deployed at these paths, so the base is installed\n' >&2
 		printf 'install:   without your overlay; none of it applies until it is fixed.\n' >&2
+		# A fresh 0600 temp file: the refusal unlinked the merged one, and re-creating it
+		# by redirection would take the umask instead, deploying 0644. `payload_differs`
+		# compares content and the executable bit only, so that mode would never converge.
+		output="$(new_temp_file)"
 		render_base "$base" "$output"
 		for rel in "$@"; do
 			install_managed_path "$dest_dir" "$output" "$rel"

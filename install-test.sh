@@ -599,8 +599,8 @@ assert_json_value "$OVERLAY_DEST/claude/settings.json" '.env.AGENT_CONFIG_TEST' 
 # used to stop before. The manifest entry is the only thing standing between a withheld
 # path and deletion, so assert the entry and not just the file (ADR 0049).
 assert_line "$OVERLAY_DEST/claude/.agent-config-manifest" 'settings.json'
-assert_stream_contains "$OVERLAY_ERR" 'carries every value' 'refusal over a deployment'
-assert_stream_lacks "$OVERLAY_ERR" 'is missing values' 'refusal over a deployment'
+assert_stream_contains "$OVERLAY_ERR" 'carries every protected value' 'refusal over a deployment'
+assert_stream_lacks "$OVERLAY_ERR" 'is missing protected values' 'refusal over a deployment'
 
 # 7. The empty-container exemption's one in-repo instance: `agents/bob/shared/mcp.json`
 #    ships `{"mcpServers": {}}`, and replacing an empty container erases nothing, so
@@ -664,7 +664,7 @@ assert_overlay_refused 'clobbered deployment reported'
 # The distinct half: the overlay rejection names what *would* be erased, and this names
 # what the file the agent actually loads is missing right now. Without the deployed-file
 # comparison the second message does not exist and this reddens.
-assert_stream_contains "$OVERLAY_ERR" 'is missing values' 'clobbered deployment reported'
+assert_stream_contains "$OVERLAY_ERR" 'is missing protected values' 'clobbered deployment reported'
 assert_stream_contains "$OVERLAY_ERR" '.agent-config-backups' 'clobbered deployment reported'
 assert_stream_contains "$OVERLAY_ERR" 'would erase values' 'clobbered deployment reported'
 # Reported, never repaired: the deployed file is byte-identical to what was planted.
@@ -716,7 +716,13 @@ run_overlay_case all
 assert_overlay_refused 'empty destination converges'
 assert_same_file "$tmpdir/base-filled.json" "$OVERLAY_DEST/claude/settings.json"
 assert_stream_contains "$OVERLAY_ERR" 'is the base alone' 'empty destination converges'
-assert_stream_lacks "$OVERLAY_ERR" 'carries every value' 'empty destination converges'
+assert_stream_lacks "$OVERLAY_ERR" 'carries every protected value' 'empty destination converges'
+# The refusal unlinks the merged temp file, so the fill has to allocate a fresh 0600 one
+# rather than re-creating it by redirection, which would take the umask. `payload_differs`
+# compares content and the executable bit only, so a widened mode would never converge
+# back. `-perm -044` is both group- and other-read, and is portable to BSD find.
+[[ -z "$(find "$OVERLAY_DEST/claude/settings.json" -perm -044 -print)" ]] ||
+	fail 'base-filled settings.json must not be group- or world-readable'
 
 # 16. One merged document, two destinations. `agents/bob/shared/mcp.json` ships
 #     `mcpServers` as `{}`, which is unprotected, so no in-repo overlay can be refused
@@ -868,7 +874,7 @@ assert_stream_contains "$OVERLAY_ERR" 'would erase values' 'deployed comparison 
 # context, so an unguarded failure there aborts under `set -e` anyway. Both builds fail
 # the run, and only this message distinguishes the guarded one.
 assert_stream_contains "$OVERLAY_ERR" 'could not compare' 'deployed comparison fails closed'
-assert_stream_lacks "$OVERLAY_ERR" 'carries every value' 'deployed comparison fails closed'
+assert_stream_lacks "$OVERLAY_ERR" 'carries every protected value' 'deployed comparison fails closed'
 
 # 22. The refusal is no longer the last thing on the screen, so the summary that replaces
 #     it is emitted from the EXIT trap. Refuse Claude, then hard-fail Codex on a missing
@@ -886,5 +892,83 @@ assert_overlay_refused 'summary survives a later hard failure'
 assert_stream_contains "$OVERLAY_ERR" 'missing source' 'summary survives a later hard failure'
 assert_stream_contains "$OVERLAY_ERR" 'private overlay(s) were refused' \
 	'summary survives a later hard failure'
+
+# 23. The one failure the design treats as a verdict rather than an error: a deployed
+#     file that will not parse. Nothing else fails if this branch stops working — the
+#     run continues either way — so without a case it can rot silently.
+start_overlay_case claude
+write_json "$OVERLAY_FILE/settings.overlay.json" '{"env":{"AGENT_CONFIG_TEST":"first"}}'
+run_overlay_case claude
+assert_overlay_installed 'unparseable deployment setup'
+write_text "$OVERLAY_DEST/claude/settings.json" '{"hooks": '
+cp "$OVERLAY_DEST/claude/settings.json" "$tmpdir/unparseable.json"
+write_json "$OVERLAY_FILE/settings.overlay.json" "$CLOBBERING_OVERLAY"
+run_overlay_case claude
+assert_overlay_refused 'unparseable deployment'
+assert_stream_contains "$OVERLAY_ERR" 'could not be read as JSON' 'unparseable deployment'
+# Reported, not repaired, and not guessed at.
+assert_same_file "$tmpdir/unparseable.json" "$OVERLAY_DEST/claude/settings.json"
+assert_stream_lacks "$OVERLAY_ERR" 'carries every protected value' 'unparseable deployment'
+
+# 24. A destination path that is a symlink is occupied, so it is retained and listed as
+#     kept — and its target is not the installer's to vouch for. Saying "nothing is
+#     deployed" here would contradict the kept list in the same output.
+start_overlay_case claude
+write_json "$OVERLAY_FILE/settings.overlay.json" '{"env":{"AGENT_CONFIG_TEST":"first"}}'
+run_overlay_case claude
+assert_overlay_installed 'symlinked deployment setup'
+mv "$OVERLAY_DEST/claude/settings.json" "$OVERLAY_ROOT/elsewhere.json"
+ln -s "$OVERLAY_ROOT/elsewhere.json" "$OVERLAY_DEST/claude/settings.json"
+write_json "$OVERLAY_FILE/settings.overlay.json" "$CLOBBERING_OVERLAY"
+run_overlay_case claude
+assert_overlay_refused 'symlinked deployment'
+assert_stream_contains "$OVERLAY_ERR" 'is a symlink' 'symlinked deployment'
+assert_stream_lacks "$OVERLAY_ERR" 'no file is deployed at' 'symlinked deployment'
+[[ -L "$OVERLAY_DEST/claude/settings.json" ]] ||
+	fail 'symlinked deployment: the symlink must be left in place'
+
+# 25. The absent half of a half-populated destination set reports as absent rather than
+#     being filled — case 17 leaves exactly that state, and nothing there reads the
+#     message it produces.
+start_overlay_case bob
+run_overlay_case bob "$bob_repo/install.sh"
+assert_overlay_installed 'absent-path verdict setup'
+rm "$OVERLAY_DEST/bob/mcp_settings.json"
+write_json "$OVERLAY_FILE/mcp.overlay.json" '{"mcpServers":null}'
+run_overlay_case bob "$bob_repo/install.sh"
+assert_overlay_refused 'absent-path verdict'
+assert_stream_contains "$OVERLAY_ERR" 'no file is deployed at' 'absent-path verdict'
+assert_not_file "$OVERLAY_DEST/bob/mcp_settings.json"
+
+# 26. The base normalization behind the base-alone comparison is guarded like every other
+#     jq call, and is the one the shim's `normalize` shape reaches.
+start_overlay_case claude
+write_json "$OVERLAY_FILE/settings.overlay.json" '{"env":{"AGENT_CONFIG_TEST":"first"}}'
+run_overlay_case claude
+assert_overlay_installed 'normalize guard setup'
+write_json "$OVERLAY_FILE/settings.overlay.json" "$CLOBBERING_OVERLAY"
+run_overlay_case_jq claude normalize 1
+assert_overlay_refused 'normalize guard fails closed'
+assert_stream_contains "$OVERLAY_ERR" 'could not read base settings' \
+	'normalize guard fails closed'
+assert_stream_lacks "$OVERLAY_ERR" 'carries every protected value' 'normalize guard fails closed'
+
+# 27. The honest scope of the clean verdict. ADR 0043's check covers non-empty base
+#     arrays and objects, so a deployed file that dropped a scalar or emptied an object
+#     passes it. Saying it carries every value the base *defines* would be a definite
+#     statement that is false, and an operator would have an affirmative reason to stop
+#     looking; the wording says "protected", and this case is what holds it there.
+start_overlay_case claude
+write_json "$OVERLAY_FILE/settings.overlay.json" '{"env":{"AGENT_CONFIG_TEST":"first"}}'
+run_overlay_case claude
+assert_overlay_installed 'unprotected scalar loss setup'
+jq '.env = {} | del(.cleanupPeriodDays)' "$BASE_SETTINGS" \
+	>"$OVERLAY_DEST/claude/settings.json"
+write_json "$OVERLAY_FILE/settings.overlay.json" "$CLOBBERING_OVERLAY"
+run_overlay_case claude
+assert_overlay_refused 'unprotected scalar loss'
+assert_stream_contains "$OVERLAY_ERR" 'carries every protected value' \
+	'unprotected scalar loss'
+assert_stream_lacks "$OVERLAY_ERR" 'is missing protected values' 'unprotected scalar loss'
 
 printf 'install-test: ok\n'

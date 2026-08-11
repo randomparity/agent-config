@@ -235,8 +235,9 @@ than guessing:
   overlay applies until it is fixed, and every later refused run says the deployed file
   is the base alone.
 - **A file is already deployed** — it is left exactly as it is, and the installer says
-  whether it still carries every value the base defines or names the ones it is missing.
-  Nothing is written to it, so a deliberate hand edit is reported and not touched.
+  whether it still carries every value the base *protects* — the non-empty arrays and
+  objects of ADR 0043, not every scalar — or names the ones it is missing. Nothing is
+  written to it, so a deliberate hand edit is reported and not touched.
 
 A deployed file that is *missing* base values is the pre-ADR-0043 clobber: an overlay
 that named a protected path used to be merged silently, and that file is still live. To
