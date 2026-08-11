@@ -35,9 +35,8 @@ set -euo pipefail
 # operative word: the wrappers outside it are an open class, not a fixed shortfall. Five
 # that allow a destructive clean are `trap "git clean -fd" EXIT`,
 # `ssh host git clean -fd`, `find . -execdir git clean -fd \;` (`-exec` likewise),
-# `flock /tmp/l git clean -fd` and `su -c "git clean -fd"`. Each is one alternation entry
-# from being closed, the way xargs was; none is closed here, and enumerating them is not
-# the same as bounding them.
+# `flock /tmp/l git clean -fd` and `su -c "git clean -fd"`. None is closed here, and
+# enumerating them is not the same as bounding them.
 #
 # Text. These break the token run itself, so no alternation entry closes them and chasing
 # them is a matcher arms race this approach cannot win:
@@ -58,8 +57,9 @@ set -euo pipefail
 # alternation cannot consume, which leaves the whole command unmatched and allowed. Two
 # rules, not one: a single-dash token stops it when n or i appears anywhere in it (`-n`,
 # `-i`, `-fdn`), while a `--` token stops it only on the first letter after the dashes
-# being d or i — so `--dry-run` and `--interactive` are allowed while `--quiet`, `--force`
-# and `--exclude=-n` still block, as the assertions below pin. A token no alternative
+# being d or i — so `--dry-run` and `--interactive` are allowed while `--quiet` and
+# `--force` still block, as the assertions below pin, and so does `--exclude=-n`, which
+# was run against the hook body but is not pinned. A token no alternative
 # consumes at all, such as a bare `-`, stops it too. git need not agree that a stopping
 # token is a preview, and `--` is not what makes the difference: after `--` a flag is a
 # pathspec, so `git clean -fd -- build/ -n` deletes and is allowed (git 2.55.0), and in
