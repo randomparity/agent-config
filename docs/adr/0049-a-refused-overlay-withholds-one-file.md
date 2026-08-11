@@ -14,17 +14,14 @@ skills tree, `CLAUDE.md`, and the shared `content/` payload are all skipped too,
 `--agent all` — where Claude is first — a bad Claude overlay installs nothing whatsoever. 0043
 recorded that consequence and left it to issue #126.
 
-Independent review of #132 established what the abort actually costs, and it is not `settings.json`
-exposure **on a re-run**. Before 0043, an operator re-running with a clobbering overlay got the
-clobbered file *redeployed* — equally unguarded — so on that path the deployed settings file is no
-more exposed after the change than before, and the unguarded window was already unbounded. The
-claim does not extend to a *first* install, where pre-0043 deployed a merged file missing only the
-paths the overlay named and carrying every other guard; that gap is what the empty-destination rule
-below exists for. What is new is that an operator
-whose overlay is stale silently stops receiving *every* update for that agent, for a reason that
-concerns one file. The failure is loud about the settings file and silent about the rest: the
-message says no settings file was deployed, and an operator can reasonably read that as the whole
-of what stopped.
+Independent review of #132 established that the abort's cost is not `settings.json` exposure — a
+pre-0043 re-run with a clobbering overlay simply redeployed the clobbered file, equally unguarded —
+but the agent's whole managed tree. An operator whose overlay is stale silently stops receiving
+*every* update for that agent, for a reason that concerns one file. The failure is loud about the
+settings file and silent about the rest: the message says no settings file was deployed, and an
+operator can reasonably read that as the whole of what stopped. The one place the exposure
+comparison does not hold is a *first* install, where pre-0043 deployed a merged file carrying every
+guard the overlay did not name; that is what the empty-destination rule below exists for.
 
 There is a second residual. 0043's message can only say the deployed file "may already be missing
 these values", because nothing looks at it. The installer holds the base and can read the deployed
@@ -55,16 +52,23 @@ design spec carries.
 3. **A withheld destination path stays in the manifest.** A manifest that omits it instructs
    `prune_removed` to delete the deployed file. Withholding a deploy must never become deleting a
    deployment, and the abort used to stop before pruning where now it does not.
-4. **An empty destination gets the base.** Where the refused merge's destination holds no file at
-   all, the base alone is deployed and named as such. Nothing is overwritten and no operator value
-   is discarded, because there is nothing there; what it prevents is the one state this change
-   would otherwise create that is worse than anything before it — an instruction tree that assumes
-   the guards, deployed beside no settings file and therefore no guards at all.
-5. **The refusal reports what is live.** On refusal the installer compares the base against the
-   **deployed** file and says which protected base paths it is missing now, or that it carries them
-   all, or that it could not be read as JSON. Same derived-protected-set check, pointed at what is
-   loaded rather than at what would have been written. It only reports: a deliberate hand edit that
-   erased a guard is named and left exactly as the operator wrote it.
+4. **A wholly empty destination gets the base.** Where *every* destination path the refused merge
+   feeds holds no file, the base alone is deployed and named as such. It is not a repair and
+   overwrites nothing; the choice it settles is whether a fresh destination gets a guarded default
+   or nothing at all, beside an instruction tree that assumes the guards are there. What the
+   operator does not get is their overlay — but that is the refusal's doing, not this rule's, and
+   the alternative delivers no overlay *and* no guards. The condition is over the whole set, not
+   per path: Bob's one merged MCP document feeds two destinations, and filling only the empty one
+   would leave a single logical document as two files with different contents.
+5. **The refusal reports what is live.** On refusal the installer compares the base against each
+   **deployed** file and says whether it is the base alone — meaning no overlay of theirs has ever
+   applied — or carries every protected base path, or is missing some, or cannot be read as JSON.
+   Same derived-protected-set check, pointed at what is loaded rather than at what would have been
+   written. The base-alone verdict is what keeps rule 4's output from reading, on every later run,
+   as though the operator's configuration were in order. Where paths are missing, the report also
+   names `<dest>/.agent-config-backups/`, since the run that clobbered the file backed up its
+   predecessor there before replacing it. It only reports: a deliberate hand edit that erased a
+   guard is named and left exactly as the operator wrote it.
 
 The run then attempts every agent it was asked for, and exits non-zero having named the withheld
 paths. That summary is emitted from the existing `trap cleanup EXIT`, so a later unrelated hard
@@ -97,7 +101,10 @@ that file.
   the overlay is bad, and here is what your live file holds. Distinct wording is doing the work of
   keeping them apart.
 - An operator whose deployed file is already correct now learns that on a refused run, which is the
-  common case and reads as reassurance rather than as a second failure.
+  common case and reads as reassurance rather than as a second failure. A destination filled by
+  rule 4 is not that case and is not reported as it: it stays base-alone until the overlay is fixed,
+  and every refused run says so, because a state the installer created must not read like a state
+  the operator arrived at.
 - The check costs one extra `jq` invocation, on the refusal path only.
 - The report says nothing about whether the *overlay* would have repaired the deployed file, because
   the overlay was refused and no merged result exists to describe.
@@ -134,11 +141,12 @@ that file.
   gone that judgment is the only thing left driving a repair, so the saving comes out of the
   requirement rather than out of the decision.
 - **Repair the deployed file from the base.** Rejected wherever a deployed file exists: the only
-  thing available is the bare base, which discards every legitimate scalar override the operator has,
-  silently, in their home directory — answering a broken overlay by throwing away the working part of
-  it. That reason does not reach the empty destination, where there is nothing to discard, which is
-  why the decision above splits there rather than rejecting outright. The split is on "is anything
-  deployed", not on "is anything wrong with what is deployed", so it never overwrites.
+  thing available is the bare base, which discards every legitimate scalar override the operator
+  already has *running*, silently, in their home directory — answering a broken overlay by throwing
+  away the working part of it. Rule 4 is not an exception to that reason but a case it does not
+  reach: with nothing deployed there is no running configuration to discard, and the comparison is
+  against an absent file rather than a working one. The split is on "is anything deployed", not on
+  "is anything wrong with what is deployed", so it never overwrites.
 - **Validate every requested agent's overlays up front, before the first install.** Genuinely
   distinct: it puts all refusals at the top of the log rather than mid-stream, without depending on
   anything at the tail. Rejected because it either merges twice per agent or holds every merged

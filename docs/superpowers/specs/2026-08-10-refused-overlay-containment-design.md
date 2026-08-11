@@ -82,12 +82,14 @@ becomes: merge; on success install every destination path from the merged file; 
 
 Withholding a path means:
 
-1. **The base is deployed where nothing is deployed.** If the destination path holds no file, the
-   normalized base — `jq '.' base`, byte-identical to what a no-overlay install writes — is
-   installed there and named as such. Nothing is overwritten and no operator value is discarded,
-   because there is nothing there; what it prevents is a fresh destination receiving the full
-   instruction payload beside no settings file and therefore none of the base's guards. Where a
-   file *is* deployed, it is left exactly as it is.
+1. **The base is deployed where nothing at all is deployed.** If *every* destination path fed by
+   the refused merge holds no file, the normalized base — `jq '.' base`, byte-identical to what a
+   no-overlay install writes — is installed at each and named as such. Nothing is overwritten;
+   what it prevents is a fresh destination receiving the full instruction payload beside no
+   settings file and therefore none of the base's guards. The condition is over the whole set
+   because Bob's one merged MCP document feeds `mcp.json` and `mcp_settings.json`: filling only
+   the empty one would leave a single logical document as two files with different contents. If
+   any destination in the set holds a file, every path in that set is retained untouched.
 2. It is **added to the new manifest** either way. A manifest that omits it is a manifest that tells
    `prune_removed` to delete the deployed file — withholding a deploy must never become deleting a
    deployment. This is the one place where narrowing the abort could destroy operator data, and the
@@ -96,8 +98,14 @@ Withholding a path means:
    the end-of-run summary can name it. A path filled from the base is an ordinary `added`.
 4. For a path that was retained, the base is compared against the **deployed** file and the result
    reported:
+   - deployed file is byte-identical to the normalized base → say that no overlay has ever been
+     applied there. This is the state rule 1 leaves behind, and without its own verdict every later
+     refused run would report it as carrying every protected value — true, and reassuring about a
+     configuration the operator never got;
    - deployed file carries every protected base value → say so;
-   - deployed file is missing some → name them, and state the repair route;
+   - deployed file is missing some → name them, state the repair route, and name
+     `<dest>/.agent-config-backups/`, where the run that clobbered the file copied its predecessor
+     before replacing it;
    - deployed file cannot be read as JSON → say so and name it, without guessing.
 
 The comparison is `erased_base_paths base deployed` — the same derived-protected-set check the
@@ -154,10 +162,13 @@ Each is a test in `install-test.sh` unless noted.
 9. **An empty destination is filled from the base.** A refused Claude overlay against a destination
    with no deployed `settings.json` deploys the base: the file exists afterwards, carries the base's
    `hooks` and `permissions.deny`, and does *not* carry the overlay's value. The run still exits
-   non-zero. Reddens if the empty-destination rule is removed.
-10. **Bob's second MCP destination survives.** A refused Bob `mcp.overlay.json` against a destination
-    already holding `mcp.json` and `mcp_settings.json` leaves **both** present after the run reaches
-    `prune_removed`. Reddens if only one path is retained.
+   non-zero. Re-running reports it as base-alone rather than as carrying every protected value.
+   Reddens if the empty-destination rule or its base-alone verdict is removed.
+10. **Bob's two MCP destinations stay one document.** A refused Bob `mcp.overlay.json` against a
+    destination already holding `mcp.json` and `mcp_settings.json` leaves **both** present and
+    unchanged after the run reaches `prune_removed`. Against a destination holding only `mcp.json`,
+    neither is rewritten — the set is not wholly empty, so nothing is filled from the base.
+    Reddens if only one path is retained, or if the fill is evaluated per path.
 11. **A failed merge is not reported as a refusal.** With the merge forced to fail, the run exits
     non-zero and its output does not accuse the overlay of erasing base values.
 12. **The withheld summary survives a later hard failure.** The summary is emitted from the EXIT
