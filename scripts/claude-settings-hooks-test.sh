@@ -567,6 +567,12 @@ assert_blocked "$RG_HOOK" 'rg -r hook' 'rg -r foo src/'
 assert_allowed "$RG_HOOK" 'rg -r hook' 'rg -n foo src/'
 assert_allowed "$RG_HOOK" 'rg -r hook' 'rg -ln foo src/'
 
+# Each hook refusing the command it exists to catch, when it cannot evaluate it — issue #139's
+# acceptance criterion in the terms it was written in. The enumeration loop below covers the
+# same three columns for every hook against a benign payload, which is the stronger statement:
+# failing closed is a property of the hook, not of the command, since a guard that cannot read
+# its input does not know the command was benign either. These stay because a reader looking
+# for the criterion should find it named, not have to derive it from a loop.
 for stub in missing-jq broken-jq broken-grep; do
 	case $stub in
 	broken-grep) want='grep exited' ;;
@@ -575,13 +581,6 @@ for stub in missing-jq broken-jq broken-grep; do
 	assert_fails_closed "$RM_HOOK" 'rm -rf hook' "$stub" 'rm -rf /tmp/scratch' "$want"
 	assert_fails_closed "$PUSH_HOOK" 'push-to-main hook' "$stub" 'git push origin main' "$want"
 	assert_fails_closed "$RG_HOOK" 'rg -r hook' "$stub" 'rg -r foo src/' "$want"
-	# Failing closed is a property of the hook, not of the command: a guard that cannot read
-	# or evaluate its input does not know the command was benign either.
-	assert_fails_closed "$RM_HOOK" 'rm -rf hook' "$stub" 'ls -la' "$want"
-	assert_fails_closed "$CLEAN_HOOK" 'git clean hook' "$stub" 'git clean -n' "$want"
-	assert_fails_closed "$MASK_HOOK" 'masked exit hook' "$stub" 'just ci' "$want"
-	assert_fails_closed "$PUSH_HOOK" 'push-to-main hook' "$stub" 'git push origin feat/x' "$want"
-	assert_fails_closed "$RG_HOOK" 'rg -r hook' "$stub" 'rg -n foo src/' "$want"
 done
 
 # printf and echo resolve to builtins, so a broken one on PATH is never reached. Asserting
