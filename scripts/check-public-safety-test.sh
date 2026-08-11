@@ -166,4 +166,63 @@ if "$CHECKER" "$SCRATCH/repo" >"$SCRATCH/output" 2>&1; then
 fi
 rm -f "$SCRATCH/repo/bom.md"
 
+# A file can be tracked and ignored at once: `git add -f` on a path a .gitignore
+# or .ignore names puts it in the index, so it ships to everyone who clones this
+# public repo, while ripgrep's walk -- which applies those same rules to tracked
+# files -- never opens it. Before the gate named its tracked files explicitly it
+# printed nothing and exited 0 here, the same answer it gives for a clean tree.
+#
+# The suite unsets git's local environment so a caller's GIT_DIR or
+# GIT_INDEX_FILE cannot reach these fixtures (ADR 0044).
+while IFS= read -r variable; do
+	[ -n "$variable" ] || continue
+	unset "$variable"
+done < <(git rev-parse --local-env-vars)
+
+hidden_secret="token: $(printf '%s%s' 'ghp' '_abcdefghijklmnopqrstuvwxyz01')"
+
+for ignore_file in .gitignore .ignore; do
+	fixture="$SCRATCH/hidden-$ignore_file"
+	mkdir -p "$fixture/sub"
+	git init -q -b main "$fixture"
+	git -C "$fixture" config user.name 'Fixture Developer'
+	git -C "$fixture" config user.email fixture@example.invalid
+	printf '%s\n' "$hidden_secret" >"$fixture/sub/leak.txt"
+	printf 'sub/leak.txt\n' >"$fixture/$ignore_file"
+	git -C "$fixture" add -f sub/leak.txt "$ignore_file"
+	git -C "$fixture" commit -qm 'tracked but ignored'
+
+	# The premise: git ships it. If this stops holding the case proves nothing.
+	if ! git -C "$fixture" ls-files | grep -qF sub/leak.txt; then
+		printf 'public-safety-test: fixture is not tracked, case is void: %s\n' \
+			"$ignore_file" >&2
+		exit 1
+	fi
+	if "$CHECKER" "$fixture" >"$SCRATCH/output" 2>&1; then
+		printf 'public-safety-test: %s hid a secret in a tracked file\n' \
+			"$ignore_file" >&2
+		exit 1
+	fi
+done
+
+# The other half of the same rule: an ignored file that is *untracked* never
+# ships, so scanning it would fail the gate on host-specific content that is
+# ignored precisely to keep it out of the tracked tree -- CLAUDE.local.md here.
+# This is what a bare --no-ignore would break, and it must stay green.
+untracked="$SCRATCH/untracked-ignored"
+mkdir -p "$untracked"
+git init -q -b main "$untracked"
+git -C "$untracked" config user.name 'Fixture Developer'
+git -C "$untracked" config user.email fixture@example.invalid
+printf 'public content\n' >"$untracked/README.md"
+printf 'CLAUDE.local.md\n' >"$untracked/.gitignore"
+git -C "$untracked" add README.md .gitignore
+git -C "$untracked" commit -qm 'public seed'
+printf '%s\n' "$hidden_secret" >"$untracked/CLAUDE.local.md"
+if ! "$CHECKER" "$untracked" >"$SCRATCH/output" 2>&1; then
+	printf 'public-safety-test: an untracked ignored file must not fail the gate\n' >&2
+	cat "$SCRATCH/output" >&2
+	exit 1
+fi
+
 printf 'public-safety-test: ok\n'

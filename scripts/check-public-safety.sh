@@ -41,6 +41,30 @@ denied_patterns=(
 	'xox[baprs]-[A-Za-z0-9-]{20,}'
 )
 
+# ripgrep applies .gitignore, .ignore and .rgignore while walking, and it applies
+# them to tracked files too. `git add -f` on an ignored path produces a file that
+# is in the index -- it ships to everyone who clones this public repo -- and that
+# the walk below never opens, so the gate prints nothing and exits 0. That is a
+# false green on exactly the content this gate exists to catch.
+#
+# --no-ignore would close it by disabling ignore handling wholesale, but it also
+# pulls in ignored files that are *untracked* and therefore never ship: on this
+# host that is CLAUDE.local.md, .agent/campaigns/ and .superpowers/sdd/, five
+# files whose whole purpose is to hold host-specific identity out of the tracked
+# tree. Turning those red would fail every local `just verify` and every commit
+# through the pre-commit hook.
+#
+# Naming the tracked files instead scans what ships and nothing else: ripgrep
+# searches a path given explicitly on the command line whatever the ignore rules
+# say, so this covers every ignore mechanism rather than .gitignore alone. On a
+# tree with nothing hidden it is the same set the walk already covers.
+scan_targets=("${scan_paths[@]}")
+for scan_path in "${scan_paths[@]}"; do
+	while IFS= read -r -d '' tracked; do
+		scan_targets+=("$scan_path/$tracked")
+	done < <(git -C "$scan_path" ls-files -z 2>/dev/null)
+done
+
 status=0
 # --text: ripgrep judges a file binary on one NUL byte and skips it while
 # walking a directory, so a single NUL anywhere in a file hides every secret in
@@ -52,7 +76,7 @@ status=0
 # here is one, and a documented five-byte bypass is the worse half.
 for pattern in "${denied_patterns[@]}"; do
 	if rg -n --hidden --text --encoding none \
-		--glob '!.git' --glob '!.git/**' "$pattern" "${scan_paths[@]}"; then
+		--glob '!.git' --glob '!.git/**' "$pattern" "${scan_targets[@]}"; then
 		printf 'public-safety: denied pattern matched: %s\n' "$pattern" >&2
 		status=1
 	fi

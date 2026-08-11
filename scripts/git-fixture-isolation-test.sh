@@ -114,6 +114,7 @@ suites=(
 	content/skills/decision-records/assets/check-records-test.sh
 	scripts/check-deployed-membership-test.sh
 	scripts/check-ripgrep-config-test.sh
+	scripts/check-public-safety-test.sh
 )
 
 for suite in "${suites[@]}"; do
