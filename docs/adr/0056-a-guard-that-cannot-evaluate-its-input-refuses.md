@@ -52,7 +52,9 @@ hgrep() { printf '%s\n' "$1" | grep -qE "$2"; s=$?
 ```
 
 Status 0 is a match, 1 is a no-match, and anything above is a fault. `jq` is guarded by
-`CMD=$(jq -r …) || { … exit 2; }` in every hook, as the `git clean` guard already did.
+`CMD=$(jq -er …) || { … exit 2; }` in every hook. The `git clean` guard already checked
+`jq`'s status this way; the `-e` is new, and the paragraph on unreadable input below says
+what it adds.
 
 **Uniform, including the advisory hooks.** The obvious objection is that failing closed on
 the `rg -r` or masked-exit guard blocks ordinary work when a helper breaks. It does not,
@@ -128,6 +130,11 @@ fail-closed assertion alone would pass against a hook that blocks everything.
 
 None of this widens what the guards match. The matching behaviour with every helper healthy
 is unchanged, command for command.
+
+The sweep this record performs stops at the hook bodies. The same bare-`if` idiom survives in
+gate and helper scripts under `scripts/` and `.github/scripts/`, at mixed severity — the
+negated forms already fail closed and only misreport, the plain ones lose a finding. Issue
+#167 owns that sweep; this record does not claim it.
 
 ## Considered & rejected
 

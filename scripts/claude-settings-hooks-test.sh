@@ -162,19 +162,30 @@ run_hook_with_path() { # hook-command path-prefix command-string
 	printf '%s' "$payload" | PATH="$1:$PATH" bash -c "$2"
 }
 
-assert_fails_closed() { # hook-command label stub-dir command-string
+# The optional expected-substring argument is what makes these assertions bite. Exit status
+# alone does not distinguish a guard that refused because it detected the failure from one
+# that refused by accident — the masked-exit guard's awk branch is exactly that case: delete
+# its check and a broken awk still yields exit 2, via an empty extraction that loses the
+# pipefail exemption. Status-only assertions stayed green through that deletion. Naming the
+# helper in the message is also the entire benefit claimed for failing closed uniformly, so
+# leaving it unasserted would leave the change's rationale untested.
+assert_fails_closed() { # hook-command label stub-dir command-string [expected-substring]
 	local status=0 output
 	output=$(run_hook_with_path "$SCRATCH/$3" "$1" "$4" 2>&1) || status=$?
 	[[ $status == 2 ]] ||
 		fail "$2 must fail closed under $3 for [$4], got exit $status: $output"
 	[[ $output == BLOCKED:* ]] || fail "$2 must say why it failed closed under $3: $output"
+	[[ -z ${5:-} || $output == *"$5"* ]] ||
+		fail "$2 under $3 must name the failure ('$5') for [$4]: $output"
 }
 
-assert_unaffected_by() { # hook-command label stub-dir command-string expected-status
+assert_unaffected_by() { # hook-command label stub-dir command-string status [expected-substring]
 	local status=0 output
 	output=$(run_hook_with_path "$SCRATCH/$3" "$1" "$4" 2>&1) || status=$?
 	[[ $status == "$5" ]] ||
 		fail "$2 under $3 must still exit $5 for [$4], got $status: $output"
+	[[ -z ${6:-} || $output == *"$6"* ]] ||
+		fail "$2 under $3 must name the failure ('$6') for [$4]: $output"
 }
 
 # The strongest statement of fail-closed available without naming a helper: with no PATH at
@@ -223,7 +234,7 @@ assert_posix_agrees() { # hook-command label command-string expected-status
 # rest of them: a function that exits the shell from inside a `&&` chain and from inside a
 # `!` negation. Asserting them only under bash would leave the code this file exists to
 # prove POSIX exercised under one shell and claimed for another.
-assert_posix_fails_closed() { # hook-command label stub-dir command-string
+assert_posix_fails_closed() { # hook-command label stub-dir command-string [expected-substring]
 	local status=0 output payload
 	payload=$(jq -nc --arg command "$4" '{tool_input: {command: $command}}')
 	output=$(printf '%s' "$payload" | PATH="$SCRATCH/$3:$PATH" sh -c "$1" 2>&1) || status=$?
@@ -231,6 +242,8 @@ assert_posix_fails_closed() { # hook-command label stub-dir command-string
 		fail "$2 under sh must fail closed under $3 for [$4], got exit $status: $output"
 	[[ $output == BLOCKED:* ]] ||
 		fail "$2 under sh must say why it failed closed under $3: $output"
+	[[ -z ${5:-} || $output == *"$5"* ]] ||
+		fail "$2 under sh must name the failure ('$5') under $3: $output"
 }
 
 # Enumerated, not named. Everything else in this file reaches a hook through hook_command,
@@ -342,8 +355,8 @@ assert_blocked "$CLEAN_HOOK" 'git clean hook' $'git clean -n\ngit clean -fd'
 # A destructive guard that cannot read its input must not wave the command through. The full
 # helper-failure matrix for every hook is at the end of this file; this pair is the case the
 # guard was built around, kept beside the assertions it qualifies.
-assert_fails_closed "$CLEAN_HOOK" 'git clean hook' missing-jq 'git clean -fd'
-assert_fails_closed "$CLEAN_HOOK" 'git clean hook' broken-grep 'git clean -fd'
+assert_fails_closed "$CLEAN_HOOK" 'git clean hook' missing-jq 'git clean -fd' 'jq missing or failed'
+assert_fails_closed "$CLEAN_HOOK" 'git clean hook' broken-grep 'git clean -fd' 'grep exited'
 
 # Forms that cannot force-delete stay legal.
 assert_allowed "$CLEAN_HOOK" 'git clean hook' 'git clean -n'
@@ -502,17 +515,18 @@ assert_blocked "$MASK_HOOK" 'masked exit hook' $'cat >note.md <<EOF\njust ci | t
 # broken it is refused, though with awk healthy the exemption allows it. That is a false
 # positive, not a hole. Issue #113's text says the opposite and is wrong. Both halves are
 # pinned below.
-assert_fails_closed "$CLEAN_HOOK" 'git clean hook' broken-jq 'git clean -fd'
-assert_fails_closed "$MASK_HOOK" 'masked exit hook' missing-jq 'just ci | tail'
-assert_fails_closed "$MASK_HOOK" 'masked exit hook' broken-grep 'just ci | tail'
+assert_fails_closed "$CLEAN_HOOK" 'git clean hook' broken-jq 'git clean -fd' 'jq missing or failed'
+assert_fails_closed "$MASK_HOOK" 'masked exit hook' missing-jq 'just ci | tail' 'jq missing or failed'
+assert_fails_closed "$MASK_HOOK" 'masked exit hook' broken-grep 'just ci | tail' 'grep exited'
 # awk: refused where its answer is read, inert everywhere else. The first line is the
 # accepted false positive — with awk healthy this command is allowed, as the exemption
 # assertions above pin. The two `0` lines are what lazy placement buys: neither command
 # reaches the awk call, so a broken awk does not touch them.
-assert_fails_closed "$MASK_HOOK" 'masked exit hook' broken-awk 'set -o pipefail; just ci | tail -50'
+assert_fails_closed "$MASK_HOOK" 'masked exit hook' broken-awk \
+	'set -o pipefail; just ci | tail -50' 'awk exited'
 assert_unaffected_by "$MASK_HOOK" 'masked exit hook' broken-awk 'just ci | tee /tmp/ci.log' 0
 assert_unaffected_by "$MASK_HOOK" 'masked exit hook' broken-awk 'git status --porcelain' 0
-assert_unaffected_by "$MASK_HOOK" 'masked exit hook' broken-awk 'just ci | tail' 2
+assert_unaffected_by "$MASK_HOOK" 'masked exit hook' broken-awk 'just ci | tail' 2 'awk exited'
 
 # The three hooks that predate the two above had no assertions at all, and each read the
 # command without checking any helper's exit status. A fail-closed assertion on its own
@@ -540,7 +554,7 @@ assert_blocked "$PUSH_HOOK" 'push-to-main hook' 'git push origin master'
 	export GT_REFINERY=1
 	assert_allowed "$PUSH_HOOK" 'push-to-main hook under GT_REFINERY' 'git push origin main'
 	assert_fails_closed "$PUSH_HOOK" 'push-to-main hook under GT_REFINERY' missing-jq \
-		'git push origin main'
+		'git push origin main' 'jq missing or failed'
 	assert_unaffected_by "$PUSH_HOOK" 'push-to-main hook under GT_REFINERY' broken-grep \
 		'git push origin main' 0
 ) || exit 1
@@ -552,16 +566,20 @@ assert_allowed "$RG_HOOK" 'rg -r hook' 'rg -n foo src/'
 assert_allowed "$RG_HOOK" 'rg -r hook' 'rg -ln foo src/'
 
 for stub in missing-jq broken-jq broken-grep; do
-	assert_fails_closed "$RM_HOOK" 'rm -rf hook' "$stub" 'rm -rf /tmp/scratch'
-	assert_fails_closed "$PUSH_HOOK" 'push-to-main hook' "$stub" 'git push origin main'
-	assert_fails_closed "$RG_HOOK" 'rg -r hook' "$stub" 'rg -r foo src/'
+	case $stub in
+	broken-grep) want='grep exited' ;;
+	*) want='jq missing or failed' ;;
+	esac
+	assert_fails_closed "$RM_HOOK" 'rm -rf hook' "$stub" 'rm -rf /tmp/scratch' "$want"
+	assert_fails_closed "$PUSH_HOOK" 'push-to-main hook' "$stub" 'git push origin main' "$want"
+	assert_fails_closed "$RG_HOOK" 'rg -r hook' "$stub" 'rg -r foo src/' "$want"
 	# Failing closed is a property of the hook, not of the command: a guard that cannot read
 	# or evaluate its input does not know the command was benign either.
-	assert_fails_closed "$RM_HOOK" 'rm -rf hook' "$stub" 'ls -la'
-	assert_fails_closed "$CLEAN_HOOK" 'git clean hook' "$stub" 'git clean -n'
-	assert_fails_closed "$MASK_HOOK" 'masked exit hook' "$stub" 'just ci'
-	assert_fails_closed "$PUSH_HOOK" 'push-to-main hook' "$stub" 'git push origin feat/x'
-	assert_fails_closed "$RG_HOOK" 'rg -r hook' "$stub" 'rg -n foo src/'
+	assert_fails_closed "$RM_HOOK" 'rm -rf hook' "$stub" 'ls -la' "$want"
+	assert_fails_closed "$CLEAN_HOOK" 'git clean hook' "$stub" 'git clean -n' "$want"
+	assert_fails_closed "$MASK_HOOK" 'masked exit hook' "$stub" 'just ci' "$want"
+	assert_fails_closed "$PUSH_HOOK" 'push-to-main hook' "$stub" 'git push origin feat/x' "$want"
+	assert_fails_closed "$RG_HOOK" 'rg -r hook' "$stub" 'rg -n foo src/' "$want"
 done
 
 # printf and echo resolve to builtins, so a broken one on PATH is never reached. Asserting
@@ -599,9 +617,9 @@ while IFS= read -r body; do
 	[[ -n $body ]] || continue
 	hook_count=$((hook_count + 1))
 	assert_fails_closed_without_path "$body" "PreToolUse hook $hook_count" 'git status'
-	assert_fails_closed "$body" "PreToolUse hook $hook_count" missing-jq 'git status'
-	assert_fails_closed "$body" "PreToolUse hook $hook_count" broken-jq 'git status'
-	assert_fails_closed "$body" "PreToolUse hook $hook_count" broken-grep 'git status'
+	assert_fails_closed "$body" "PreToolUse hook $hook_count" missing-jq 'git status' 'jq missing or failed'
+	assert_fails_closed "$body" "PreToolUse hook $hook_count" broken-jq 'git status' 'jq missing or failed'
+	assert_fails_closed "$body" "PreToolUse hook $hook_count" broken-grep 'git status' 'grep exited'
 	# Input the hook cannot read a command out of, which is the same failure as a helper it
 	# cannot run: `jq -r` prints the string "null" for an absent field and exits 0, so
 	# without -e each guard matched its patterns against the literal text "null", found
@@ -651,16 +669,17 @@ else
 	# and each is checked: the `&&` chain in the rm -rf guard, the plain `if` in the git clean
 	# guard, and the `||`-tested call in the masked-exit guard's pipefail branch. A function
 	# that exits from inside a compound command is where a shell difference would show up.
-	assert_posix_fails_closed "$RM_HOOK" 'rm -rf hook' broken-grep 'rm -rf /tmp/scratch'
-	assert_posix_fails_closed "$CLEAN_HOOK" 'git clean hook' broken-grep 'git clean -fd'
-	assert_posix_fails_closed "$MASK_HOOK" 'masked exit hook' broken-grep 'just ci | tail'
-	assert_posix_fails_closed "$PUSH_HOOK" 'push-to-main hook' broken-grep 'git push origin main'
-	assert_posix_fails_closed "$RG_HOOK" 'rg -r hook' broken-grep 'rg -r foo src/'
-	assert_posix_fails_closed "$CLEAN_HOOK" 'git clean hook' missing-jq 'git clean -fd'
+	assert_posix_fails_closed "$RM_HOOK" 'rm -rf hook' broken-grep 'rm -rf /tmp/scratch' 'grep exited'
+	assert_posix_fails_closed "$CLEAN_HOOK" 'git clean hook' broken-grep 'git clean -fd' 'grep exited'
+	assert_posix_fails_closed "$MASK_HOOK" 'masked exit hook' broken-grep 'just ci | tail' 'grep exited'
+	assert_posix_fails_closed "$PUSH_HOOK" 'push-to-main hook' broken-grep \
+		'git push origin main' 'grep exited'
+	assert_posix_fails_closed "$RG_HOOK" 'rg -r hook' broken-grep 'rg -r foo src/' 'grep exited'
+	assert_posix_fails_closed "$CLEAN_HOOK" 'git clean hook' missing-jq 'git clean -fd' 'jq missing or failed'
 	# The awk branch reached only under sh: a broken awk must still refuse rather than crash
 	# through, and must leave a command that matches no masking pattern alone.
 	assert_posix_fails_closed "$MASK_HOOK" 'masked exit hook' broken-awk \
-		'set -o pipefail; just ci | tail -50'
+		'set -o pipefail; just ci | tail -50' 'awk exited'
 	assert_posix_agrees "$MASK_HOOK" 'masked exit hook' 'set -o pipefail; just ci | tail -50' 0
 	posix_verdict="POSIX assertions ran under $POSIX_SHELL"
 fi
