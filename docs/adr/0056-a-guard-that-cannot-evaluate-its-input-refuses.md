@@ -174,6 +174,16 @@ not stop work it cannot justify stopping. Rejected: that is the current behaviou
 the defect. A destructive-operation guard that cannot read the command has no basis for
 believing the command is safe.
 
+**Define `hgrep` once and share it.** The five copies are near-identical and an obvious
+target for extraction, but there is nowhere to put it. Each hook is a separate `command`
+string that Claude Code runs as its own shell, with no shared prelude and no file it sources;
+factoring the helper out means shipping a new installed file and having every hook depend on
+it. That trades a duplicated eight-line function for a new failure mode in which the file is
+absent, unreadable, or stale — and a hook whose helper cannot be sourced fails open again,
+which is the defect this record exists to close. The duplication is the cheaper risk. The
+residual cost is that the copies can drift, which they already have: issue #165 owns the
+`echo` versus `printf '%s\n'` difference between them.
+
 **Rely on `permissions.deny`.** Rejected: those entries are prefix globs over the simple
 uncompounded command and cannot reach a compounded, wrapped, or `-C`-qualified `git clean`.
 Issue #111 proposed removing them and was closed won't-fix, so they remain — as a backstop,

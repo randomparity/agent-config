@@ -209,12 +209,14 @@ assert_fails_closed_without_path() { # hook-command label command-string
 
 # Feeds a raw payload rather than a command string: these cases are about input the hook
 # cannot read a command out of, which run_hook's jq -n construction can never produce.
-assert_payload_fails_closed() { # hook-command label payload description
+assert_payload_fails_closed() { # hook-command label payload description [expected-substring]
 	local status=0 output
 	output=$(printf '%s' "$3" | bash -c "$1" 2>&1) || status=$?
 	[[ $status == 2 ]] ||
 		fail "$2 must fail closed on $4, got exit $status: $output"
 	[[ $output == *BLOCKED:* ]] || fail "$2 must say why it failed closed on $4: $output"
+	[[ -z ${5:-} || $output == *"$5"* ]] ||
+		fail "$2 must name the failure ('$5') on $4: $output"
 }
 
 assert_payload_allowed() { # hook-command label payload description
@@ -355,7 +357,7 @@ assert_blocked "$CLEAN_HOOK" 'git clean hook' $'git clean -n\ngit clean -fd'
 # A destructive guard that cannot read its input must not wave the command through. The full
 # helper-failure matrix for every hook is at the end of this file; this pair is the case the
 # guard was built around, kept beside the assertions it qualifies.
-assert_fails_closed "$CLEAN_HOOK" 'git clean hook' missing-jq 'git clean -fd' 'jq missing or failed'
+assert_fails_closed "$CLEAN_HOOK" 'git clean hook' missing-jq 'git clean -fd' 'could not read a command out of the tool input'
 assert_fails_closed "$CLEAN_HOOK" 'git clean hook' broken-grep 'git clean -fd' 'grep exited'
 
 # Forms that cannot force-delete stay legal.
@@ -515,8 +517,8 @@ assert_blocked "$MASK_HOOK" 'masked exit hook' $'cat >note.md <<EOF\njust ci | t
 # broken it is refused, though with awk healthy the exemption allows it. That is a false
 # positive, not a hole. Issue #113's text says the opposite and is wrong. Both halves are
 # pinned below.
-assert_fails_closed "$CLEAN_HOOK" 'git clean hook' broken-jq 'git clean -fd' 'jq missing or failed'
-assert_fails_closed "$MASK_HOOK" 'masked exit hook' missing-jq 'just ci | tail' 'jq missing or failed'
+assert_fails_closed "$CLEAN_HOOK" 'git clean hook' broken-jq 'git clean -fd' 'could not read a command out of the tool input'
+assert_fails_closed "$MASK_HOOK" 'masked exit hook' missing-jq 'just ci | tail' 'could not read a command out of the tool input'
 assert_fails_closed "$MASK_HOOK" 'masked exit hook' broken-grep 'just ci | tail' 'grep exited'
 # awk: refused where its answer is read, inert everywhere else. The first line is the
 # accepted false positive — with awk healthy this command is allowed, as the exemption
@@ -554,7 +556,7 @@ assert_blocked "$PUSH_HOOK" 'push-to-main hook' 'git push origin master'
 	export GT_REFINERY=1
 	assert_allowed "$PUSH_HOOK" 'push-to-main hook under GT_REFINERY' 'git push origin main'
 	assert_fails_closed "$PUSH_HOOK" 'push-to-main hook under GT_REFINERY' missing-jq \
-		'git push origin main' 'jq missing or failed'
+		'git push origin main' 'could not read a command out of the tool input'
 	assert_unaffected_by "$PUSH_HOOK" 'push-to-main hook under GT_REFINERY' broken-grep \
 		'git push origin main' 0
 ) || exit 1
@@ -568,7 +570,7 @@ assert_allowed "$RG_HOOK" 'rg -r hook' 'rg -ln foo src/'
 for stub in missing-jq broken-jq broken-grep; do
 	case $stub in
 	broken-grep) want='grep exited' ;;
-	*) want='jq missing or failed' ;;
+	*) want='could not read a command out of the tool input' ;;
 	esac
 	assert_fails_closed "$RM_HOOK" 'rm -rf hook' "$stub" 'rm -rf /tmp/scratch' "$want"
 	assert_fails_closed "$PUSH_HOOK" 'push-to-main hook' "$stub" 'git push origin main' "$want"
@@ -617,8 +619,8 @@ while IFS= read -r body; do
 	[[ -n $body ]] || continue
 	hook_count=$((hook_count + 1))
 	assert_fails_closed_without_path "$body" "PreToolUse hook $hook_count" 'git status'
-	assert_fails_closed "$body" "PreToolUse hook $hook_count" missing-jq 'git status' 'jq missing or failed'
-	assert_fails_closed "$body" "PreToolUse hook $hook_count" broken-jq 'git status' 'jq missing or failed'
+	assert_fails_closed "$body" "PreToolUse hook $hook_count" missing-jq 'git status' 'could not read a command out of the tool input'
+	assert_fails_closed "$body" "PreToolUse hook $hook_count" broken-jq 'git status' 'could not read a command out of the tool input'
 	assert_fails_closed "$body" "PreToolUse hook $hook_count" broken-grep 'git status' 'grep exited'
 	# Input the hook cannot read a command out of, which is the same failure as a helper it
 	# cannot run: `jq -r` prints the string "null" for an absent field and exits 0, so
@@ -626,7 +628,8 @@ while IFS= read -r body; do
 	# nothing, and permitted the call. Malformed JSON was already covered — jq fails to
 	# parse and the || fires — so these three are the cases that were not.
 	assert_payload_fails_closed "$body" "PreToolUse hook $hook_count" \
-		'{"tool_input":{}}' 'a payload with no command field'
+		'{"tool_input":{}}' 'a payload with no command field' \
+		'could not read a command out of the tool input'
 	assert_payload_fails_closed "$body" "PreToolUse hook $hook_count" \
 		'{}' 'a payload with no tool_input'
 	assert_payload_fails_closed "$body" "PreToolUse hook $hook_count" \
@@ -675,7 +678,7 @@ else
 	assert_posix_fails_closed "$PUSH_HOOK" 'push-to-main hook' broken-grep \
 		'git push origin main' 'grep exited'
 	assert_posix_fails_closed "$RG_HOOK" 'rg -r hook' broken-grep 'rg -r foo src/' 'grep exited'
-	assert_posix_fails_closed "$CLEAN_HOOK" 'git clean hook' missing-jq 'git clean -fd' 'jq missing or failed'
+	assert_posix_fails_closed "$CLEAN_HOOK" 'git clean hook' missing-jq 'git clean -fd' 'could not read a command out of the tool input'
 	# The awk branch reached only under sh: a broken awk must still refuse rather than crash
 	# through, and must leave a command that matches no masking pattern alone.
 	assert_posix_fails_closed "$MASK_HOOK" 'masked exit hook' broken-awk \
