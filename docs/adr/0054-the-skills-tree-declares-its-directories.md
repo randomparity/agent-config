@@ -22,13 +22,10 @@ files; the 96 it does not cover sit in 36 skill directories, any number of which
 in a merge nobody read closely.
 
 The churn objection does not reach directory granularity, and 0045 said so when it listed the
-alternative it was rejecting. `git log --diff-filter=A -- 'content/skills/*/SKILL.md'` names
-exactly two commits that ever introduced a top-level skill directory. Declaring the *set* of
-directories costs one line per skill against a base rate of two edits in the repository's
-history.
-
-0045 rejected that alternative on **shape**, not cost: "this gate compares one flat set of
-files, and a tree compared at a different granularity puts two comparison rules in one script.
+alternative it was rejecting: `git log --diff-filter=A -- 'content/skills/*/SKILL.md'` names
+exactly two commits that ever introduced a top-level skill directory. 0045 rejected that
+alternative on **shape**, not cost — "this gate compares one flat set of files, and a tree
+compared at a different granularity puts two comparison rules in one script.
 `check-skill-layout.sh` already enumerates those children and is the natural home."
 
 ## Decision
@@ -41,8 +38,10 @@ grounds.
 *The objection counts rules where there is one.* What the gate asserts is set equality between
 what a wholesale-installed tree contains and what a list declares. That rule does not change
 here; only the enumerator does — `find <trees> ! -type d` for the three file-granularity trees,
-`find content/skills ! -path content/skills -prune` for the one whose unit of delivery is the
-directory. Two enumerators feeding one comparison is not two comparison rules, and the script
+and for the one whose unit of delivery is the directory, its top-level children not descended
+into (`find "$root" ! -path "$root" -prune`, the idiom `validate_inventory` already uses, over
+the `$ROOT`-absolute path the script builds for every tree).
+Two enumerators feeding one comparison is not two comparison rules, and the script
 already carries per-tree structure: a tree filter, a surviving-tree list, and a member class
 (`non-regular-member`) that is a property of enumerated entries rather than of the manifest.
 
@@ -65,21 +64,24 @@ environmental failures are indistinguishable from its findings.
 
 **The declared unit is the directory name, not the directory plus its required file.**
 `content/skills/<name>/SKILL.md` is already required of every top-level child by
-`check-skill-layout.sh`'s `validate_inventory`, so declaring it here would be a second copy of a
-rule that already has an owner and a suite.
+`check-skill-layout.sh`'s `validate_inventory`. The line between what this gate re-checks and
+what it leaves to that one is **containment, not duplication**: a declared name resolving to a
+symlink makes the declaration itself dishonest, because one line then admits whatever the target
+resolves to on the user's machine, whereas a declared directory with no `SKILL.md` leaves the
+declaration accurate and only the skill malformed.
 
-**Present entries are compared by name whatever their type, and an entry that is not a directory
-is additionally a finding.** This is 0045's `non-regular-member` rule at the other granularity
-and for the same reason: `cp -pR` preserves a symlink and `find -prune` does not descend one, so
-a declared name that resolves to a symlink would admit an unbounded subtree behind one
-declaration. `check-skill-layout.sh` also refuses such an entry; the overlap is deliberate,
-because a membership verdict that depends on a sibling gate still being red is not a verdict
-this script can make.
+**So present entries are compared by name whatever their type, and an entry that is not a
+directory is additionally a finding.** That is 0045's `non-regular-member` rule at the other
+granularity and for its reason: `cp -pR` preserves a symlink and `find -prune` does not descend
+one. `check-skill-layout.sh` refuses such an entry too, and the overlap is what the containment
+rule costs to hold here on its own.
 
-**The three-tree block emits first, unchanged, followed by the skills block.** Findings, remedy
-line and summary all keep their existing text and order for the three trees, so 0045's suite
-rows continue to assert the same bytes. The summary gains one clause naming the declared
-directory count.
+**The three-tree block emits first, followed by the skills block.** The three trees' finding
+classes, remedy line and emission order are unchanged, so 0045's suite rows that pin a whole
+finding sequence keep asserting the same bytes. The summary gains one clause naming the declared
+directory count, so every row that pins the summary in full — the pass rows — has that expected
+string edited once, and the suite derives the directory count from the fixture it builds, the
+way it already derives the member count, rather than pinning a literal.
 
 ## Consequences
 
@@ -105,6 +107,11 @@ directory count.
     0045 records this and it is unchanged.
   - *Directory names only.* The gate says nothing about whether a declared skill should ship, or
     what it contains.
+  - *The sibling gate this record argues from is itself undisciplined.* `check-skill-layout.sh`
+    exits 1 for every condition it names, including a missing `reserved-skill-names.txt` and an
+    unwritable scan sink, so a fault there is indistinguishable from a finding. The siting
+    argument above leans on that and does not fix it — the sibling gates were outside this
+    change. Issue #158 owns it.
 - The repository now has two answers to "what installs for every user" in one script and at two
   granularities. A reader has to know which tree they are asking about; the summary line names
   both counts so the split is visible rather than inferred.
@@ -115,15 +122,22 @@ directory count.
 ## Considered & rejected
 
 - **Put the declaration in `check-skill-layout.sh`, as 0045 proposed.** The closest thing to a
-  settled position, and the issue names it too. Rejected on the three grounds in the Decision:
-  it mixes shape with membership, it splits the deployment answer across two scripts, and it
-  would need 0045's fault-versus-finding discipline rebuilt in a script whose every condition
-  exits 1. A narrower version of the same argument: every fixture in
-  `check-skill-layout-test.sh` would have to carry a declaration matching its own one-skill
-  tree, so the rule's cost lands on 60-odd existing cases that are about something else.
-- **Declare directories *and* their `SKILL.md`.** Rejected: `validate_inventory` already
-  requires that file of every child, with its own cases. A second copy of a rule is a place for
-  the two to disagree.
+  settled position, and the issue names it too. Rejected on the three grounds in the Decision,
+  plus one they do not cover: every fixture in `check-skill-layout-test.sh` builds a one-skill
+  tree and would have to carry a declaration matching it, so the rule's cost lands on 60-odd
+  existing cases that are about something else.
+- **Declare `content/skills/*/SKILL.md` as ordinary file members instead of declaring
+  directories.** The smallest alternative available — no second granularity, no new member
+  class, and the existing `non-regular-member` rule covers a symlinked `SKILL.md` unchanged.
+  Rejected because it does not answer the question asked. The bijection with the directory set
+  holds only while `validate_inventory` stays red on a child lacking that file, so a directory
+  shipped with an `assets/` payload and no `SKILL.md` is invisible to this enumeration while
+  `cp -pR` deploys it — the acceptance criterion is that a new undeclared *directory* fails
+  *this* gate. It needs a second enumerator regardless: adding `content/skills` to the existing
+  tree list enumerates all 96 files, not the 36.
+- **Declare directories *and* their `SKILL.md`.** Rejected on the containment line in the
+  Decision: the required file is `validate_inventory`'s rule with its own cases, and a declared
+  directory missing it is malformed rather than unbounded.
 - **Declare the 96 files inside the directories as well.** Rejected on the cost argument 0045
   made and this record does not disturb: 132 commits touched `content/skills` in the last 90
   days, and a per-file manifest would make most of them two-part edits. Recorded above as the

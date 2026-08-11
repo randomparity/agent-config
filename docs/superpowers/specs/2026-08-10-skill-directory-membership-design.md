@@ -94,9 +94,10 @@ undeclared one reports `unexpected-skill-entry` and `non-directory-skill-entry` 
 
 `check-skill-layout.sh` refuses the same entries — `validate_portable_tree` forbids a symlink
 anywhere under the tree and `validate_inventory` requires every child to be a real directory.
-The overlap is deliberate: a membership verdict that is only correct while a sibling gate stays
-red is not a verdict this script can make, and 0045 already accepts the same overlap for
-`non-regular-member`.
+The overlap is what record 0054's containment line costs: a symlink makes the declaration itself
+unbounded, so this gate has to hold that on its own, while the `SKILL.md` every child must carry
+stays `validate_inventory`'s rule alone because a directory lacking it is malformed rather than
+unbounded.
 
 ### Comparison
 
