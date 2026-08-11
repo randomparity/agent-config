@@ -409,11 +409,131 @@ erased_base_paths() { # base merged
 	'
 }
 
+# Carries the same one-object test the merge makes, because this is the other way a base
+# reaches a destination: with no overlay present at all, and on ADR 0049's empty-destination
+# fill. A bare `jq '.'` emits both documents of a two-document base and passes `[]` straight
+# through, so a malformed base would deploy verbatim under a green run and the file the
+# agent loads would be missing every guard the base defines (ADR 0052).
 render_base() { # base output
-	if ! jq '.' "$1" >"$2"; then
+	if ! jq -s --arg base "$1" '
+		if length == 1 and (.[0] | type) == "object" then .[0]
+		else error("base settings \($base) are not exactly one JSON object")
+		end
+	' "$1" >"$2"; then
 		printf 'install: could not read base settings: %s\n' "$1" >&2
 		exit 1
 	fi
+}
+
+# `<document count><TAB><type of the sole document>`; the type is empty unless the count
+# is 1. `-s` slurps the file's whole *value stream*, which is exactly the property the
+# merge below relies on and cannot see: a file holding two objects yields 2 here and
+# reaches `.[1]` as one there.
+overlay_shape() { # overlay
+	jq -s -r '[length, (if length == 1 then (.[0] | type) else "" end)] | @tsv' "$1"
+}
+
+# Same three things the protected-key refusal says — name the overlay, say what is wrong,
+# say what to do — for the shapes that used to abort the run with a raw jq message naming
+# the base's contents and no remedy (ADR 0052). Never names the base: the operator's file
+# is the subject of every one of these.
+report_overlay_shape() { # overlay problem remedy...
+	local overlay="$1"
+	local problem="$2"
+	local line
+
+	shift 2
+	printf 'install: private overlay %s %s\n' "$overlay" "$problem" >&2
+	for line in "$@"; do
+		printf 'install:   %s\n' "$line" >&2
+	done
+	printf 'install: an overlay must be exactly one JSON object (ADR 0052).\n' >&2
+}
+
+# Returns non-zero for a refusal, and prints the verdict that goes with it. The caller
+# treats that exactly as it treats a protected-key refusal, so a malformed overlay
+# withholds the destination set the merge feeds and nothing else (ADR 0049).
+#
+# A failure of `overlay_shape` itself is read as "this file is not JSON". jq's exit status
+# does not separate an unparseable input from a broken jq, and the check's whole subject is
+# the operator's file — the same call `report_deployed_state` already makes about a
+# deployed file. Either way it is a refusal, so nothing derived from the overlay is
+# written; and a jq that is genuinely broken fails `render_base` on the next line with its
+# own message.
+overlay_is_one_object() { # overlay
+	local overlay="$1"
+	local shape
+	local count
+	local kind
+	local bytes
+	local text_bytes
+
+	# The two checks below this one are byte-level on purpose. The shape check reads the
+	# overlay through jq, which is the same reader the merge uses, so it can only ever
+	# confirm that reader's own blind spots — a file jq truncates identically in both places
+	# is reported as sound in both places. Each of these is a thing jq's answer cannot
+	# disagree with, and both are shapes where jq's answer is wrong (ADR 0052).
+	#
+	# jq's lexer stops at a NUL, so `{"a":1}\000{"b":2}` slurps to *one* object: the shape
+	# check passes it, the merge reads the same one document, and the second object is
+	# discarded on a green `applied private overlay` — precisely the defect this precondition
+	# exists to close. It also catches UTF-16 and UTF-32, which are full of NUL bytes and
+	# would otherwise be reported as containing no JSON value at all.
+	#
+	# Redirection failures are discarded like the tool stderr below: an unreadable overlay
+	# would otherwise print bash's own `Permission denied` ahead of the verdict. It then
+	# reads as zero-length and unchanged by `tr`, and falls through to the shape check,
+	# which is the one that reports it.
+	bytes="$({ wc -c <"$overlay"; } 2>/dev/null)"
+	text_bytes="$({ tr -d '\000' <"$overlay" | wc -c; } 2>/dev/null)"
+	if [[ "$bytes" -ne "$text_bytes" ]]; then
+		report_overlay_shape "$overlay" 'contains a NUL byte, so it is not UTF-8 JSON text' \
+			'jq stops reading at the NUL, so anything after it is silently discarded. The' \
+			'file is either corrupt or saved as UTF-16 or UTF-32; re-save it as UTF-8.'
+		return 1
+	fi
+
+	# Ahead of the shape check, because the shape check cannot see it. jq strips a UTF-8
+	# byte-order mark only at offset 0 of its concatenated input stream, so an overlay
+	# carrying one parses cleanly when jq reads it alone and fails as the merge's *second*
+	# input: the check would pass the file and the merge would abort the run with the raw
+	# parse error this whole precondition exists to remove. It gets a verdict of its own
+	# rather than folding into the one below, because `jq . <overlay>` — the remedy that
+	# verdict prints — succeeds on it and shows the operator a well-formed object. Its stderr
+	# is discarded like `overlay_shape`'s below, or an unreadable overlay would print
+	# `head: cannot open ...` ahead of the verdict — the raw tool message this replaces.
+	if [[ "$(head -c 3 "$overlay" 2>/dev/null)" == $'\357\273\277' ]]; then
+		report_overlay_shape "$overlay" 'begins with a UTF-8 byte-order mark' \
+			'The mark is invisible in an editor and jq accepts the file on its own, but' \
+			'the merge reads it second and stops there. Save the file as UTF-8 with no BOM.'
+		return 1
+	fi
+
+	if ! shape="$(overlay_shape "$overlay" 2>/dev/null)"; then
+		report_overlay_shape "$overlay" 'is not valid JSON' \
+			"Run: jq . '$overlay'"
+		return 1
+	fi
+	IFS=$'\t' read -r count kind <<<"$shape" || true
+
+	if [[ "$count" -eq 0 ]]; then
+		report_overlay_shape "$overlay" 'contains no JSON value' \
+			'An empty or whitespace-only file is not an overlay. Delete it to install' \
+			'the base alone, or write a JSON object into it.'
+		return 1
+	fi
+	if [[ "$count" -gt 1 ]]; then
+		report_overlay_shape "$overlay" "contains $count JSON values, not one" \
+			'Everything after the first would be discarded. Merge them into a single' \
+			'JSON object.'
+		return 1
+	fi
+	if [[ "$kind" != object ]]; then
+		report_overlay_shape "$overlay" "is a JSON $kind, not an object" \
+			'Its top-level value must be an object, such as {"env": {"KEY": "value"}}.'
+		return 1
+	fi
+	return 0
 }
 
 # Refusal returns; every other failure exits. The distinction is load-bearing rather
@@ -437,7 +557,24 @@ merge_json_settings() {
 		return 0
 	fi
 
-	if ! jq -s '.[0] * .[1]' "$base" "$overlay" >"$output"; then
+	# Before the merge, because `.[1]` below reads one document out of a stream and cannot
+	# report what it left behind (ADR 0052).
+	if ! overlay_is_one_object "$overlay"; then
+		unlink "$output"
+		return 1
+	fi
+
+	# `-s` slurps *both* files into one array, so `.[1]` is the overlay only while the base
+	# is one document too: a two-document base would push the overlay to `.[2]` and merge
+	# the base with itself, under a green `applied private overlay`. This test is what makes
+	# `.[1]` correct rather than accidentally correct, and it is a hard failure rather
+	# than a refusal because the base is this repository's file — a malformed one is a defect
+	# here, not a mistake the operator can fix (ADR 0052).
+	if ! jq -s --arg base "$base" '
+		if length == 2 and (.[0] | type) == "object" then .[0] * .[1]
+		else error("base settings \($base) are not exactly one JSON object")
+		end
+	' "$base" "$overlay" >"$output"; then
 		printf 'install: could not merge private overlay %s into %s\n' "$overlay" "$base" >&2
 		exit 1
 	fi
