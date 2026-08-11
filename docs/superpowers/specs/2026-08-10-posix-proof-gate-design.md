@@ -45,9 +45,21 @@ Two halves, landing together:
    it, and any environment change that takes the proving ground away turns that step red.
 
 A third piece keeps the guard from shipping inert: a suite beside it,
-`scripts/claude-settings-posix-guard-test.sh`, puts a `sh` that is really bash on `PATH`
-and asserts that the hooks suite fails under the requirement and still skips cleanly
-without it. It runs on every leg and every developer host through `just test`.
+`scripts/claude-settings-posix-guard-test.sh`, which asserts two things on every leg and
+every developer host through `just test`.
+
+1. **The guard bites.** With a `sh` that is really bash on `PATH`, the hooks suite must fail
+   under the requirement and must still skip cleanly without it.
+2. **The wiring is present.** `.github/workflows/verify.yml` must still set
+   `POSIX_ASSERTIONS_REQUIRED` to `1`. This is the only defence against the axis the value
+   validation cannot reach: a mistyped key, a job-level shadow, or a step refactor that drops
+   the line leaves the variable unset, and on a dash runner an unset variable and a correct
+   one produce identical output. The difference would surface only on the day the image
+   drifts, which is the one day the gate had to work.
+
+The refusal message names the variable, the shell that failed the test, and the two ways
+out — give the step a POSIX `sh`, or fix the hook bodies — because the operator who meets it
+will be meeting it years from now with no context.
 
 ## Behaviour
 
@@ -58,7 +70,7 @@ without it. It runs on every leg and every developer host through `just test`.
 | no | unset / empty | assertions run; `ok (POSIX assertions ran under <path>)` |
 | no | `1` | assertions run; identical output — the requirement is already met |
 | yes | unset / empty | skip notice; `ok (POSIX assertions SKIPPED)` — unchanged from #112 |
-| yes | `1` | `fail` with exit 1, naming the shell and the variable |
+| yes | `1` | `fail` with exit 1, naming the shell, the variable and the way out |
 | either | any other non-empty value | `fail` with exit 1, naming the variable and `1` |
 
 The value is validated rather than merely tested for emptiness. Matching only the literal

@@ -36,17 +36,28 @@ predicate is consulted, so a workflow that says `true` reds on every host rather
 sitting green until the day the gate is needed. Unset or empty leaves #112's skip as
 shipped: same condition, same notice, same verdict line, same exit status.
 
-`verify` is the home because it is the one job the matrix cannot reach. The matrix legs are
-left alone: the ubuntu leg still proves the property as a by-product and macOS still skips.
-Two sentences in the suite's POSIX region name that leg as the sole proving ground and point
-at #136 as open work; both stop being true here and are corrected in the same change. What
-the notice says changes; what it does does not.
+The matrix legs are left alone: the ubuntu leg still proves the property as a by-product and
+macOS still skips. Two sentences in the suite's POSIX region name that leg as the sole
+proving ground and point at #136 as open work; both stop being true here and are corrected
+in the same change, without touching what the skip does.
 
-The bound is deliberate. Removed are the routes that take the proving ground away as a side
-effect of an unrelated decision — the leg dropped from the matrix, the leg moved into a
-container — and image drift becomes a red build. Deleting the step or its `env:` line is not
-defended against: it returns the suite to the skip branch and a green log, and
-`verify.runs-on` is now load-bearing in the way `matrix.os` was.
+The delta against putting the same variable on the ubuntu leg is narrower than it looks,
+and stating it honestly is the point of the record. On that leg the variable travels with
+the step, so image drift and a move into a container both red there too. What only this
+placement survives is the leg being dropped from the matrix, and the general case behind it:
+the guarantee stops depending on which operating systems the matrix lists.
+
+Against a missing or mistyped `env:` key nothing on a dash runner can help — a wired gate and
+an inert one produce identical output there, and diverge only on the day the gate is needed.
+So the wiring itself is asserted from the repository side:
+`scripts/claude-settings-posix-guard-test.sh` fails when `.github/workflows/verify.yml` stops
+setting `POSIX_ASSERTIONS_REQUIRED` to `1`, which is also what defends the step against
+deletion. `verify.runs-on` remains load-bearing in the way `matrix.os` was, fail-closed.
+
+Because the refusal is the message an operator meets at an unknown future date, it must name
+the variable, the shell that failed the test, and the two ways out: give that step a POSIX
+`sh`, or fix the hook bodies. A refusal that reports only what did not happen leaves the
+operator to rediscover this record.
 
 ## Consequences
 
@@ -71,13 +82,18 @@ defended against: it returns the suite to the skip branch and a green log, and
 - The hooks suite runs twice per CI run on Linux, once in the ubuntu leg and once in
   `verify`. It takes seconds and needs no toolchain install.
 - `verify` gains a checkout and therefore executes contributor code on a fork pull request,
-  where before it only compared a string. The `suite` job already does strictly more of this
-  under the same `contents: read` permission and the same SHA-pinned checkout with
-  `persist-credentials: false`, so the exposure is not new in kind.
+  where before it only compared a string. On a completed run the `suite` job already does
+  strictly more of this, so the exposure is not new in kind; on a cancelled one it may have
+  done nothing, since `if: always()` includes cancellation and `verify` starts anyway. What
+  bounds it in both cases is the same: `contents: read`, no secrets, and a SHA-pinned
+  checkout with `persist-credentials: false`.
 - The step depends on the runner image providing `jq`. Its absence fails loudly on the first
   call rather than skipping, so the dependency cannot rot into a silent pass.
 
 ## Considered & rejected
+
+Two entries below are deferrals rather than refusals, and are marked as such: both questions
+are live and owned elsewhere, and neither is settled by this record.
 
 - **Set `POSIX_ASSERTIONS_REQUIRED=1` on the ubuntu matrix leg** — issue #136's option 1,
   and one line shorter. Rejected because the requirement then lives inside the thing that can
@@ -85,15 +101,16 @@ defended against: it returns the suite to the skip branch and a green log, and
   dropping that leg can no longer turn CI red — the decision answers the requirement behind
   that acceptance sentence, that the loss must not be silent, by removing the route rather
   than detecting it.
-- **Install dash in the CI job** — issue #136's option 2. Not rejected on the merits and not
+- **Install dash in the CI job** — issue #136's option 2. *Deferred, not rejected.* Not
   decided here: #136 records the developer-host rejection at #112 and says in terms that
   "whether it is also rejected for CI alone is a separate call". It is an operator call,
   outside this change's scope, and it is the remedy named above if the image ever drifts.
-- **Check the extracted bodies statically with `shellcheck -s sh` instead.** Simpler, broader
-  and unskippable, but it proves the bodies contain no non-POSIX construct rather than that
-  they still exit 0 and 2 for the right inputs under a real POSIX shell. The right addition,
-  not the right substitution: issue #157. Nor a reason to wait for it — #157 is unscheduled,
-  and the guarantee that exists today is the one that can be lost today.
+- **Check the extracted bodies statically with `shellcheck -s sh`.** *Deferred, not
+  rejected.* Simpler, broader and unskippable, but it proves the bodies contain no non-POSIX
+  construct rather than that they still exit 0 and 2 for the right inputs under a real POSIX
+  shell — an addition rather than a substitution, owned by issue #157. Nor a reason to wait
+  for it: #157 is unscheduled, and the guarantee that exists today is the one that can be
+  lost today.
 - **Require the assertions only on push to `main` or on a schedule**, leaving pull requests
   to the matrix leg. It bounds the blast radius above and still fails loudly. Rejected because
   it detects drift after merge, and because a pull request adding a bashism to a hook body
