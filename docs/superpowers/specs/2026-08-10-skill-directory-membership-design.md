@@ -281,9 +281,11 @@ unassertable rather than merely untested:**
   `printf '%s\n' "$literal" | sort -u` — identical argv reading stdin in the same cwd and
   environment — so no operand mock can tell them apart, and the three-tree half's own
   `could not sort the manifest` is unasserted today for the same reason.
-- *One of the two `comm` calls.* Both take the same two operands, so a mock reaches both and the
-  surviving call faults with the same message. Dropping **both** does redden, so the row proves
-  the pair rather than either alone.
+- *The **second** of the two `comm` calls.* Both take the same two operands, so a mock reaches
+  both, and by the time the second runs the first has already faulted with the same message.
+  Dropping the **first** guard does redden — under errexit the unguarded `comm` propagates its
+  own exit 1 into a row that requires exit 2 — so the row covers the pair, with the second
+  guard alone unassertable.
 - *The per-entry `>>` append and the `: >` truncations.* A redirection has no argv for a PATH
   mock to read, and the existing `mktemp` mock makes the whole workspace read-only, so it faults
   on the three-tree half's first truncation and never reaches the skills half.

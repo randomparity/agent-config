@@ -70,6 +70,16 @@ build_fixture() { # [fixture-root]
 	local unmerged
 
 	FIXTURE="${1:-$SCRATCH/repo}"
+	# The same containment check `cleanup` makes, for the same reason: the root became a
+	# parameter here, and a recursive delete over caller-supplied input should refuse
+	# rather than trust the next row that wants a differently-rooted fixture.
+	case "$FIXTURE" in
+	"$SCRATCH"/*) ;;
+	*)
+		printf 'deployed-membership-test: refusing fixture root: %s\n' "$FIXTURE" >&2
+		exit 2
+		;;
+	esac
 	rm -R "$FIXTURE" 2>/dev/null || :
 	mkdir -p "$FIXTURE"
 
@@ -484,8 +494,11 @@ assert_fails 'the skills tree replaced by a regular file' missing-skill-director
 	"$SKILL_TREE/$skill"
 assert_absent 'the skills tree replaced by a regular file' unexpected-skill-entry "$SKILL_TREE"
 
-# test -d dereferences, so a bare -d filter would walk the link and declare the
-# target's children members of this repository's tree.
+# What this pins is the verdict: an absent or symlinked tree reports every declared name
+# missing and contributes no entry from behind the link. It does *not* pin the `! -L` leg
+# of the survival filter, which is defensive here -- `find` does not descend a symlink
+# operand, so `-mindepth 1` enumerates empty whether the filter admits the tree or not.
+# The three-tree row above is where that leg decides the answer.
 build_fixture
 rm -R "${FIXTURE:?}/$SKILL_TREE"
 ln -s "$ROOT/content/skills" "$FIXTURE/$SKILL_TREE"
@@ -597,9 +610,11 @@ fi
 build_fixture
 assert_environment_fault 'a comparison that could not run' comm 'exit 1'
 
-# Both skills comparisons take the same two operands, so one mock reaches both and this
-# row proves the pair rather than either alone: dropping just one call's `|| fault`
-# leaves the other to fault with the same message. Dropping both is what it catches.
+# Both skills comparisons take the same two operands, so one mock reaches both. Dropping
+# the *first* call's `|| fault` reddens this row: under errexit the unguarded `comm`
+# propagates its own exit 1 and the row requires exit 2. Dropping the *second* survives,
+# because the first has already faulted with the same message. So this row covers the
+# pair, and the second guard alone is unassertable.
 build_fixture
 assert_discriminating_fault 'a skills comparison that could not run' comm '*/skill-*' \
 	'could not compare the enumerated skill directories against the declared set'
