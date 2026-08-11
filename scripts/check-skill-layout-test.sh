@@ -469,19 +469,90 @@ root="$(new_fixture)"
 printf '%s\n' 'State goes in .codex/campaigns/x.md here.' >>"$root/content/languages/python.md"
 assert_fails "$repo_state_error" "$root"
 
-# rg calls a file binary on the strength of one NUL byte and skips it while walking a
-# directory, so a forbidden reference sharing a file with a NUL was invisible and the
-# gate printed ok. The scan reads it as text now; this is what keeps it doing so.
+# The deployed payload's encoding contract (ADR 0050). Every file the scan walks is
+# proven UTF-8 text before either pattern rule reads it, so the two fixtures below --
+# a NUL byte and a UTF-16 BOM, the pair issue #101 added `--text` and `--encoding none`
+# for -- now stop at the encoding rule instead of reaching the config-root rule. That is
+# the point of the contract: neither file is a legitimate delivery, and rejecting it for
+# what it is beats guessing how to read it.
+#
+# The flags those cases pin are unchanged and still pinned here, because
+# `run_content_scan` carries one flag list for all four rules. Drop `--text` and the NUL
+# pattern becomes impossible to match -- rg exits 2, `run_content_scan` reports a failed
+# scan, and the clean-tree assertions above go red. Drop `--encoding none` and the BOM
+# file is transcoded into well-formed UTF-8 with its NULs consumed, so both encoding
+# rules clear it and this case goes red. Each fixture keeps a forbidden reference in its
+# body so that reverting the encoding rule alone leaves the case failing on the
+# config-root message rather than passing.
+payload_utf8_error='file must be valid UTF-8'
+payload_text_error='deployed content must be UTF-8 text'
+
 root="$(new_fixture)"
 printf '%b' 'lead\0000\nUse ~/.claude/skills here.\n' >"$root/content/languages/binary.md"
-assert_fails 'installed config-root reference is forbidden' "$root"
+assert_fails "content/languages/binary.md: $payload_text_error" "$root"
 
-# The same hole through the other door: two leading bytes that look like a UTF-16 BOM
-# make rg transcode a file that is really UTF-8, and the reference comes out as
-# mojibake matching nothing. The content after the prefix is deliberately ordinary.
 root="$(new_fixture)"
 printf '%b' '\0377\0376Use ~/.claude/skills here.\n' >"$root/content/languages/bom.md"
-assert_fails 'installed config-root reference is forbidden' "$root"
+assert_fails "content/languages/bom.md: $payload_utf8_error" "$root"
+
+# BOM-less UTF-16 is the half the UTF-8 grammar cannot reach on its own: UTF-16LE text
+# drawn from ASCII is a run of `[\x00-\x7F]` bytes, so it satisfies the acceptor exactly
+# as written, and rg never transcoded it either -- `--encoding auto` sniffs a BOM and
+# this file has none. It is unscannable rather than misread, which is what the NUL rule
+# is for. The body is a forbidden reference no pattern rule can see through the
+# interleaved NULs.
+root="$(new_fixture)"
+printf '%b' 'U\0000s\0000e\0000 \0000~\0000.\0000c\0000l\0000a\0000u\0000d\0000e\0000\n' \
+	>"$root/content/references/utf16le.md"
+assert_fails "content/references/utf16le.md: $payload_text_error" "$root"
+
+# The contract covers every root the config-root scan walks, not just the two that
+# deploy verbatim: the non-SKILL.md payload under `content/skills` installs too, and had
+# no encoding rule at all before this (issue #127). One case per root, because the scan
+# reaches `content/skills` through a separate rg call with its own globs.
+for payload_path in \
+	'content/skills/skill-01/reference.md' \
+	'content/languages/rust.md' \
+	'content/references/orchestration.md'; do
+	root="$(new_fixture)"
+	printf '%b\n' 'a clean line' >"$root/$payload_path"
+	printf '%b\n' 'and a \0377 byte' >>"$root/$payload_path"
+	assert_fails "$payload_path: $payload_utf8_error (first malformed line 2)" "$root"
+done
+
+# The other direction, and the one that matters most in a repository whose content is
+# prose: well-formed multi-byte UTF-8 in the payload has to pass. Every alternative in
+# the acceptor is already pinned for SKILL.md; this pins that the payload rule uses the
+# same acceptor rather than a stricter reading of its own.
+root="$(new_fixture)"
+{
+	printf '%b\n' 'caf\0303\0251 \0342\0200\0224 dash \0342\0206\0222 arrow'
+	printf '%b\n' 'CJK \0344\0270\0255\0346\0226\0207 emoji \0360\0237\0232\0200'
+	printf '%b\n' 'floor \0340\0240\0200 pre \0355\0237\0277 post \0356\0200\0200'
+} >"$root/content/languages/unicode.md"
+printf '%b\n' 'plane1 \0360\0220\0200\0200 last \0364\0217\0277\0277' \
+	>"$root/content/skills/skill-01/reference.md"
+output="$(cd "$root" && bash scripts/check-skill-layout.sh)"
+[[ "$output" == 'skills-check: ok (1 canonical skills, 1 project review examples)' ]] ||
+	fail "valid multi-byte UTF-8 in the payload must pass: $output"
+
+# The encoding rule honours the `testdata` exclusion the config-root rules already apply
+# (ADR 0025), and honours its scoping too: `content/skills` is the one root the installer
+# filters, so a `testdata` entry under `content/languages` really does ship and is held to
+# the contract. Both halves, because a rule that excluded the name everywhere would blind
+# the gate over a deployed path.
+root="$(new_fixture)"
+mkdir -p "$root/content/skills/skill-01/testdata"
+printf '%b\n' 'malformed \0377 fixture' >"$root/content/skills/skill-01/testdata/bad.md"
+printf '%b' 'utf16\0000 fixture\n' >"$root/content/skills/skill-01/testdata/utf16.md"
+output="$(cd "$root" && bash scripts/check-skill-layout.sh)"
+[[ "$output" == 'skills-check: ok (1 canonical skills, 1 project review examples)' ]] ||
+	fail "testdata must stay excluded from the encoding rule: $output"
+
+root="$(new_fixture)"
+mkdir -p "$root/content/languages/testdata"
+printf '%b\n' 'malformed \0377 fixture' >"$root/content/languages/testdata/bad.md"
+assert_fails "content/languages/testdata/bad.md: $payload_utf8_error" "$root"
 
 # rg exits 2 for any scan it could not complete, and the gate used to read that
 # as "no matches" and report ok. Root reads an unreadable file, so there the case
@@ -491,7 +562,7 @@ if [[ "$EUID" -ne 0 ]]; then
 	root="$(new_fixture)"
 	printf '%s\n' 'Use ~/.claude/skills here.' >"$root/content/languages/unreadable.md"
 	chmod 000 "$root/content/languages/unreadable.md"
-	assert_fails 'config-root scan failed' "$root"
+	assert_fails 'content scan failed' "$root"
 	chmod 644 "$root/content/languages/unreadable.md"
 
 	root="$(new_fixture)"

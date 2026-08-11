@@ -306,23 +306,27 @@ validate_inventory() {
 # --text is the same argument one step further: rg skips a file it decides is binary
 # during traversal, and it decides that on a single NUL byte, so a forbidden
 # config-root reference anywhere in a file carrying one is invisible and the gate
-# reports clean. Every file these roots deliver today is text, so the flag only costs
-# reading an asset that would otherwise be skipped -- the direction a gate should err
-# in, since the alternative is a delivery the scan never saw.
+# reports clean.
 #
 # --encoding none closes the same hole through the other door. rg sniffs a leading
 # UTF-16 BOM and transcodes on the strength of two bytes, so a UTF-8 file that merely
 # begins \xFF\xFE is decoded as UTF-16, and the reference the scan is looking for
 # comes out as mojibake that matches nothing. Reading raw bytes is also what
-# validate_utf8 does, so both rules now see the file the installer will copy.
+# validate_utf8 does, so every rule sees the file the installer will copy.
 #
-# That is a trade, not a free win: a file under these roots that really is UTF-16 was
-# transcoded and scanned before and is opaque to this rule now. Only SKILL.md has its
-# encoding checked, so this covers all three scanned roots -- `content/languages`,
-# `content/references`, and every non-SKILL.md file `content/skills` delivers. Neither
-# reading is safe for a genuine UTF-16 delivery, and the spoof is the reachable half.
-# Issue #127 tracks giving the scanned payload an encoding rule of its own.
-scan_config_roots() { # results-file rg-argument...
+# Reading raw bytes was a trade while the scanned payload had no encoding rule: a file
+# under these roots that really was UTF-16 had been transcoded and scanned before, and
+# was opaque afterwards. ADR 0050 retired the trade rather than balancing it -- the
+# encoding rules below run first and reject anything that is not UTF-8 text, so by the
+# time a pattern rule reads a file there is no other encoding left for these flags to
+# be wrong about. The flags stay because they are what the encoding rules themselves
+# need: a NUL is unmatchable without --text (rg exits 2 and says so), and a BOM is
+# transcoded away without --encoding none.
+#
+# One flag list for all four rules, deliberately. The encoding rules and the pattern
+# rules have to see the same bytes over the same file set, and a per-call list is how
+# the two would drift.
+run_content_scan() { # results-file rg-argument...
 	local results="$1"
 	local status=0
 	shift
@@ -337,14 +341,53 @@ scan_config_roots() { # results-file rg-argument...
 	# function: moving one inside a command substitution would silently restore the
 	# fail-open, which is exactly how it survived in validate_utf8.
 	: >>"$results" ||
-		skill_error 'content' 'config-root scan failed: cannot create the results file'
+		skill_error 'content' 'content scan failed: cannot create the results file'
 	: >"$workspace/rg-error" ||
-		skill_error 'content' 'config-root scan failed: cannot create the scan error file'
+		skill_error 'content' 'content scan failed: cannot create the scan error file'
 	rg --no-config --text --encoding none -l --hidden --no-ignore "$@" >>"$results" \
 		2>"$workspace/rg-error" || status=$?
 	# 0 = matches, 1 = no matches, anything else = the scan did not happen.
 	[[ "$status" -le 1 ]] ||
-		skill_error 'content' "config-root scan failed: $(<"$workspace/rg-error")"
+		skill_error 'content' "content scan failed: $(<"$workspace/rg-error")"
+}
+
+# The delivered file set, as one call per rule. Two scans, because ripgrep's globs
+# filter the whole traversal rather than the path argument they follow, and only
+# `content/skills` is filtered by the installer: `stage_skills` drops `testdata`
+# entries there (ADR 0025), while `content/languages` and `content/references` deploy
+# verbatim, so a `testdata` entry under either really does ship and must stay visible.
+#
+# The pattern is passed with -e rather than positionally, because the flags a caller
+# adds sit in front of it: without -e, a pattern that began with a dash would be read
+# as one more flag and the roots would shift into its place.
+scan_deployed_payload() { # results-file pattern rg-flag...
+	local results="$1"
+	local pattern="$2"
+	shift 2
+
+	# Truncated here, appended by the two calls below. The results sink is per-rule, so
+	# a second rule's hits cannot be reported under the first rule's message.
+	: >"$results" ||
+		skill_error 'content' 'content scan failed: cannot create the results file'
+	run_content_scan "$results" "$@" --glob '!testdata' --glob '!testdata/**' \
+		-e "$pattern" "$skills_root"
+	run_content_scan "$results" "$@" -e "$pattern" \
+		"$repo_root/content/languages" "$repo_root/content/references"
+}
+
+# Sets `scan_hit` to the first path a scan named, repo-relative: rg is given absolute
+# roots so its output is absolute, and every other message this gate prints is relative.
+#
+# Assigned to a global rather than returned, for the reason validate_utf8's sinks are
+# proved explicitly. A returned value has to travel through `hit="$(read_hit ...)"`, and
+# bash unsets errexit inside a command substitution -- so a `sed` that failed there would
+# yield the empty string, which every caller below reads as "no violation". `shopt -s
+# inherit_errexit` is not the fix: bash 3.2 is the macOS system shell this repo targets
+# and aborts on the unknown option. Called from top level, the assignment below is under
+# set -e and a failed read stops the gate.
+read_scan_hit() { # results-file
+	scan_hit="$(sed -n '1p' "$1")"
+	scan_hit="${scan_hit#"$repo_root/"}"
 }
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -378,10 +421,6 @@ project_review_count="$(validate_inventory "$project_review_root" \
 #
 # `agents/*/shared` is deliberately not scanned: an agent's own instructions may
 # name that agent's own config root, and `CLAUDE.md` and `AGENTS.md` legitimately do.
-# Two scans, because ripgrep's globs filter the whole traversal rather than the
-# path argument they follow. `content/skills` is the only root `stage_skills`
-# filters; `content/languages` and `content/references` deploy verbatim, so a
-# `testdata` entry under either really does ship and must stay visible here.
 root_pattern='(~|[$]HOME|[$][{]HOME[}])/[.](codex|claude|bob|superpowers)(/|$)'
 
 # Repo-relative agent state, the sibling of the rule above. That one catches
@@ -398,7 +437,7 @@ root_pattern='(~|[$]HOME|[$][{]HOME[}])/[.](codex|claude|bob|superpowers)(/|$)'
 # what keeps the real `.codex-plugin/plugin.json` out rather than the terminator set.
 repo_pattern='[.](codex|claude|bob|superpowers)/[^[:space:]`,)"'"'"']'
 
-# A missing root is caught here rather than left to `scan_config_roots`, so the
+# A missing root is caught here rather than left to `run_content_scan`, so the
 # gate names the root that went away instead of quoting rg's diagnostic for it.
 for common_root in \
 	"$repo_root/content/languages" \
@@ -407,24 +446,57 @@ for common_root in \
 		skill_error "${common_root#"$repo_root/"}" 'deployed content root is missing'
 done
 
-: >"$workspace/root-references"
-scan_config_roots "$workspace/root-references" \
-	--glob '!testdata' --glob '!testdata/**' "$root_pattern" "$skills_root"
-scan_config_roots "$workspace/root-references" "$root_pattern" \
-	"$repo_root/content/languages" "$repo_root/content/references"
-root_reference="$(sed -n '1p' "$workspace/root-references")"
+# ADR 0050: everything this gate delivers is UTF-8 text. The rule runs before the two
+# pattern rules below because it is their precondition -- a pattern rule's verdict on a
+# file whose encoding is unknown is a guess, and until #127 the whole payload apart from
+# SKILL.md was in exactly that state.
+#
+# Two rules, because UTF-8 well-formedness alone does not decide the question. A UTF-16
+# file with a BOM fails the grammar on the BOM (\xFF and \xFE appear in no well-formed
+# sequence). A UTF-16 file *without* one, holding ASCII text, is a run of bytes in
+# [\x00-\x7F] and satisfies the grammar exactly as written -- and rg would not have
+# transcoded it either, since --encoding auto sniffs a BOM and there is none. That file
+# is unscannable rather than misread, and the NUL rule is what names it: U+0000 is a
+# well-formed scalar and a legitimate thing for a *binary* to hold, but the payload here
+# is prose, code and configuration, so a NUL in it means the delivery is not text.
+#
+# The acceptor is validate_utf8's, unchanged. It was differential-tested against a strict
+# decoder over the byte sequences the classes distinguish, and a second copy written to a
+# different shape is how the two readings drift apart.
+scan_deployed_payload "$workspace/malformed-utf8" "$utf8_line" --invert-match
+read_scan_hit "$workspace/malformed-utf8"
+malformed_utf8="$scan_hit"
+if [[ -n "$malformed_utf8" ]]; then
+	# Re-read the one named file to recover the line number: `-l` stops at the first
+	# non-matching line without reporting where, and issue #101 is what a message that
+	# names only the file costs a reader. The scan already decided the verdict, so the
+	# error below is not dead code -- it is what keeps a disagreement between the two
+	# readings (a file rewritten between them) from falling through as a pass.
+	validate_utf8 "$repo_root/$malformed_utf8" "$malformed_utf8"
+	skill_error "$malformed_utf8" 'file must be valid UTF-8'
+fi
+
+# `(?-u)` for the same reason the acceptor needs it: it is what lets \x00 name a byte
+# rather than a Unicode scalar. Without --text on the scan rg refuses the pattern
+# outright and exits 2, which run_content_scan reports as a failed scan.
+scan_deployed_payload "$workspace/nul-bytes" '(?-u)\x00'
+read_scan_hit "$workspace/nul-bytes"
+nul_byte_file="$scan_hit"
+[[ -z "$nul_byte_file" ]] ||
+	skill_error "$nul_byte_file" 'deployed content must be UTF-8 text (file contains a NUL byte)'
+
+scan_deployed_payload "$workspace/root-references" "$root_pattern"
+read_scan_hit "$workspace/root-references"
+root_reference="$scan_hit"
 [[ -z "$root_reference" ]] ||
 	skill_error "$root_reference" 'installed config-root reference is forbidden'
 
 # A separate results file, not a second pattern into the one above: sharing the sink
 # would report a repo-relative hit under the home-rooted rule's message, naming
 # neither the rule that fired nor the remedy.
-: >"$workspace/repo-references"
-scan_config_roots "$workspace/repo-references" \
-	--glob '!testdata' --glob '!testdata/**' "$repo_pattern" "$skills_root"
-scan_config_roots "$workspace/repo-references" "$repo_pattern" \
-	"$repo_root/content/languages" "$repo_root/content/references"
-repo_reference="$(sed -n '1p' "$workspace/repo-references")"
+scan_deployed_payload "$workspace/repo-references" "$repo_pattern"
+read_scan_hit "$workspace/repo-references"
+repo_reference="$scan_hit"
 [[ -z "$repo_reference" ]] ||
 	skill_error "$repo_reference" \
 		'repo-relative agent state path is forbidden; move it under .agent/'
