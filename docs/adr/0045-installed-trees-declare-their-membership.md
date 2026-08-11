@@ -69,8 +69,10 @@ does not track empty directories — though not urgent, since `install_managed_p
 exits on a missing source, so the installer fails on such a deletion before this gate speaks.
 
 Exit 2 is left with the inputs the gate cannot make sense of at all: a bad argument, an
-unusable repository root, and an enumeration that fails on a tree that is present. Here the
-gate parts company with
+unusable repository root, an enumeration that fails on a tree that is present, and a member
+path holding a newline, which a line-delimited comparison cannot represent and which can
+otherwise collapse into declared entries and leave the gate green over a file that ships.
+Here the gate parts company with
 `check-shared-standards.sh` and `check-deployed-references.sh`, which both fault on a missing
 scan root; neither compares membership, so for neither is the root's absence itself an answer.
 
@@ -105,9 +107,10 @@ scan root; neither compares membership, so for neither is the root's absence its
   but fails the suite, whose pass case pins the whole summary against its own tree list and the
   tracked file count. What survives is a coordinated edit to both the checker's lists and the
   suite's — the residual of a gate whose manifest is source.
-- The repository now holds two lists of installer-copied roots — this manifest's trees and
-  `check-deployed-references.sh`'s `scan_paths` — that mean different things, with nothing
-  comparing them.
+- The repository now holds three lists of installer-copied roots — this manifest's trees,
+  `check-deployed-references.sh`'s `scan_paths`, and the `content/languages` and
+  `content/references` pair `check-skill-layout.sh` hardcodes — that mean different things,
+  with nothing comparing them.
 - The gate proves the tree matches the list. It says nothing about whether a listed file
   should be deployed at all, or what it contains.
 

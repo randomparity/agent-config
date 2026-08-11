@@ -35,6 +35,10 @@ trap cleanup EXIT
 
 TREES=(agents/bob/shared/rules content/languages content/references)
 
+# Emitted once after every finding whenever an unexpected member was reported.
+# Held here so the expected sequences below stay readable.
+REMEDY='deployed-membership: delete an unexpected member, or declare it here only if it is meant to install for every user'
+
 # The fixture is checked out of the index rather than written synthetically or
 # copied from the working tree. A synthetic fixture would have to restate the
 # manifest, so this suite would assert the checker against a second copy of its
@@ -201,7 +205,8 @@ member="$(declared_member content/languages)"
 ln -s "$ROOT/$member" "$FIXTURE/content/languages/link.md"
 assert_findings 'an undeclared symlink to a file' '' \
 	'deployed-membership: unexpected-member: content/languages/link.md' \
-	'deployed-membership: non-regular-member: content/languages/link.md'
+	'deployed-membership: non-regular-member: content/languages/link.md' \
+	"$REMEDY"
 
 # find does not descend a symlink, so this enumerates as one path while cp -pR
 # would deploy whatever the target resolves to on the user's machine.
@@ -209,7 +214,8 @@ build_fixture
 ln -s "$ROOT/content/references" "$FIXTURE/content/languages/tree-link"
 assert_findings 'an undeclared symlink to a directory' '' \
 	'deployed-membership: unexpected-member: content/languages/tree-link' \
-	'deployed-membership: non-regular-member: content/languages/tree-link'
+	'deployed-membership: non-regular-member: content/languages/tree-link' \
+	"$REMEDY"
 
 # Declaring a path must not admit whatever it points at.
 build_fixture
@@ -231,7 +237,8 @@ printf 'stray\n' >"$FIXTURE/content/languages/Zeta.md"
 printf 'stray\n' >"$FIXTURE/content/languages/alpha.md"
 assert_findings 'two undeclared files under one tree' '' \
 	'deployed-membership: unexpected-member: content/languages/Zeta.md' \
-	'deployed-membership: unexpected-member: content/languages/alpha.md'
+	'deployed-membership: unexpected-member: content/languages/alpha.md' \
+	"$REMEDY"
 
 # Probed rather than matched against `locale -a`: glibc accepts en_US.UTF-8 while
 # listing it as en_US.iso88591 and friends, so a name match skips a row that would
@@ -256,7 +263,8 @@ if [[ -n "$collating_locale" ]]; then
 	printf 'stray\n' >"$FIXTURE/content/languages/alpha.md"
 	assert_findings 'ordering under a non-C caller locale' "$collating_locale" \
 		'deployed-membership: unexpected-member: content/languages/Zeta.md' \
-		'deployed-membership: unexpected-member: content/languages/alpha.md'
+		'deployed-membership: unexpected-member: content/languages/alpha.md' \
+		"$REMEDY"
 else
 	printf 'deployed-membership-test: skipping the non-C locale rows: no collating locale is available\n' >&2
 fi
@@ -269,7 +277,18 @@ rm "$FIXTURE/$member"
 printf 'stray\n' >"$FIXTURE/content/languages/unexpected.md"
 assert_findings 'one unexpected and one missing in a single run' '' \
 	'deployed-membership: unexpected-member: content/languages/unexpected.md' \
-	"deployed-membership: missing-member: $member"
+	"deployed-membership: missing-member: $member" \
+	"$REMEDY"
+
+# The shape that would otherwise print ok over a file that ships: a directory
+# name holding a newline splits one find record into two, and here both halves
+# equal declared entries, so sort -u collapses them and the undeclared payload
+# disappears from the comparison entirely.
+build_fixture
+mkdir -p "$FIXTURE/content/languages/$(printf 'bash.md\ncontent')/languages"
+printf 'payload\n' >"$FIXTURE/content/languages/$(printf 'bash.md\ncontent')/languages/python.md"
+assert_exit_two 'a member path containing a newline' \
+	'a member path contains a newline and cannot be compared' "$FIXTURE"
 
 build_fixture
 mkdir -p "$FIXTURE/content/instructions"

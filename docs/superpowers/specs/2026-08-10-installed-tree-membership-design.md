@@ -129,10 +129,18 @@ or not at all.
 Bash associative arrays would express the comparison more directly and are ruled out:
 `declare -A` is Bash 4.0+, and the `macos-latest` leg of `verify.yml` runs system Bash 3.2,
 where it fails outright. The workflow's own comment records that this leg has already caught a
-`mapfile` that exited 127, and no script in this repository uses an associative array. The
-cost of the line-delimited form is that a path containing a newline splits across lines and
-reports as two bogus `unexpected-member` entries. The run is still red, which is the property
-that matters, and no such path exists or should.
+`mapfile` that exited 127, and no script in this repository uses an associative array.
+
+A line-delimited comparison cannot represent a path containing a newline, and that is a
+fault rather than an accepted cost. The tempting reading — it splits into two records and
+reports two bogus `unexpected-member` entries, so the run is red anyway — is false in the
+case that matters. Both halves can equal declared entries, `sort -u` then collapses them, and
+the undeclared file disappears from the comparison: a directory named
+`bash.md<newline>content` under `content/languages`, holding `languages/python.md`, makes the
+gate print `ok` while `cp -pR` ships the payload to every user. So the enumeration is
+`-print0`, read NUL-delimited, and any member path holding a newline exits 2 before any
+comparison. The path is not echoed in that message — a newline in a diagnostic is how it
+would be misread again.
 
 The enumeration completes before any comparison begins, so an enumeration fault (exit 2) is
 reached while no finding yet exists. A fault therefore never suppresses findings that were
@@ -147,6 +155,13 @@ already made, and never emits partial ones.
 | 2 | more than one argument | `usage: check-deployed-membership.sh [repository-root]` |
 | 2 | the root argument is not a usable directory | `deployed-membership: repository root is not a directory: <arg>` |
 | 2 | the enumeration itself fails | `deployed-membership: could not enumerate the installed trees` |
+| 2 | a member path contains a newline | `deployed-membership: a member path contains a newline and cannot be compared` |
+
+When any `unexpected-member` was reported, one further line follows every finding:
+`deployed-membership: delete an unexpected member, or declare it here only if it is meant to
+install for every user`. That class is the only one whose two responses are opposite in
+effect — deleting the file is right, and declaring it is also green while shipping a merge
+artefact to every user — and unattended runs see only the message.
 
 Findings and faults go to stderr, the `ok` summary to stdout, matching
 `check-shared-standards.sh`. The suite captures the two streams separately rather than merging
@@ -274,6 +289,7 @@ vacuously with `0 declared members`.
 | a declared member deleted | `missing-member` naming it |
 | two undeclared files under one tree | both `unexpected-member` lines, in `LC_ALL=C` path order |
 | an undeclared file under one tree **and** a declared member deleted under another | both lines in one run, unexpected before missing |
+| a directory named with a newline whose split halves both match declared entries | exit 2, `a member path contains a newline` |
 | a file added outside the declared trees | passes |
 | a one-file declared tree removed entirely | `missing-member` naming its declared file, not a fault |
 | a one-file declared tree replaced by a regular file | `missing-member` naming its declared file, not a fault |
