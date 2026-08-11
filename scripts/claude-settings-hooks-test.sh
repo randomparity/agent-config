@@ -69,19 +69,20 @@ set -euo pipefail
 # guard.
 #
 # Flags. The guard reads the tokens after `clean` in two sections: options, then a pathspec
-# tail that a bare `--` opens. The command is allowed when no parse of the token run reaches
-# the separator — not when a left-to-right scan meets a token it cannot consume. `grep -E`
-# backtracks across the alternatives, so a token run that any parse can consume matches.
-# In the tail every remaining token is consumed whatever it looks like. Each form named
-# below was run against the shipped hook body, and against git 2.55.0 to establish which of
-# them delete.
+# tail that a bare `--` or the exact token `--end-of-options` opens. The command is allowed
+# when no parse of the token run reaches the separator — not when a left-to-right scan meets
+# a token it cannot consume. `grep -E` backtracks across the alternatives, so a token run
+# that any parse can consume matches. In the tail every remaining token is consumed whatever
+# it looks like. Each form named below was run against the shipped hook body, and against
+# git 2.55.0 to establish which of them delete.
 #
 # Consumed in the option section, so they do not exempt the command:
 #   - a `--` option whose first letter is not d, i or e — `--quiet`, `--force`, `--f`,
 #     `--fo`, and `--no-dry-run`, which deletes;
 #   - `--e` and the longer prefixes of `--exclude`, together with the pattern, which is
 #     mandatory as it is for git: attached as `--exclude=-n`, or the following token as in
-#     `--exclude -n`. Both delete;
+#     `--exclude -n`. Both delete. git resolves every prefix from `--e` up, so `--e pat`
+#     and `--exc=pat` are that option too;
 #   - a single-dash bundle holding no n, i or e — `-fd`, `-fdx`, `-x`, `-q`;
 #   - a single-dash bundle where e precedes any n or i, together with the pattern -e takes,
 #     again mandatory: the rest of the token where there is one (`-epat`, `-e-n`, `-fen`),
@@ -97,15 +98,21 @@ set -euo pipefail
 # Stops the option section, so the command is allowed:
 #   - a single-dash bundle where n or i precedes any e — `-n`, `-i`, `-fdn`, `-nd`, `-id`;
 #   - a `--` option whose first letter is d or i — `--dry-run`, `--interactive`, and the
-#     abbreviations `--d` and `--i`. All four preview.
-# Those are the only two, so there is no longer a token the grammar fails to account for.
-# `git clean -fd -e` and `git clean -fd --exclude` are allowed on the missing-value path;
-# git rejects both rather than deleting.
+#     abbreviations `--d` and `--i`. All four preview;
+#   - an option wanting a value that has none, and a `--e…` spelling that is neither an
+#     `--exclude` prefix nor the exact `--end-of-options` — `git clean -fd -e`,
+#     `git clean -fd --exclude`, `git clean -fd --e` and `git clean -fd --end`. git rejects
+#     all four for a missing value or an unknown option, so none of them deletes. These are
+#     the tokens the grammar does not account for, and the reason each is safe is git's
+#     rejection rather than anything the guard does.
 #
 # The letter rules encode git 2.55.0's option table for `clean` rather than a parser for it:
-# d and i are the only long names that mean a preview, and -e/--exclude is the only option
-# taking a value. An option added to git that broke either premise would be misread and
-# nothing here would notice.
+# d and i are the only long names that mean a preview, `--end-of-options` is the only
+# value-less long option beginning with e, and -e/--exclude is the only option taking a
+# value. `--end-of-options` is spelled in full or not at all — parse-options does not
+# abbreviate it, and `--end` is an unknown option — which is what lets the two `--e…` rules
+# sit side by side. An option added to git that broke any of those premises would be
+# misread and nothing here would notice.
 #
 # The guard reads where a preview flag sits, not whether a later flag cancels it. git
 # options are last-one-wins, so `git clean -fdn --no-dry-run` and `git clean -fn
@@ -122,11 +129,24 @@ set -euo pipefail
 # are pinned below. The deny entries stay in place; whether they are still wanted is a
 # separate decision and not a consequence of this fix.
 #
-# A differential over 1245 generated invocations — each run against git 2.55.0 in a
+# A differential over 1838 generated invocations — each run against git 2.55.0 in a
 # throwaway repository and against the shipped hook body — found the two #160 forms as the
 # only commands git deletes on and the guard allows, and no command git previews on that the
-# guard blocks. That bounds the two rules empirically; it does not bound the position and
-# text axes above, which the corpus does not vary.
+# guard blocks. Run against the pre-#141 body over the same set, 97 commands that delete
+# move from allowed to blocked and none that preview move the other way; the 112 that stop
+# being blocked are all ones git rejects for a missing `-e`/`--exclude` value. The token
+# pool is what that bounds: the flag bundles, `--` long options including `--e…` and
+# `--end-of-options`, the two separators, a bare `-` and plain pathspecs, in runs of one to
+# three. It does not bound the position and text axes above, which the corpus does not vary,
+# and a token outside the pool is unmeasured rather than known-good.
+#
+# One consequence of making the `-e` value mandatory: a token run that fails to parse is
+# rescanned from each later start position, so the guard's cost is quadratic in the number
+# of `git clean` occurrences on a single line. Measured on the shipped body, a line of
+# repeated `git clean -e ` costs 8 ms at 400 occurrences, 68 ms at 3200 and 997 ms at 12800
+# (166 KB). Ordinary input is unaffected — one `git clean` with 4000 trailing options is
+# 11 ms — so this is recorded as the cause of a future latency report, not as a reason to
+# restructure the pattern.
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 SETTINGS="$ROOT/agents/claude/shared/settings.base.json"
@@ -317,6 +337,15 @@ assert_blocked "$CLEAN_HOOK" 'git clean hook' 'git clean -fde -n'
 # git reads a bare `-` as an ordinary pathspec, so it suppresses nothing.
 assert_blocked "$CLEAN_HOOK" 'git clean hook' 'git clean -fdx - .'
 assert_blocked "$CLEAN_HOOK" 'git clean hook' 'cd sub && git clean -fdx - .'
+# `--end-of-options` is the other separator: parse-options ends option parsing there too,
+# so it opens the pathspec tail rather than reading as an --exclude prefix.
+assert_blocked "$CLEAN_HOOK" 'git clean hook' 'git clean -fd --end-of-options'
+assert_blocked "$CLEAN_HOOK" 'git clean hook' 'cd sub && git clean -fd --end-of-options'
+assert_blocked "$CLEAN_HOOK" 'git clean hook' 'git clean -fd --end-of-options build/ --dry-run'
+assert_blocked "$CLEAN_HOOK" 'git clean hook' 'git clean -fd --end-of-options -n'
+# Every --exclude prefix from --e up carries its pattern.
+assert_blocked "$CLEAN_HOOK" 'git clean hook' 'git clean -fd --e pat'
+assert_blocked "$CLEAN_HOOK" 'git clean hook' 'git clean -fd --exc=pat'
 # A preview beside a real delete must not disarm the guard for the delete.
 assert_blocked "$CLEAN_HOOK" 'git clean hook' 'git clean -n && git clean -fd'
 assert_blocked "$CLEAN_HOOK" 'git clean hook' 'git clean -n; git clean -fd'
@@ -358,6 +387,9 @@ assert_allowed "$CLEAN_HOOK" 'git clean hook' 'git clean -e -- -n'
 # A pathspec that is a bare `-` does not disarm a preview flag either.
 assert_allowed "$CLEAN_HOOK" 'git clean hook' 'git clean - -n'
 assert_allowed "$CLEAN_HOOK" 'git clean hook' 'git clean -fd - -n'
+# A preview flag ahead of `--end-of-options` is still in an option position.
+assert_allowed "$CLEAN_HOOK" 'git clean hook' 'git clean -n --end-of-options build/'
+assert_allowed "$CLEAN_HOOK" 'git clean hook' 'git clean -i --end-of-options .'
 assert_allowed "$CLEAN_HOOK" 'git clean hook' 'git status --porcelain'
 assert_allowed "$CLEAN_HOOK" 'git clean hook' 'git stash push --include-untracked'
 assert_allowed "$CLEAN_HOOK" 'git clean hook' 'git worktree remove /tmp/wt --force'
