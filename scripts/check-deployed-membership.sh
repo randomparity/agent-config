@@ -61,16 +61,22 @@ content/languages/rust.md
 content/languages/typescript.md
 content/references/orchestration.md'
 
-# Both halves keep the environment out of the exit code. An unwritable TMPDIR
-# would otherwise let errexit propagate mktemp's status 1 -- the status this gate
-# reserves for a membership difference -- with no finding printed; and under
-# set -e a failing command inside an EXIT trap replaces the exiting status, so an
-# undeletable workspace would turn a green run's exit 0 into a 1 after stdout had
-# already said ok.
-if ! workspace="$(mktemp -d "${TMPDIR:-/tmp}/deployed-membership.XXXXXX")"; then
-	printf 'deployed-membership: could not create a workspace\n' >&2
+# Exit 1 means this gate found a difference. Nothing about the environment may
+# borrow that status, so every step that can fail for a reason other than the
+# comparison routes through here instead of letting errexit propagate a 1 -- and
+# with it a bare diagnostic from whichever tool failed, carrying no
+# `deployed-membership:` line for the operator to act on.
+fault() { # message
+	printf 'deployed-membership: %s\n' "$*" >&2
 	exit 2
-fi
+}
+
+# An unwritable TMPDIR would otherwise let errexit propagate mktemp's status 1;
+# and under set -e a failing command inside an EXIT trap replaces the exiting
+# status, so an undeletable workspace would turn a green run's exit 0 into a 1
+# after stdout had already said ok.
+workspace="$(mktemp -d "${TMPDIR:-/tmp}/deployed-membership.XXXXXX")" ||
+	fault 'could not create a workspace'
 trap 'rm -R "$workspace" 2>/dev/null || :' EXIT
 
 result_status=0
@@ -112,20 +118,18 @@ done <<<"$trees"
 # The status is captured directly rather than through a pipeline, so a scan that
 # did not happen cannot read as an empty one. Enumeration completes before any
 # comparison, so this fault can never suppress a finding already made.
-: >"$workspace/absolute"
+: >"$workspace/absolute" || fault 'could not write to the workspace'
 if ((${#surviving[@]} > 0)); then
-	if ! find "${surviving[@]}" ! -type d -print0 >"$workspace/absolute"; then
-		printf 'deployed-membership: could not enumerate the installed trees\n' >&2
-		exit 2
-	fi
+	find "${surviving[@]}" ! -type d -print0 >"$workspace/absolute" ||
+		fault 'could not enumerate the installed trees'
 fi
 
 # A member that is not a regular file is a finding whatever the manifest says,
 # and is still a member for the comparison -- so a declared symlink reports
 # non-regular-member alone rather than also reporting as missing. `-f` follows a
 # symlink to a file, hence the explicit `-L` test beside it.
-: >"$workspace/present-unsorted"
-: >"$workspace/non-regular-unsorted"
+: >"$workspace/present-unsorted" || fault 'could not write to the workspace'
+: >"$workspace/non-regular-unsorted" || fault 'could not write to the workspace'
 while IFS= read -r -d '' absolute; do
 	relative="${absolute#"$ROOT/"}"
 	# The comparison below is line-delimited, so a path holding a newline would
@@ -135,14 +139,13 @@ while IFS= read -r -d '' absolute; do
 	# is the only answer that cannot be wrong; the path is not echoed, because a
 	# newline in a diagnostic is how it would be misread in the first place.
 	case "$relative" in
-	*$'\n'*)
-		printf 'deployed-membership: a member path contains a newline and cannot be compared\n' >&2
-		exit 2
-		;;
+	*$'\n'*) fault 'a member path contains a newline and cannot be compared' ;;
 	esac
-	printf '%s\n' "$relative" >>"$workspace/present-unsorted"
+	printf '%s\n' "$relative" >>"$workspace/present-unsorted" ||
+		fault 'could not write to the workspace'
 	if [[ ! -f "$absolute" || -L "$absolute" ]]; then
-		printf '%s\n' "$relative" >>"$workspace/non-regular-unsorted"
+		printf '%s\n' "$relative" >>"$workspace/non-regular-unsorted" ||
+			fault 'could not write to the workspace'
 	fi
 done <"$workspace/absolute"
 
@@ -156,12 +159,22 @@ done <"$workspace/absolute"
 # `-o` and `OUT` as two more input files wherever it does not -- under an exported
 # POSIXLY_CORRECT, and potentially on the BSD userland of the macos leg. The
 # environment must not reach this verdict.
-sort -u -o "$workspace/present" "$workspace/present-unsorted"
-sort -u -o "$workspace/non-regular" "$workspace/non-regular-unsorted"
-printf '%s\n' "$manifest" | sort -u >"$workspace/declared"
+# Each of these routes failure to `fault` for the same reason the mktemp guard
+# does. GNU sort happens to exit 2 on error and comm exits 1, so leaving them
+# bare would make the gate's status depend on which implementation ran rather
+# than on what it found -- a full disk mid-run would report a membership
+# difference. The guard is construction; the exit codes are not ours to rely on.
+sort -u -o "$workspace/present" "$workspace/present-unsorted" ||
+	fault 'could not sort the enumerated members'
+sort -u -o "$workspace/non-regular" "$workspace/non-regular-unsorted" ||
+	fault 'could not sort the enumerated members'
+printf '%s\n' "$manifest" | sort -u >"$workspace/declared" ||
+	fault 'could not sort the manifest'
 
-comm -23 "$workspace/present" "$workspace/declared" >"$workspace/unexpected"
-comm -13 "$workspace/present" "$workspace/declared" >"$workspace/missing"
+comm -23 "$workspace/present" "$workspace/declared" >"$workspace/unexpected" ||
+	fault 'could not compare the enumerated members against the manifest'
+comm -13 "$workspace/present" "$workspace/declared" >"$workspace/missing" ||
+	fault 'could not compare the enumerated members against the manifest'
 
 # Every finding before the run exits, not the first one: a branch that adds a
 # file and deletes another has to be told about both rather than sent round the

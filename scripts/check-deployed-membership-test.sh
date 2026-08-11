@@ -320,6 +320,44 @@ mkdir -p "$FIXTURE/content/instructions"
 printf 'not deployed\n' >"$FIXTURE/content/instructions/notes.md"
 assert_passes 'a file outside the declared trees'
 
+# An environment that breaks the gate's own I/O must read as "could not run",
+# never as "found a difference": exit 1 is reserved for a membership difference,
+# and a bare tool diagnostic with no deployed-membership: line is not something
+# an operator or an unattended agent can act on. Both halves are mocked on PATH
+# rather than simulated, because the failure is in what the tools return.
+#
+# Root skips: it writes to a mode-555 directory regardless.
+mock_bin="$SCRATCH/mockbin"
+mkdir -p "$mock_bin"
+# Under SCRATCH so this suite's own cleanup, which restores write permission
+# first, reclaims the mode-555 directory the mock leaves behind.
+export SCRATCH_MOCK_WORKSPACE="$SCRATCH/readonly-workspace"
+
+assert_environment_fault() { # name mock-name mock-body
+	local code=0
+	printf '#!/usr/bin/env bash\n%s\n' "$3" >"$mock_bin/$2"
+	chmod +x "$mock_bin/$2"
+	PATH="$mock_bin:$PATH" "$CHECKER" "$FIXTURE" >"$SCRATCH/out" 2>"$SCRATCH/err" || code=$?
+	rm -f "$mock_bin/$2"
+	if ((code != 2)); then
+		fail "$1" "should exit 2, exited $code"
+	fi
+	if ! grep -q '^deployed-membership: ' "$SCRATCH/err"; then
+		fail "$1" 'should name itself rather than leaking a bare tool diagnostic'
+	fi
+}
+
+if [[ "$(id -u)" -eq 0 ]]; then
+	printf 'deployed-membership-test: skipping the unwritable-workspace row: running as root\n' >&2
+else
+	build_fixture
+	assert_environment_fault 'an unwritable workspace' mktemp \
+		"dir=\"\$SCRATCH_MOCK_WORKSPACE\"; mkdir -p \"\$dir\"; chmod 555 \"\$dir\"; printf '%s\\n' \"\$dir\""
+fi
+
+build_fixture
+assert_environment_fault 'a comparison that could not run' comm 'exit 1'
+
 # POSIXLY_CORRECT stops getopt permuting argv, which is what would turn an option
 # written after a file operand into another input file. The environment must not
 # reach this verdict any more than the caller's locale does.
