@@ -52,10 +52,15 @@ Signature and merge rule are unchanged. What changes is the failure mechanism.
 |---|---|
 | No overlay file | Copy the base through `jq '.'`; report no overlay. Return 0. Unchanged. |
 | Overlay whose merged result preserves every protected base value | Merge; report the overlay applied. Return 0. Unchanged. |
-| Overlay whose merged result changes a base non-empty array or leaves a non-object where the base held a non-empty object | Report to standard error, naming the overlay and each outermost base path not preserved, and **return 1**. Was `exit 1`. |
+| Overlay whose merged result changes a base non-empty array or leaves a non-object where the base held a non-empty object | Report to standard error, naming the overlay and each outermost base path not preserved, **delete the merged output**, and **return 1**. Was `exit 1`. |
 
-The merged temp file is still written before the check and still removed by the EXIT trap. The
-refusal path writes nothing to the destination, so no half-written file can survive it.
+Deleting the merged output is not tidiness. The merged file is written before it is checked, so on
+refusal a fully-formed, guard-erased settings document exists on disk; `exit 1` used to make it
+unreachable. Removing it keeps ADR 0043's "no unguarded settings file is deployed" structural — a
+call site that installs it anyway hits `install_managed_path`'s missing-source check and fails
+loudly instead of deploying it under a green summary. The EXIT trap still covers the file on every
+other path, and `cleanup` already tests for existence before unlinking, so the early delete is
+safe. The refusal path writes nothing to the destination, so no half-written file survives it.
 
 ### Call sites
 
@@ -89,8 +94,8 @@ edit.
 ### Run outcome
 
 The run attempts every agent it was asked for. Afterwards, if any settings file was withheld, the
-installer names the count on standard error and exits 1. An operator or wrapper reading only the
-exit status sees no change from today.
+installer names the count on standard error and exits 1. The status is unchanged; what it now
+reports is a run that installed almost everything and withheld one file per refused agent.
 
 ### Repair route
 
@@ -120,20 +125,25 @@ Each is a test in `install-test.sh` unless noted.
    file carries every base value says so rather than naming paths.
 7. **Idempotent.** Running the refused case twice leaves the same deployed file, the same exit
    status, and the same report.
-8. **#110's verdicts unchanged.** The five constrained cases keep theirs: clobbering
+8. **The refused merge's output is unusable.** A refused run leaves no merged settings file behind
+   for a mis-written call site to install. Asserted through the observable consequence: the refusal
+   case's destination holds no `settings.json`, and the existing "refusal over a deployment" case's
+   deployed file is unchanged.
+9. **#110's verdicts unchanged.** The five constrained cases keep theirs: clobbering
    `hooks.PreToolUse` refused; `permissions.deny` replacement refused; `permissions.allow` addition
    installed; `{"env":null}` refused; `{"hooks":"x"}` refused naming `hooks` and not `PreToolUse`.
    Already covered by existing cases 2–6, 9, 10.
-9. **No test writes outside its fixture.** Every case exports `HOME`, `*_CONFIG_DIR`, and
-   `AGENT_CONFIG_PRIVATE_DIR` under the suite's `mktemp -d`, removed by the existing EXIT trap.
-10. `README.md` states the withheld-file behavior and the repair route. Not a test.
-11. `just verify` passes bare.
+10. **No test writes outside its fixture.** Every case exports `HOME`, `*_CONFIG_DIR`, and
+    `AGENT_CONFIG_PRIVATE_DIR` under the suite's `mktemp -d`, removed by the existing EXIT trap.
+11. `README.md` states the withheld-file behavior and the repair route. Not a test.
+12. `just verify` passes bare.
 
 ## Out of scope
 
 - Repairing a deployed file the installer cannot correctly reconstruct. With the overlay refused
   there is no merged result to write, and writing the bare base would discard every legitimate
-  scalar override the operator has.
+  scalar override the operator has. The one sub-case where there is nothing to discard — a first
+  install with no deployed file — is an accepted residual, argued in ADR 0049.
 - Any new command-line flag or environment variable.
 - `merge_toml_config`, which concatenates rather than merges and has no protected-value guarantee
   to withhold (#123).

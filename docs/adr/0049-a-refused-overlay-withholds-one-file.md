@@ -36,14 +36,26 @@ Three parts.
 
 *The refusal is a return, not an exit.* `merge_json_settings` reports and returns non-zero. Each
 call site installs its destination paths from the merged file on success and **retains** them on
-refusal. Two invariants of the same class hold this up, and neither is optional. The script runs
-under `set -e`, so a call site must test the status explicitly; a bare call to a function that
-returns non-zero ends the script exactly as the old `exit 1` did, after the refusal text has
-printed and before any withheld-file count, which looks identical to today's behavior while this
-record claims the opposite. And retaining is not merely "skip": the path is recorded in the new
-manifest, because a manifest that omits it is a manifest that instructs `prune_removed` to delete
-the deployed file. Withholding a deploy must never become deleting a deployment, and the abort used
-to stop before pruning where now it does not.
+refusal. Three invariants hold this up, and none is optional.
+
+The merged file is written before it is checked, so on refusal a fully-formed, guard-erased
+settings document exists on disk. Under `exit 1` it was unreachable by construction: nothing could
+install it because nothing ran. Turning that into a return would demote 0043's "no unguarded
+settings file is deployed" from a structural guarantee to a call-site convention — one careless
+`|| true` above the existing install line deploys it with a normal-looking deploy message and a
+green summary. So **the refusal deletes the merged file before returning.** A call site that
+installs it anyway then hits `install_managed_path`'s missing-source check and fails loudly, which
+is the same guarantee held by a different mechanism rather than by everyone remembering.
+
+The script runs under `set -e`, so a call site must test the status explicitly; a bare call to a
+function that returns non-zero ends the script exactly as the old `exit 1` did, after the refusal
+text has printed and before any withheld-file count, which looks identical to today's behavior
+while this record claims the opposite.
+
+And retaining is not merely "skip": the path is recorded in the new manifest, because a manifest
+that omits it is a manifest that instructs `prune_removed` to delete the deployed file. Withholding
+a deploy must never become deleting a deployment, and the abort used to stop before pruning where
+now it does not.
 
 *The report names what is live.* On the refusal path the installer compares the base against the
 **deployed** file and says which protected base paths that file is missing now, or that it carries
@@ -53,7 +65,12 @@ have been written. Nothing is written on this path, so the report cannot damage 
 deliberate hand edit that erased a guard is named and left exactly as the operator wrote it.
 
 *The run still fails.* Every requested agent is attempted, then the installer names the count of
-withheld settings files and exits non-zero. Anything reading the exit status sees no change.
+withheld settings files and exits non-zero. The status is unchanged; what it reports is not. Before,
+non-zero from a refused Claude overlay meant nothing was deployed for that agent and, under
+`--agent all`, nothing after it either. Now it means the agent's tree, the later agents, and
+everything but one file per refused agent went to the operator's home directory. A wrapper reading
+non-zero as "the install did not take effect" is wrong after this change, and that is the price of
+not charging an unrelated freeze for one bad overlay.
 
 Repair stays the operator's, through the route that already exists: fix or remove the overlay and
 re-run. `install_managed_path` then sees the deployed file differ from the merged result, backs the
@@ -86,18 +103,26 @@ that installs a tree and the run that finds it unchanged.
 - The check costs one extra `jq` invocation, on the refusal path only.
 - The report says nothing about whether the *overlay* would have repaired the deployed file, because
   the overlay was refused and no merged result exists to describe.
-- The withheld count is reported when the run reaches its end. `install.sh` still exits directly on
-  a missing command, an unsafe managed path, a symlinked ancestor, an uncomparable payload or a
-  missing source, so an unrelated hard failure while installing a later agent preempts the count and
-  the operator sees only that failure. Accepted rather than engineered around: a summary-on-exit
-  trap would run on every exit path in the script to cover a compound, low-frequency case.
+- **The refusal stops being terminal output.** Today it is the last thing on the screen, because the
+  run ends on it; now it lands mid-stream in a long, otherwise-successful log. The end-of-run count
+  is the compensating control, and it is not reliable: `install.sh` still exits directly on a missing
+  command, an unsafe managed path, a symlinked ancestor, an uncomparable payload or a missing source,
+  so an unrelated hard failure while installing a later agent preempts the count and the operator
+  sees only that failure — with the refusal already scrolled away. 0043 rejected "warn and continue"
+  on exactly this ground, and that objection now partly applies to this record's own output. Accepted
+  with the hole named rather than engineered around: a summary-on-exit trap would have to run on
+  every exit path in the script to cover a compound, low-frequency case.
 - **A refused run now deploys a current tree beside a settings file of arbitrary vintage.** Under the
   abort those two came from the same successful run and were stale together; now the newest
   `skills/`, `CLAUDE.md`, `statusline.sh` and `content/` land next to a settings file that may
   predate them by any amount — and they reference each other, since the base's `statusLine.command`
   names the separately installed `~/.claude/statusline.sh` and the shipped instructions assume the
   `PreToolUse` guards are present. The withheld file can therefore fall behind a guard the base has
-  since added while the operator keeps receiving every instruction that assumes it.
+  since added while the operator keeps receiving every instruction that assumes it. Its extreme is a
+  **first** install that refuses: the destination gets the whole instruction payload and no
+  `settings.json` at all, so the guards those instructions assume are absent rather than stale. The
+  abort made that state unreachable, since a first install that refused deployed nothing to assume
+  anything.
 - **The freeze was also a forcing function, and this gives it up.** A run that installed nothing was
   not livable; a run that installs almost everything and exits non-zero is. An operator whose
   deployed file happens to be correct now reads the report as reassurance and has little pressure to
@@ -118,7 +143,13 @@ that installs a tree and the run that finds it unchanged.
 - **Repair the deployed file from the base.** Rejected: with the overlay refused there is no merged
   result to write, so the only thing available is the bare base — which discards every legitimate
   scalar override the operator has, silently, in their home directory. It answers a broken overlay
-  by throwing away the working part of it.
+  by throwing away the working part of it. That reason does not reach the one sub-case where there is
+  nothing to discard — a first install with no deployed file, which is also the sharpest instance of
+  the mixed-vintage consequence above. It is rejected there on a different ground and a weaker one:
+  deploying the base alone writes a configuration the operator did not author, in the middle of a run
+  that is telling them their overlay is broken, and splits the installer's behavior on whether a file
+  happens to exist. The operator is at the terminal for a first install and the run names the missing
+  file, so the residual is accepted rather than solved.
 - **Apply the overlay, then reassert the base's protected values.** Already rejected by 0043 for
   making the overlay's stated intent vanish without a word. Re-examined here because it is the one
   alternative that would *repair* an unguarded deployment on the next run, which is what #126 asked
@@ -128,9 +159,6 @@ that installs a tree and the run that finds it unchanged.
   it, and it would have to answer what to do about the overlay — which is the actual defect — before
   it could decide what a repaired file contains. The existing route already replaces the file and
   keeps a backup.
-- **Keep the abort and improve only the message.** Rejected: #110 already improved the message, and
-  the issue's own reframing is that the message is not the cost. A better sentence about the
-  settings file does not unfreeze the skills tree.
 - **Compare the deployed file against the base on every run, not only on refusal.** Rejected: on a
   run that is not refused the installer replaces the deployed file with the merged result, so a
   clobbered file is repaired that same run and the report would describe a state that no longer
@@ -142,4 +170,5 @@ that installs a tree and the run that finds it unchanged.
   them their settings file was not deployed, which is true and incomplete. The operator who reads it
   and shrugs — the overlay is stale but the deployment is fine — is not told that they have also
   stopped receiving skills, instructions and shared content, and there is nothing in the output from
-  which to infer it.
+  which to infer it. Improving the message further does not answer this: a better sentence about the
+  settings file does not unfreeze the skills tree.
