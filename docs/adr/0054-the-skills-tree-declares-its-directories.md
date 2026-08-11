@@ -35,18 +35,22 @@ file-granularity trees, as a second declared list compared by the same rule at d
 granularity.** Record 0045's siting objection is answered rather than accepted, on three
 grounds.
 
-*The objection counts rules where there is one.* The gate asserts set equality between what a
-wholesale-installed tree contains and what a list declares. That rule is unchanged; only the
-enumerator differs — `find <trees> ! -type d` for the three file-granularity trees, and the
+*The objection is granted in part.* One comparison mechanism serves both halves — set equality
+between what a wholesale-installed tree contains and what a list declares — and only the
+enumerator differs: `find <trees> ! -type d` for the three file-granularity trees, and the
 top-level children not descended into (`find "$root" ! -path "$root" -prune`, the idiom
 `validate_inventory` uses, over the `$ROOT`-absolute path this script builds for every tree) for
-the one whose unit of delivery is the directory. Two enumerators feeding one comparison is not
-two comparison rules.
+the one whose unit of delivery is the directory. But the second half does bring a parallel
+finding vocabulary, its own remedy line, its own clause on the summary and its own emission
+block, and the Consequences below record what that costs a reader. The other two grounds are
+what carry the siting.
 
 *The alternative siting mixes two subjects.* `check-skill-layout.sh` answers "is each skill
 well-formed"; membership answers "which skills exist". Split that way, a reader asking what the
 repository installs for every user reads two scripts and gets half the answer from each, with
-neither summary stating the whole.
+neither summary stating the whole. Every fixture in `check-skill-layout-test.sh` builds a
+one-skill tree and would have to carry a declaration matching it, so the rule's cost would also
+land on 60-odd existing cases that are about something else.
 
 *The receiving script's discipline is what a membership comparison needs, and the alternative
 does not have it.* 0045's exit-code split — exit 1 for a difference found, exit 2 for input the
@@ -74,9 +78,7 @@ rule costs to hold here on its own.
 **The three-tree block emits first, followed by the skills block.** The three trees' finding
 classes, remedy line and emission order are unchanged, so 0045's suite rows that pin a whole
 finding sequence keep asserting the same bytes. The summary gains one clause naming the declared
-directory count, so every row that pins the summary in full — the pass rows — has that expected
-string edited once, and the suite derives the directory count from the fixture it builds, the
-way it already derives the member count, rather than pinning a literal.
+directory count, which edits the expected string in the rows that pin the summary in full.
 
 ## Consequences
 
@@ -84,8 +86,10 @@ way it already derives the member count, rather than pinning a literal.
   Removing one is likewise two. At two adding commits in the repository's history that is a cost
   the churn objection cannot reach, but it is not zero — a wave that adds a skill on one branch
   turns a sibling branch red after it merges, and the remedy is the one-line edit.
-- A whole new skill directory can no longer deploy to every user unread. That is the specific
-  hole 0045 booked and this record closes.
+- What the gate proves is that an *undeclared* skill directory cannot land silently — CI refuses
+  it whether or not anyone reads the diff. It does not make the list line more conspicuous than
+  the directory beside it in the same commit; if anything less so, since the added artifact here
+  is a whole `SKILL.md`-bearing tree. 0045 qualified its own claim the same way.
 - **What remains uncovered, stated rather than implied away:**
   - *Membership inside a skill directory.* A file added under an existing
     `content/skills/<name>/` — an asset, a carrier, a second Markdown file — still installs with
@@ -98,8 +102,13 @@ way it already derives the member count, rather than pinning a literal.
     What survives is a coordinated edit to this script's lists and the suite's, exactly as 0045
     records for the file-granularity half.
   - *Nothing couples the declaration to `install.sh`.* A fifth wholesale-installed tree added to
-    the installer is uncovered until someone adds it here, and no gate detects the omission.
-    0045 records this and it is unchanged.
+    the installer is uncovered until someone adds it here, and no gate detects the omission. The
+    whole of the coupling is still the two comments 0045 named; this change corrects the one in
+    `install_common_content`, which said the skills tree was deliberately undeclared.
+  - *A second, ungated enumeration of skill directory names.* `docs/licenses/superpowers.md`
+    lists eleven of them as the covered roots of the vendored MIT attribution, and no script,
+    workflow or recipe reads it. A rename now turns this gate red, which prompts an edit to
+    *this* list while the licensing one goes stale in the same commit. Issue #159 owns it.
   - *Directory names only.* The gate says nothing about whether a declared skill should ship, or
     what it contains.
   - *The sibling gate this record argues from is itself undisciplined.* `check-skill-layout.sh`
@@ -117,10 +126,7 @@ way it already derives the member count, rather than pinning a literal.
 ## Considered & rejected
 
 - **Put the declaration in `check-skill-layout.sh`, as 0045 proposed.** The closest thing to a
-  settled position, and the issue names it too. Rejected on the three grounds in the Decision,
-  plus one they do not cover: every fixture in `check-skill-layout-test.sh` builds a one-skill
-  tree and would have to carry a declaration matching it, so the rule's cost lands on 60-odd
-  existing cases that are about something else.
+  settled position, and the issue names it too. Rejected on the grounds in the Decision.
 - **Declare `content/skills/*/SKILL.md` as ordinary file members instead of declaring
   directories.** The smallest alternative available — no second granularity, no new member
   class, and the existing `non-regular-member` rule covers a symlinked `SKILL.md` unchanged.
@@ -137,20 +143,20 @@ way it already derives the member count, rather than pinning a literal.
   made and this record does not disturb: 132 commits touched `content/skills` in the last 90
   days, and a per-file manifest would make most of them two-part edits. Recorded above as the
   standing residual rather than closed.
-- **A separate `scripts/expected-skill-names.txt`, mirroring `reserved-skill-names.txt`.**
-  Rejected: 0045 put its manifest inline because it means nothing apart from the comparison that
-  consumes it, and that is as true of 36 names as of 7. A data file would also need its own
-  parse rules, its own malformed-entry class, and its own fault path for being unreadable — new
-  failure modes bought for a line count.
-- **Derive the expected set from `git ls-files`, or from the tree.** Rejected for 0045's reason,
-  which is the whole point of a manifest: a list derived from what is there agrees with whatever
-  is there, so it passes on exactly the change it exists to catch.
-- **Assert the set in `install-test.sh`, against the installed result.** Rejected as 0045
-  rejected it: it would make a source-tree question answerable only by running the installer.
 - **A third script owning only skills membership.** Rejected: it would need its own copy of the
   workspace, fault, sort and comm machinery, a third recipe in the `verify` chain, and its own
   suite, to assert the same rule over a fourth tree.
-- **Do nothing and rely on `check-skill-layout.sh` plus review.** Rejected on the asymmetry 0045
-  named: a skill directory is a complete instruction set that lands in every user's global
-  configuration and needs no further edit to keep acting, while the cost of the gate is one line
-  per skill against two adding commits in the repository's history.
+- **A data file beside `reserved-skill-names.txt`; a set derived from `git ls-files` or from the
+  tree; an assertion in `install-test.sh` against the installed result.** All three are rejected
+  for the reasons 0045 gives, which the change of granularity does not disturb — an inline list
+  means nothing apart from the comparison that consumes it, a derived list agrees with whatever
+  is there, and an installed-result assertion makes a source-tree question answerable only by
+  running the installer.
+- **Do nothing and rely on `check-skill-layout.sh` plus review.** The null option is stronger
+  here than it was in 0045, and the record says so rather than transplanting the earlier
+  argument: `validate_inventory` already requires every top-level child to be a real directory
+  with a portable non-reserved name and a valid UTF-8 `SKILL.md`, so what this gate adds is
+  refusal of a *well-formed* skill directory a reviewer waved through, not of an unnoticed stray
+  file. Rejected anyway on the asymmetry: such a directory is a complete instruction set that
+  lands in every user's global configuration and needs no further edit to keep acting, against a
+  cost of one line per skill at two adding commits in the repository's history.

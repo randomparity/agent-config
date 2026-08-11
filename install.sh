@@ -703,8 +703,8 @@ install_common_content() {
 	# scripts/check-deployed-membership.sh, and a file added here without a
 	# manifest line fails that gate. Four directory sources reach
 	# install_managed_path in all: these two, agents/bob/shared/rules, and the
-	# staged skills tree, which is deliberately not declared (ADR 0045). A fifth
-	# needs adding to the manifest.
+	# staged skills tree, which the same gate declares at directory granularity
+	# rather than per file (ADR 0054). A fifth needs adding there too.
 	install_managed_path "$dest_dir" "$REPO/content/languages" "languages"
 	install_managed_path "$dest_dir" "$REPO/content/references" "references"
 	install_managed_path \

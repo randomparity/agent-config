@@ -113,6 +113,18 @@ scan root; neither compares membership, so for neither is the root's absence its
   with nothing comparing them.
 - The gate proves the tree matches the list. It says nothing about whether a listed file
   should be deployed at all, or what it contains.
+- **Superseded in part by [ADR 0054](0054-the-skills-tree-declares-its-directories.md)
+  (2026-08-10), which closed #124.** The file-granularity rule above still governs in full and
+  every verdict this record specifies is unchanged. What 0054 replaced is the `content/skills`
+  exclusion, so three statements here no longer describe the repository: "`content/skills` is
+  excluded because its unit of delivery is the skill directory, not the file" (Decision),
+  "Nothing declares the expected set of skills … It is left open here" (above), and the
+  disposition of directory-granularity declaration as belonging in `check-skill-layout.sh` and
+  "Tracked as follow-up work" (below). That tree is now declared in this same gate, at
+  directory granularity, by a second enumerator feeding the same comparison. The per-file
+  residual *inside* a skill directory is unchanged and still open. Recorded as an append
+  rather than a `Superseded by` banner deliberately, on the model of 0043: the banner is
+  whole-record, and the three-tree rule this record establishes is still the operative one.
 
 ## Considered & rejected
 
