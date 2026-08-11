@@ -80,9 +80,11 @@ is 0045's no-fault-for-a-missing-tree decision applied unchanged, and it is why 
 is guarded by the filter rather than by a fault.
 
 Surviving, the top-level children are enumerated with
-`find "$ROOT/content/skills" -mindepth 1 -maxdepth 1 -print0`. The root is excluded by depth,
-which deviates deliberately from `validate_inventory`'s `! -path "$root"` form and from the
-`! -name .` variant of it. Both of those exclude the root by matching a pattern against it, and
+`find "$ROOT/content/skills" -mindepth 1 -maxdepth 1 -print0`. The root is excluded by depth, which
+deviates from `validate_inventory`'s `! -path "$root"` form and from the `! -name .` variant of
+it. The deviation is a fix rather than a style choice, and the sibling keeps the defect: under a
+bracket-expression checkout root `check-skill-layout.sh` false-reds where this gate passes
+(issue #174). Both of those exclude the root by matching a pattern against it, and
 both have a case where the match fails and the root is printed as an entry with none of its
 children — the gate then emits `unexpected-skill-entry` for the tree itself beside all 36
 declared names as missing, a total false red. `-path` matches by fnmatch, so a repository root

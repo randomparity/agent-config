@@ -113,6 +113,11 @@ directory count, which edits the expected string in the rows that pin the summar
     makes a claim about what is distributed under which terms. Issue #159 owns both.
   - *Directory names only.* The gate says nothing about whether a declared skill should ship, or
     what it contains.
+  - *The enumerator defect this record diagnoses is still live next door.*
+    `check-skill-layout.sh` excludes its traversal roots with `! -path "$root"`, the form this
+    gate rejected: under a checkout path holding a bracket expression it prints the root as its
+    own child and false-reds, while this gate passes on the same tree. Choosing the depth form
+    here fixed only this script — the sibling was outside this change. Issue #174 owns it.
   - *A skills-side fault now withholds the three-tree findings of the same run.* Every
     comparison completes before any finding is emitted, so an unreadable skills tree or a name
     holding a newline exits 2 with its own diagnostic and the `unexpected-member` line that
