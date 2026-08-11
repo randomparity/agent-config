@@ -9,6 +9,11 @@ if [[ ! -x "$CHECKER" ]]; then
 	exit 127
 fi
 
+# The steering cases below export RIPGREP_CONFIG_PATH inside a subshell around
+# one gate invocation. Unsetting it here keeps whatever this suite inherited out
+# of its own assertions, which are ripgrep calls too (record 0051).
+unset RIPGREP_CONFIG_PATH
+
 SCRATCH="$(mktemp -d "${TMPDIR:-/tmp}/shared-standards-test.XXXXXX")"
 FIXTURE="$SCRATCH/repo"
 
@@ -296,6 +301,27 @@ write_copy 'agents/codex/shared/notes.md' 'Codex notes.' drifted_block
 printf 'notes.md\n' >"$FIXTURE/agents/codex/shared/.ignore"
 assert_fails 'an ignore file may not hide a deployed carrier' block-drift \
 	'agents/codex/shared/notes.md:5'
+
+# ripgrep judges a file binary on one NUL byte and skips it while walking a
+# tree, so the block-carrier scan never lists a NUL-carrying file and the drift
+# in it is never compared. The gate reports ok. That is the same silent miss the
+# .ignore case above exists to prevent, reached through the file's own bytes
+# instead of an ignore entry. --text is what keeps it in the scan.
+reset_fixture
+write_copy 'agents/codex/shared/notes.md' 'Codex notes.' drifted_block
+printf '\000\n' >>"$FIXTURE/agents/codex/shared/notes.md"
+assert_fails 'a NUL byte may not hide a deployed carrier' block-drift \
+	'agents/codex/shared/notes.md:5'
+
+# ripgrep does not skip a file named as an explicit argument -- it prints
+# `binary file matches (found "\0" byte around offset N)` in place of the
+# numbered lines the marker scan parses. That line carries no colon, so the
+# caller's field split yields the whole sentence where a line number belongs and
+# the arithmetic on it aborts the run with an unbound-variable error, which the
+# caller's exit status then reads as a content finding rather than a fault.
+reset_fixture
+printf '\000\n' >>"$FIXTURE/$CANONICAL"
+assert_passes 'a NUL byte in the canonical file is scanned, not misparsed'
 
 reset_fixture
 rm -R "$FIXTURE/agents/bob/shared"

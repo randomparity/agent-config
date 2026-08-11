@@ -7,6 +7,14 @@
 #
 # Every value and function below is read by tracker.sh after it sources this
 # file. Linted standalone, shellcheck cannot see that use.
+#
+# ripgrep applies the contents of RIPGREP_CONFIG_PATH as arguments ahead of the
+# ones passed below, so a personal ripgreprc would otherwise choose what this
+# profile reads out of `gh` output -- including whether an issue counts as
+# blocked. Repeated here rather than left to tracker.sh because a sourced file
+# that depends on its caller having done this is a footgun for the next engine.
+unset RIPGREP_CONFIG_PATH
+
 # shellcheck disable=SC2034
 
 PROFILE_DECLARES="view:implemented

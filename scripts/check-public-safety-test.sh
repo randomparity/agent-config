@@ -3,6 +3,12 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CHECKER="$ROOT/scripts/check-public-safety.sh"
+
+# The cases below hand the gate a hostile RIPGREP_CONFIG_PATH one invocation at
+# a time. Unsetting it here keeps the value this suite inherited from steering
+# the baseline cases, which assert the gate stays green (record 0051).
+unset RIPGREP_CONFIG_PATH
+
 SCRATCH="$(mktemp -d "${TMPDIR:-/tmp}/public-safety-test.XXXXXX")"
 
 cleanup() {
@@ -111,5 +117,230 @@ if ! "$CHECKER" "$SCRATCH/repo" >"$SCRATCH/output" 2>&1; then
 	exit 1
 fi
 rm -f "$SCRATCH/repo/prose.md"
+
+# A credential shape the scan is meant to catch, assembled at runtime so this
+# suite is not itself a match for the gate that scans it.
+planted="token: $(printf '%s%s' 'ghp' '_abcdefghijklmnopqrstuvwxyz01')"
+
+# ripgrep applies the contents of RIPGREP_CONFIG_PATH as arguments ahead of the
+# ones the gate passes, so whoever sets that variable chooses what the secret
+# scanner matches. Each directive below was reproduced against the unhardened
+# gate: the planted token went unreported and the gate exited 0 -- the same
+# answer it gives for a clean tree, which is the worst shape a security gate can
+# fail in. Record 0051.
+printf '%s\n' "$planted" >"$SCRATCH/repo/planted.md"
+while IFS= read -r directive; do
+	printf -- '%s\n' "$directive" >"$SCRATCH/rgconfig"
+	if RIPGREP_CONFIG_PATH="$SCRATCH/rgconfig" "$CHECKER" "$SCRATCH/repo" \
+		>"$SCRATCH/output" 2>&1; then
+		printf 'public-safety-test: a ripgrep config of %s hid a planted secret\n' \
+			"$directive" >&2
+		exit 1
+	fi
+done <<'DIRECTIVES'
+--fixed-strings
+--glob=!*.md
+--max-count=0
+--encoding=utf-16le
+DIRECTIVES
+rm -f "$SCRATCH/repo/planted.md" "$SCRATCH/rgconfig"
+
+# ripgrep judges a file binary on a single NUL byte and skips it during
+# directory traversal, so a secret in a file carrying one anywhere is not
+# scanned at all. --text is what keeps it in view.
+printf '%s\n\000trailing\n' "$planted" >"$SCRATCH/repo/nul.md"
+if "$CHECKER" "$SCRATCH/repo" >"$SCRATCH/output" 2>&1; then
+	printf 'public-safety-test: a NUL byte hid a planted secret\n' >&2
+	exit 1
+fi
+rm -f "$SCRATCH/repo/nul.md"
+
+# A leading \xFF\xFE makes ripgrep transcode the rest of the file as UTF-16LE,
+# so ASCII content is garbled into something the ASCII patterns cannot match --
+# a five-byte prefix that bypasses the scanner. --encoding none stops the
+# sniffing. The trade is recorded in 0051: no tracked file here is UTF-16.
+printf '\377\376%s\n' "$planted" >"$SCRATCH/repo/bom.md"
+if "$CHECKER" "$SCRATCH/repo" >"$SCRATCH/output" 2>&1; then
+	printf 'public-safety-test: a spoofed UTF-16 mark hid a planted secret\n' >&2
+	exit 1
+fi
+rm -f "$SCRATCH/repo/bom.md"
+
+# A file can be tracked and ignored at once: `git add -f` on a path a .gitignore
+# or .ignore names puts it in the index, so it ships to everyone who clones this
+# public repo, while ripgrep's walk -- which applies those same rules to tracked
+# files -- never opens it. Before the gate named its tracked files explicitly it
+# printed nothing and exited 0 here, the same answer it gives for a clean tree.
+#
+# The suite unsets git's local environment so a caller's GIT_DIR or
+# GIT_INDEX_FILE cannot reach these fixtures (ADR 0044).
+while IFS= read -r variable; do
+	[ -n "$variable" ] || continue
+	unset "$variable"
+done < <(git rev-parse --local-env-vars)
+
+hidden_secret="token: $(printf '%s%s' 'ghp' '_abcdefghijklmnopqrstuvwxyz01')"
+
+for ignore_file in .gitignore .ignore; do
+	fixture="$SCRATCH/hidden-$ignore_file"
+	mkdir -p "$fixture/sub"
+	git init -q -b main "$fixture"
+	git -C "$fixture" config user.name 'Fixture Developer'
+	git -C "$fixture" config user.email fixture@example.invalid
+	printf '%s\n' "$hidden_secret" >"$fixture/sub/leak.txt"
+	printf 'sub/leak.txt\n' >"$fixture/$ignore_file"
+	git -C "$fixture" add -f sub/leak.txt "$ignore_file"
+	git -C "$fixture" commit -qm 'tracked but ignored'
+
+	# The premise: git ships it. If this stops holding the case proves nothing.
+	if ! git -C "$fixture" ls-files | grep -qF sub/leak.txt; then
+		printf 'public-safety-test: fixture is not tracked, case is void: %s\n' \
+			"$ignore_file" >&2
+		exit 1
+	fi
+	if "$CHECKER" "$fixture" >"$SCRATCH/output" 2>&1; then
+		printf 'public-safety-test: %s hid a secret in a tracked file\n' \
+			"$ignore_file" >&2
+		exit 1
+	fi
+done
+
+# ripgrep exits 2 when it cannot open a path it was given explicitly, and it does
+# so even when it also found matches. `git ls-files` reports the index, so a
+# tracked file deleted from the worktree and not staged names a path with nothing
+# behind it -- and a bare `if` on ripgrep read that 2 as "no match". `rm` of any
+# tracked file turned this gate green while printing the secret to stdout.
+deleted="$SCRATCH/deleted-target"
+mkdir -p "$deleted/sub"
+git init -q -b main "$deleted"
+git -C "$deleted" config user.name 'Fixture Developer'
+git -C "$deleted" config user.email fixture@example.invalid
+printf '%s\n' "$hidden_secret" >"$deleted/sub/leak.txt"
+printf 'sub/leak.txt\n' >"$deleted/.gitignore"
+printf 'ordinary content\n' >"$deleted/doomed.txt"
+git -C "$deleted" add -f sub/leak.txt .gitignore doomed.txt
+git -C "$deleted" commit -qm 'tracked but ignored, plus a doomed file'
+rm "$deleted/doomed.txt"
+if "$CHECKER" "$deleted" >"$SCRATCH/output" 2>&1; then
+	printf 'public-safety-test: a deleted tracked file turned the scan green\n' >&2
+	cat "$SCRATCH/output" >&2
+	exit 1
+fi
+if ! grep -qF 'denied pattern matched' "$SCRATCH/output"; then
+	printf 'public-safety-test: the secret must still be reported\n' >&2
+	cat "$SCRATCH/output" >&2
+	exit 1
+fi
+
+# A scan ripgrep genuinely could not complete is a fault, not a verdict: exit 2,
+# distinct from both the clean 0 and the finding 1. Root can read a 000 file, so
+# the case proves nothing there and is skipped rather than asserted falsely.
+if [ "$(id -u)" -ne 0 ]; then
+	unreadable="$SCRATCH/unreadable-target"
+	mkdir -p "$unreadable"
+	git init -q -b main "$unreadable"
+	git -C "$unreadable" config user.name 'Fixture Developer'
+	git -C "$unreadable" config user.email fixture@example.invalid
+	printf 'ordinary content\n' >"$unreadable/secret-free.txt"
+	git -C "$unreadable" add secret-free.txt
+	git -C "$unreadable" commit -qm 'a file that becomes unreadable'
+	chmod 000 "$unreadable/secret-free.txt"
+	fault_status=0
+	"$CHECKER" "$unreadable" >"$SCRATCH/output" 2>&1 || fault_status=$?
+	chmod 644 "$unreadable/secret-free.txt"
+	if [ "$fault_status" -ne 2 ]; then
+		printf 'public-safety-test: an incomplete scan must fault, got %s\n' \
+			"$fault_status" >&2
+		cat "$SCRATCH/output" >&2
+		exit 1
+	fi
+else
+	printf 'public-safety-test: SKIP unreadable-scan fixture: running as root, which\n'
+	printf 'public-safety-test: reads a mode-000 file, so the scan completes and the\n'
+	printf 'public-safety-test: fault path is never reached. This run did not check it.\n'
+fi
+
+# The walk only ever opened regular files; naming a path explicitly makes ripgrep
+# open whatever is there. A tracked path replaced by a FIFO blocks forever with no
+# writer -- a burned CI timeout rather than a wrong answer, and one the walk-only
+# shape did not have. The scan target test is -f for that reason.
+#
+# The gate is run in the background and polled rather than wrapped in timeout(1),
+# which macOS does not ship (ADR 0027's leg would fail on it). A regression here
+# reddens this case instead of hanging the suite.
+fifo="$SCRATCH/fifo-target"
+mkdir -p "$fifo"
+git init -q -b main "$fifo"
+git -C "$fifo" config user.name 'Fixture Developer'
+git -C "$fifo" config user.email fixture@example.invalid
+printf 'ordinary content\n' >"$fifo/pipe.txt"
+printf '%s\n' "$hidden_secret" >"$fifo/leak.txt"
+git -C "$fifo" add pipe.txt leak.txt
+git -C "$fifo" commit -qm 'a file that becomes a FIFO'
+rm "$fifo/pipe.txt"
+mkfifo "$fifo/pipe.txt"
+
+"$CHECKER" "$fifo" >"$SCRATCH/output" 2>&1 &
+fifo_pid=$!
+waited=0
+while kill -0 "$fifo_pid" 2>/dev/null && [ "$waited" -lt 30 ]; do
+	sleep 1
+	waited=$((waited + 1))
+done
+if kill -0 "$fifo_pid" 2>/dev/null; then
+	kill -9 "$fifo_pid" 2>/dev/null || :
+	wait "$fifo_pid" 2>/dev/null || :
+	printf 'public-safety-test: a FIFO scan target blocked the gate\n' >&2
+	exit 1
+fi
+fifo_status=0
+wait "$fifo_pid" || fifo_status=$?
+if [ "$fifo_status" -ne 1 ]; then
+	printf 'public-safety-test: the FIFO tree should still report its secret, got %s\n' \
+		"$fifo_status" >&2
+	cat "$SCRATCH/output" >&2
+	exit 1
+fi
+
+# A tracked file no ignore rule hides is reached by the walk and by its explicit
+# path, so the same match arrives twice. A real leak is the worst moment to
+# double the output.
+duplicate="$SCRATCH/duplicate-report"
+mkdir -p "$duplicate"
+git init -q -b main "$duplicate"
+git -C "$duplicate" config user.name 'Fixture Developer'
+git -C "$duplicate" config user.email fixture@example.invalid
+printf '%s\n' "$hidden_secret" >"$duplicate/plain.txt"
+git -C "$duplicate" add plain.txt
+git -C "$duplicate" commit -qm 'a plainly tracked secret'
+if "$CHECKER" "$duplicate" >"$SCRATCH/output" 2>&1; then
+	printf 'public-safety-test: a plainly tracked secret must fail the gate\n' >&2
+	exit 1
+fi
+if [ "$(grep -cF 'plain.txt' "$SCRATCH/output")" -ne 1 ]; then
+	printf 'public-safety-test: the match should be reported once\n' >&2
+	cat "$SCRATCH/output" >&2
+	exit 1
+fi
+
+# The other half of the same rule: an ignored file that is *untracked* never
+# ships, so scanning it would fail the gate on host-specific content that is
+# ignored precisely to keep it out of the tracked tree -- CLAUDE.local.md here.
+# This is what a bare --no-ignore would break, and it must stay green.
+untracked="$SCRATCH/untracked-ignored"
+mkdir -p "$untracked"
+git init -q -b main "$untracked"
+git -C "$untracked" config user.name 'Fixture Developer'
+git -C "$untracked" config user.email fixture@example.invalid
+printf 'public content\n' >"$untracked/README.md"
+printf 'CLAUDE.local.md\n' >"$untracked/.gitignore"
+git -C "$untracked" add README.md .gitignore
+git -C "$untracked" commit -qm 'public seed'
+printf '%s\n' "$hidden_secret" >"$untracked/CLAUDE.local.md"
+if ! "$CHECKER" "$untracked" >"$SCRATCH/output" 2>&1; then
+	printf 'public-safety-test: an untracked ignored file must not fail the gate\n' >&2
+	cat "$SCRATCH/output" >&2
+	exit 1
+fi
 
 printf 'public-safety-test: ok\n'

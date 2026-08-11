@@ -3,6 +3,20 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
+# ripgrep applies the contents of RIPGREP_CONFIG_PATH as arguments ahead of the
+# ones this gate passes, so every flag not set below would otherwise be chosen by
+# whoever set that variable. --fixed-strings makes the class patterns literals
+# and --glob=!*.md empties the scan; either leaves a bare reference unreported
+# and this gate exit 0. One unset covers every ripgrep the file runs, including
+# one added later (record 0051).
+#
+# The scans below deliberately do not pass --text. ripgrep skips a file it judges
+# binary while walking a directory, and the suite pins that: a payload carrying
+# NUL bytes is not a deployed reference a reader follows, so it is not this
+# gate's subject. Issue #147 tracks the narrower question of a Markdown file that
+# picks up a stray NUL.
+unset RIPGREP_CONFIG_PATH
+
 if ! command -v rg >/dev/null 2>&1; then
 	printf 'deployed-references: rg is required\n' >&2
 	exit 2

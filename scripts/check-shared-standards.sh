@@ -112,12 +112,19 @@ count_lines() { # newline-delimited-text
 # The answer goes into a global instead of stdout because a scan fault has to
 # reach the caller, and a command substitution would swallow both the status and
 # any exit from inside it.
+#
+# --text because the path arrives as an explicit argument, which ripgrep does not
+# skip on a NUL byte: it prints `binary file matches (found "\0" byte around
+# offset N)` instead of the numbered lines parsed below. That sentence has no
+# colon, so the field split hands the whole of it to the caller as a line number
+# and the arithmetic on it aborts the run under `set -u` -- a fault the exit
+# status then reports as a content finding.
 marker_result=''
 marker_lines() { # absolute-path marker
 	local output rg_status
 	marker_result=''
 	set +e
-	output=$(rg -n --fixed-strings -- "$2" "$1")
+	output=$(rg -n --fixed-strings --text -- "$2" "$1")
 	rg_status=$?
 	set -e
 	case "$rg_status" in
@@ -199,7 +206,11 @@ fi
 # it, which is the one way to put divergent instructions in front of an agent
 # with this gate green.
 set +e
-carriers=$(rg -l --fixed-strings --hidden --no-ignore -- "$begin_marker" "${scan_paths[@]}")
+#
+# --text for the same reason as --no-ignore: ripgrep judges a file binary on one
+# NUL byte and skips it while walking, so a deployed file carrying one would drop
+# out of this list and its drift would never be compared -- the gate reports ok.
+carriers=$(rg -l --fixed-strings --text --hidden --no-ignore -- "$begin_marker" "${scan_paths[@]}")
 carriers_status=$?
 set -e
 case "$carriers_status" in

@@ -131,6 +131,9 @@ carrier-check:
 shared-standards-check:
   ./scripts/check-shared-standards.sh
 
+ripgrep-config-check:
+  ./scripts/check-ripgrep-config.sh
+
 membership-check:
   ./scripts/check-deployed-membership.sh
 
@@ -157,7 +160,8 @@ actions-check:
 # references-check both fault on a missing content root. Placed later, this gate's
 # answer -- that the declared file is gone -- would never be printed.
 verify: tools-check records commit-check membership-check skills-check \
-        carrier-check shared-standards-check test references-check actions-check
+        carrier-check shared-standards-check ripgrep-config-check test \
+        references-check actions-check
   prek run --all-files --stage pre-commit --dry-run
 
 ci:

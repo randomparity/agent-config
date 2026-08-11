@@ -3,6 +3,14 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
+# ripgrep applies the contents of RIPGREP_CONFIG_PATH as arguments ahead of the
+# ones below, so without this every flag this scan does not set is chosen by
+# whoever set that variable -- a personal ripgreprc, a shell profile, a CI
+# environment. --fixed-strings alone turns these patterns into literals that
+# match nothing and this gate exits 0 on a leaking tree. Unsetting once covers
+# every ripgrep this file runs, including one added later (record 0051).
+unset RIPGREP_CONFIG_PATH
+
 if ! command -v rg >/dev/null 2>&1; then
 	echo "public-safety: rg is required" >&2
 	exit 2
@@ -33,12 +41,81 @@ denied_patterns=(
 	'xox[baprs]-[A-Za-z0-9-]{20,}'
 )
 
+# ripgrep applies .gitignore, .ignore and .rgignore while walking, and it applies
+# them to tracked files too. `git add -f` on an ignored path produces a file that
+# is in the index -- it ships to everyone who clones this public repo -- and that
+# the walk below never opens, so the gate prints nothing and exits 0. That is a
+# false green on exactly the content this gate exists to catch.
+#
+# --no-ignore would close it by disabling ignore handling wholesale, but it also
+# pulls in ignored files that are *untracked* and therefore never ship: on this
+# host that is CLAUDE.local.md, .agent/campaigns/ and .superpowers/sdd/, five
+# files whose whole purpose is to hold host-specific identity out of the tracked
+# tree. Turning those red would fail every local `just verify` and every commit
+# through the pre-commit hook.
+#
+# Naming the tracked files instead scans what ships and nothing else: ripgrep
+# searches a path given explicitly on the command line whatever the ignore rules
+# say, so this covers every ignore mechanism rather than .gitignore alone. On a
+# tree with nothing hidden it is the same set the walk already covers.
+#
+# `git ls-files` reports the index, so a tracked file deleted from the worktree
+# and not yet staged names a path with nothing behind it. There is no content to
+# scan there, and the status check below would otherwise turn every such tree
+# into a fault, so those paths are dropped before the scan rather than after.
+#
+# The test is -f, not -e: the walk only ever opened regular files, and naming a
+# path explicitly makes ripgrep open whatever is there. A tracked path replaced
+# by a FIFO blocks the scan forever with no writer, which is a burned CI timeout
+# rather than a wrong answer, but the walk-only shape never had it. -f drops a
+# dangling symlink and a directory substitution in the same breath.
+scan_targets=("${scan_paths[@]}")
+for scan_path in "${scan_paths[@]}"; do
+	while IFS= read -r -d '' tracked; do
+		[[ -f "$scan_path/$tracked" ]] || continue
+		scan_targets+=("$scan_path/$tracked")
+	done < <(git -C "$scan_path" ls-files -z 2>/dev/null)
+done
+
 status=0
+# --text: ripgrep judges a file binary on one NUL byte and skips it while
+# walking a directory, so a single NUL anywhere in a file hides every secret in
+# it. --encoding none: a leading \xFF\xFE makes ripgrep transcode the file as
+# UTF-16, garbling ASCII so these ASCII patterns cannot match. Both are one line
+# of file content to trigger, and this gate's subject is content someone may be
+# trying to get past it. The trade in --encoding none -- a file genuinely stored
+# as UTF-16 stops being scanned -- is accepted in record 0051: no tracked file
+# here is one, and a documented five-byte bypass is the worse half.
+#
+# ripgrep exits 2 for a scan it could not complete -- an unreadable file, a path
+# it was handed that it cannot open, an argument list too long for exec -- and it
+# does so even when it also found matches. Read as a boolean, that is "no match":
+# the gate would print a secret to stdout and still exit 0. A bare `if` here is
+# what made a plain `rm` of any tracked file turn this gate green. The sibling
+# gates branch on the status for the same reason (check-skill-layout.sh:486,
+# check-shared-standards.sh), so this one does too: 0 is a finding, 1 is clean,
+# anything else is a fault that stops the run.
 for pattern in "${denied_patterns[@]}"; do
-	if rg -n --hidden --glob '!.git' --glob '!.git/**' "$pattern" "${scan_paths[@]}"; then
+	rg_status=0
+	matches=$(rg -n --hidden --text --encoding none \
+		--glob '!.git' --glob '!.git/**' "$pattern" "${scan_targets[@]}") ||
+		rg_status=$?
+	case $rg_status in
+	0)
+		# The walk and the explicit paths overlap on every tracked file no
+		# ignore rule hides, so each match arrives twice. Report it once: a real
+		# leak is the worst moment to double the output.
+		printf '%s\n' "$matches" | awk '!seen[$0]++'
 		printf 'public-safety: denied pattern matched: %s\n' "$pattern" >&2
 		status=1
-	fi
+		;;
+	1) ;;
+	*)
+		printf 'public-safety: ripgrep could not complete the scan (exit %s); pattern: %s\n' \
+			"$rg_status" "$pattern" >&2
+		exit 2
+		;;
+	esac
 done
 
 exit "$status"

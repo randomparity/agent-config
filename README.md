@@ -209,6 +209,19 @@ If an overlay is absent, the installer uses the public base and reports that no
 private overlay was applied. Secrets should stay in environment variables or in
 private overlay files outside this repo.
 
+Each of the three JSON overlays must hold **exactly one JSON object**, written as UTF-8
+with no byte-order mark. A file that contains a NUL byte, that begins with a BOM, that is
+empty or whitespace-only, that holds more than one JSON value — two objects concatenated,
+which parses but silently discards everything after the first — that holds a single value of
+some other type, or that is not valid JSON at all, is refused before the merge, and the
+message names the file and which of the six it is. The NUL and the BOM are called out
+separately because neither is visible to jq in the way the merge needs: a BOM'd file parses
+on its own — `jq . <overlay>` shows a well-formed object — and only the merge, which reads
+the overlay second, stops on it; and jq's lexer stops at a NUL, so two objects separated by
+one read as a single document to *both* the check and the merge. UTF-16 and UTF-32 are
+caught by the NUL rule. See
+[ADR 0052](docs/adr/0052-an-overlay-is-exactly-one-json-object.md).
+
 The three JSON overlays — Claude `settings.overlay.json`, Bob `settings.overlay.json`
 and `mcp.overlay.json` — are merged under one rule, stated over the result rather
 than over what the overlay names: an overlay may add new keys and may override

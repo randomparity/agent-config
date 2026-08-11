@@ -4,6 +4,12 @@
 # check-records.sh and its record-kind profiles.
 set -euo pipefail
 
+# ripgrep applies the contents of RIPGREP_CONFIG_PATH as arguments ahead of the
+# ones passed below, so a personal ripgreprc would otherwise choose what this
+# engine reads out of a file and out of a tracker's output. That output decides
+# which writes happen, so it is not an input this may take from the environment.
+unset RIPGREP_CONFIG_PATH
+
 # The exit taxonomy every operation shares. Only EXIT_USAGE is referenced in
 # this file; the rest are read by the profiles sourced below, which shellcheck
 # cannot see from here — hence the per-line ignores.

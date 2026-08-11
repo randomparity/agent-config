@@ -3,6 +3,11 @@
 
 set -euo pipefail
 
+# ripgrep applies RIPGREP_CONFIG_PATH's contents as arguments ahead of the ones
+# passed below, so a personal ripgreprc would otherwise steer this suite's own
+# matching.
+unset RIPGREP_CONFIG_PATH
+
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 # The suite lives in `testdata/` so it is excluded from the installed payload
 # (ADR 0025); the script it exercises ships, and sits one level up.

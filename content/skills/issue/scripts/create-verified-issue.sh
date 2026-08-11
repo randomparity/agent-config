@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# ripgrep applies the contents of RIPGREP_CONFIG_PATH as arguments ahead of the
+# ones passed below, so a personal ripgreprc would otherwise choose what the
+# checks here match. Two of them validate a URL and the created issue's body
+# before this script reports success; --invert-match inverts both.
+unset RIPGREP_CONFIG_PATH
+
 script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
 tracker="$script_dir/../../github-tracking/assets/tracker.sh"
 

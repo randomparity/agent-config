@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# ripgrep applies RIPGREP_CONFIG_PATH's contents as arguments ahead of the ones
+# passed below, so a personal ripgreprc would otherwise steer this suite's own
+# assertions -- which are asserted in both directions, so a steered config makes
+# one of the pair lie.
+unset RIPGREP_CONFIG_PATH
+
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../../.." && pwd)"
 DETECTOR="$ROOT/content/skills/preflight/scripts/detect-host-architecture"
 RESOLVER="$ROOT/content/skills/preflight/scripts/resolve-architecture-context"
