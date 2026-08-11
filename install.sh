@@ -5,6 +5,8 @@ REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
 TMP_FILES=()
 SKILLS_STAGING=""
+REFUSED_OVERLAYS=()
+WITHHELD_PATHS=()
 
 usage() {
 	cat >&2 <<'EOF'
@@ -34,8 +36,36 @@ cleanup() {
 		rm -R "$SKILLS_STAGING" ||
 			printf 'install: could not remove staging directory: %s\n' "$SKILLS_STAGING" >&2
 	fi
+	report_refusals
 }
 trap cleanup EXIT
+
+# Emitted from the EXIT trap rather than the end of `main`, so a later unrelated hard
+# failure cannot swallow it: the script still exits directly on a missing command, an
+# unsafe managed path, a symlinked ancestor, an uncomparable payload or a missing
+# source, and any of those during a later agent would preempt an end-of-run summary
+# (ADR 0049). Silent when nothing was refused, so a clean run gains no output.
+report_refusals() {
+	local entry
+
+	if [[ ${#REFUSED_OVERLAYS[@]} -eq 0 ]]; then
+		return 0
+	fi
+	printf 'install: %s private overlay(s) were refused:\n' "${#REFUSED_OVERLAYS[@]}" >&2
+	for entry in "${REFUSED_OVERLAYS[@]}"; do
+		printf 'install:   %s\n' "$entry" >&2
+	done
+	if [[ ${#WITHHELD_PATHS[@]} -eq 0 ]]; then
+		return 0
+	fi
+	# "left untouched", not "deployed ... kept as they are": an absent path is withheld and
+	# listed here too, so a header claiming every entry is deployed would tell an operator
+	# reading only the tail that a missing file is present and intact.
+	printf 'install: these paths were left untouched:\n' >&2
+	for entry in "${WITHHELD_PATHS[@]}"; do
+		printf 'install:   %s\n' "$entry" >&2
+	done
+}
 
 require_command() {
 	local command_name="$1"
@@ -327,8 +357,8 @@ finish_agent() {
 	cp "$new_manifest" "$manifest"
 
 	printf '%s: config dir %s\n' "$agent" "$dest_dir"
-	printf '%s: %s added, %s updated, %s unchanged, %s pruned\n' \
-		"$agent" "$ADDED" "$UPDATED" "$UNCHANGED" "$PRUNED"
+	printf '%s: %s added, %s updated, %s unchanged, %s pruned, %s retained\n' \
+		"$agent" "$ADDED" "$UPDATED" "$UNCHANGED" "$PRUNED" "$RETAINED"
 	printf '%s: manifest %s\n' "$agent" "$manifest"
 }
 
@@ -338,6 +368,7 @@ start_agent() {
 	UPDATED=0
 	UNCHANGED=0
 	PRUNED=0
+	RETAINED=0
 }
 
 # Every base path the overlay must not have erased, as newline-delimited dotted paths,
@@ -378,6 +409,20 @@ erased_base_paths() { # base merged
 	'
 }
 
+render_base() { # base output
+	if ! jq '.' "$1" >"$2"; then
+		printf 'install: could not read base settings: %s\n' "$1" >&2
+		exit 1
+	fi
+}
+
+# Refusal returns; every other failure exits. The distinction is load-bearing rather
+# than tidy (ADR 0049): testing this function's status at the call site suppresses
+# `set -e` for its whole body, so an unguarded jq failure would fall through into the
+# comparison, find a truncated document missing every protected path, and accuse a
+# blameless overlay of erasing all of them. `erased_base_paths` reports "nothing
+# erased" and "I could not tell" with the same empty stdout, so it is guarded too — a
+# comparison that did not run must never be read as one that found nothing.
 merge_json_settings() {
 	local base="$1"
 	local overlay="$2"
@@ -387,26 +432,191 @@ merge_json_settings() {
 
 	require_command jq
 	if [[ ! -f "$overlay" ]]; then
-		jq '.' "$base" >"$output"
+		render_base "$base" "$output"
 		printf 'install: no private overlay at %s\n' "$overlay"
 		return 0
 	fi
 
-	jq -s '.[0] * .[1]' "$base" "$overlay" >"$output"
-	erased="$(erased_base_paths "$base" "$output")"
-	if [[ -n "$erased" ]]; then
-		printf 'install: private overlay %s would erase values %s defines:\n' \
-			"$overlay" "$base" >&2
-		while IFS= read -r erased_path; do
-			printf 'install:   %s\n' "$erased_path" >&2
-		done <<<"$erased"
-		printf 'install: an overlay may add keys and override scalars, but may not change\n' >&2
-		printf 'install:   a non-empty array or replace a non-empty object (ADR 0043).\n' >&2
-		printf 'install: no settings file was deployed for this agent; the one already\n' >&2
-		printf 'install:   installed is unchanged and may already be missing these values.\n' >&2
+	if ! jq -s '.[0] * .[1]' "$base" "$overlay" >"$output"; then
+		printf 'install: could not merge private overlay %s into %s\n' "$overlay" "$base" >&2
 		exit 1
 	fi
-	printf 'install: applied private overlay %s\n' "$overlay"
+	if ! erased="$(erased_base_paths "$base" "$output")"; then
+		printf 'install: could not compare the merged result against %s\n' "$base" >&2
+		exit 1
+	fi
+	if [[ -z "$erased" ]]; then
+		printf 'install: applied private overlay %s\n' "$overlay"
+		return 0
+	fi
+
+	printf 'install: private overlay %s would erase values %s defines:\n' \
+		"$overlay" "$base" >&2
+	while IFS= read -r erased_path; do
+		printf 'install:   %s\n' "$erased_path" >&2
+	done <<<"$erased"
+	printf 'install: an overlay may add keys and override scalars, but may not change\n' >&2
+	printf 'install:   a non-empty array or replace a non-empty object (ADR 0043).\n' >&2
+	# The merged result is guard-erased and fully formed, and `exit 1` used to make it
+	# unreachable. Removing it keeps "no unguarded settings file is deployed" structural:
+	# a call site that installs it anyway now fails on `install_managed_path`'s
+	# missing-source check instead of deploying it under a green summary.
+	unlink "$output"
+	return 1
+}
+
+# Says what the file the agent actually loads holds right now. ADR 0043's refusal could
+# only say the deployed file "may already be missing these values"; the installer holds
+# the base and can read the file, so it says which. Reports and never writes, so a
+# deliberate hand edit is named and left exactly as the operator wrote it.
+report_deployed_state() { # dest_dir base rel
+	local dest_dir="$1"
+	local base="$2"
+	local path="$dest_dir/$3"
+	local base_json
+	local deployed_json
+	local missing
+	local missing_path
+
+	if [[ -L "$path" ]]; then
+		# Occupied as far as `destination_set_is_empty` is concerned, so it is retained and
+		# listed as kept — saying "nothing is deployed" here would contradict that in the
+		# same output. What is not checked is the target, which the installer does not own.
+		printf 'install: %s is a symlink; its target was not checked. A successful run\n' \
+			"$path" >&2
+		printf 'install:   replaces it as drift.\n' >&2
+		return 0
+	fi
+	if [[ -d "$path" ]]; then
+		# Occupied, like the symlink above: `destination_set_is_empty` counts it, so it is
+		# retained and listed. "No file is deployed" would say the destination is bare
+		# when something is sitting on it.
+		printf 'install: a directory occupies %s; its contents were not inspected\n' \
+			"$path" >&2
+		return 0
+	fi
+	if [[ ! -f "$path" ]]; then
+		printf 'install: no file is deployed at %s\n' "$path" >&2
+		return 0
+	fi
+
+	base_json="$(jq -S '.' "$base")" || {
+		printf 'install: could not read base settings: %s\n' "$base" >&2
+		exit 1
+	}
+	# The one failure that is a verdict rather than an error: it describes the operator's
+	# file, not the installer's machinery, so it is reported and the run continues.
+	if ! deployed_json="$(jq -S '.' "$path" 2>/dev/null)"; then
+		printf 'install: %s could not be read as JSON, so its contents were not checked\n' \
+			"$path" >&2
+		return 0
+	fi
+	if [[ "$base_json" == "$deployed_json" ]]; then
+		printf 'install: %s is the base alone; no overlay of yours has ever been\n' "$path" >&2
+		printf 'install:   applied there.\n' >&2
+		return 0
+	fi
+	if ! missing="$(erased_base_paths "$base" "$path")"; then
+		printf 'install: could not compare %s against %s\n' "$path" "$base" >&2
+		exit 1
+	fi
+	if [[ -z "$missing" ]]; then
+		# Say what was checked, not "carries every value". `erased_base_paths` is ADR
+		# 0043's protected set — non-empty base arrays and objects — and it was designed
+		# for a merge result, where jq's `*` cannot drop a base key. Pointed at an
+		# arbitrary deployed file it no longer covers the base's scalar hardening, so an
+		# unqualified affirmation would be a definite statement that is false, which is
+		# worse than ADR 0043's hedge: the operator gets a reason to stop looking.
+		printf 'install: %s has every array and object %s protects\n' "$path" "$base" >&2
+		printf 'install:   Base scalars are outside this check and were not compared.\n' >&2
+		return 0
+	fi
+
+	printf 'install: %s is missing protected values from %s:\n' "$path" "$base" >&2
+	while IFS= read -r missing_path; do
+		printf 'install:   %s\n' "$missing_path" >&2
+	done <<<"$missing"
+	printf 'install: fix or remove the overlay and re-run; the installer then replaces\n' >&2
+	printf 'install:   that file and keeps the current one under\n' >&2
+	printf 'install:   %s/.agent-config-backups/. If an earlier run replaced this file,\n' \
+		"$dest_dir" >&2
+	printf 'install:   its predecessor is there too.\n' >&2
+}
+
+retain_managed_path() { # dest_dir base rel
+	local dest_dir="$1"
+	local base="$2"
+	local rel="$3"
+
+	ensure_safe_rel "$rel"
+	RETAINED=$((RETAINED + 1))
+	# Recorded as managed even though nothing was written. A manifest that omits it tells
+	# `prune_removed` to delete the deployed file, which would turn withholding a deploy
+	# into deleting a deployment — the one way narrowing the abort could destroy operator
+	# data (ADR 0049).
+	MANIFEST_ENTRIES+=("$rel")
+	WITHHELD_PATHS+=("$dest_dir/$rel")
+	report_deployed_state "$dest_dir" "$base" "$rel"
+}
+
+destination_set_is_empty() { # dest_dir rel...
+	local dest_dir="$1"
+	local rel
+
+	shift
+	for rel in "$@"; do
+		ensure_safe_rel "$rel"
+		if [[ -e "$dest_dir/$rel" || -L "$dest_dir/$rel" ]]; then
+			return 1
+		fi
+	done
+	return 0
+}
+
+# One merged document can feed several destination paths — Bob's MCP output goes to both
+# `mcp.json` and `mcp_settings.json` — so a refusal is handled over the whole set and
+# never per path. Filling only the empty half of that pair would leave one logical
+# document as two files with different contents (ADR 0049).
+install_merged_json() { # dest_dir base overlay rel...
+	local dest_dir="$1"
+	local base="$2"
+	local overlay="$3"
+	local output
+	local rel
+
+	shift 3
+	output="$(new_temp_file)"
+	if merge_json_settings "$base" "$overlay" "$output"; then
+		for rel in "$@"; do
+			install_managed_path "$dest_dir" "$output" "$rel"
+		done
+		return 0
+	fi
+
+	# Recorded whichever way the destination is handled below: the run fails because the
+	# overlay was refused, not because a path happened to be withheld. Filling an empty
+	# destination from the base is still a refused overlay.
+	REFUSED_OVERLAYS+=("$overlay")
+
+	if destination_set_is_empty "$dest_dir" "$@"; then
+		# Not a repair: nothing is overwritten and no running configuration is discarded.
+		# What it settles is whether a fresh destination gets a guarded default or nothing
+		# at all, beside an instruction tree that assumes the guards are there.
+		printf 'install: nothing is deployed at these paths, so the base is installed\n' >&2
+		printf 'install:   without your overlay; none of it applies until it is fixed.\n' >&2
+		# A fresh 0600 temp file: the refusal unlinked the merged one, and re-creating it
+		# by redirection would take the umask instead, deploying 0644. `payload_differs`
+		# compares content and the executable bit only, so that mode would never converge.
+		output="$(new_temp_file)"
+		render_base "$base" "$output"
+		for rel in "$@"; do
+			install_managed_path "$dest_dir" "$output" "$rel"
+		done
+		return 0
+	fi
+	for rel in "$@"; do
+		retain_managed_path "$dest_dir" "$base" "$rel"
+	done
 }
 
 emit_root_settings() {
@@ -527,19 +737,15 @@ install_claude() {
 	local host="$1"
 	local dest_dir
 	local overlay_dir
-	local settings_tmp
 
 	start_agent
 	dest_dir="$(canonical_dir "${CLAUDE_CONFIG_DIR:-$HOME/.claude}")"
 	overlay_dir="$(private_overlay_dir claude "$host")"
-	settings_tmp="$(new_temp_file)"
 
-	merge_json_settings \
+	install_merged_json "$dest_dir" \
 		"$REPO/agents/claude/shared/settings.base.json" \
 		"$overlay_dir/settings.overlay.json" \
-		"$settings_tmp"
-
-	install_managed_path "$dest_dir" "$settings_tmp" "settings.json"
+		"settings.json"
 	install_managed_path "$dest_dir" "$REPO/agents/claude/shared/CLAUDE.md" "CLAUDE.md"
 	install_managed_path "$dest_dir" "$REPO/agents/claude/shared/statusline.sh" "statusline.sh"
 	install_managed_path "$dest_dir" "$SKILLS_STAGING/skills" "skills"
@@ -575,30 +781,23 @@ install_bob() {
 	local host="$1"
 	local dest_dir
 	local overlay_dir
-	local settings_tmp
-	local mcp_tmp
 	local bob_modes
 
 	start_agent
 	dest_dir="$(canonical_dir "${BOB_CONFIG_DIR:-$HOME/.bob}")"
 	overlay_dir="$(private_overlay_dir bob "$host")"
-	settings_tmp="$(new_temp_file)"
-	mcp_tmp="$(new_temp_file)"
 	bob_modes="$REPO/agents/bob/shared/custom_modes.yaml"
 
-	merge_json_settings \
-		"$REPO/agents/bob/shared/settings.base.json" \
-		"$overlay_dir/settings.overlay.json" \
-		"$settings_tmp"
-	merge_json_settings \
-		"$REPO/agents/bob/shared/mcp.json" \
-		"$overlay_dir/mcp.overlay.json" \
-		"$mcp_tmp"
 	validate_yaml_if_possible "$bob_modes"
 
-	install_managed_path "$dest_dir" "$settings_tmp" "settings.json"
-	install_managed_path "$dest_dir" "$mcp_tmp" "mcp.json"
-	install_managed_path "$dest_dir" "$mcp_tmp" "mcp_settings.json"
+	install_merged_json "$dest_dir" \
+		"$REPO/agents/bob/shared/settings.base.json" \
+		"$overlay_dir/settings.overlay.json" \
+		"settings.json"
+	install_merged_json "$dest_dir" \
+		"$REPO/agents/bob/shared/mcp.json" \
+		"$overlay_dir/mcp.overlay.json" \
+		"mcp.json" "mcp_settings.json"
 	install_managed_path "$dest_dir" "$REPO/agents/bob/shared/AGENTS.md" "AGENTS.md"
 	install_managed_path "$dest_dir" "$bob_modes" "settings/custom_modes.yaml"
 	install_managed_path "$dest_dir" "$bob_modes" "custom_modes.yaml"
@@ -653,6 +852,12 @@ main() {
 		install_agent bob "$host"
 	else
 		install_agent "$target" "$host"
+	fi
+
+	# The refusal no longer ends the run, but it still fails it. `report_refusals` names
+	# them from the EXIT trap; this is only the status.
+	if [[ ${#REFUSED_OVERLAYS[@]} -ne 0 ]]; then
+		exit 1
 	fi
 }
 

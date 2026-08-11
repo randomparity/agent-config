@@ -214,11 +214,37 @@ and `mcp.overlay.json` — are merged under one rule, stated over the result rat
 than over what the overlay names: an overlay may add new keys and may override
 scalars and object members, but an overlay that *changes* a path the base holds as a
 non-empty array, including by extending it, or that replaces a non-empty base object
-with a non-object, fails the install and names the path. That is what keeps a private
+with a non-object, is refused and the path is named. That is what keeps a private
 overlay from silently dropping the shared hooks and `permissions.deny` entries; see
 [ADR 0043](docs/adr/0043-overlays-may-not-replace-a-base-array.md). Adding
 `permissions.allow`, as `examples/hosts/example-host/` does, is unaffected — the base
 defines no such key, so the overlay adds rather than replaces.
+
+### What a refused overlay does and does not stop
+
+A refusal fails the run — `./install.sh` exits non-zero — but it stops only the files
+that overlay feeds. Everything else for that agent still installs (skills, `CLAUDE.md`,
+the shared `content/` tree), and under `--agent all` the remaining agents install too.
+See [ADR 0049](docs/adr/0049-a-refused-overlay-withholds-one-file.md).
+
+For the file the overlay feeds, the installer reports what is on disk right now rather
+than guessing:
+
+- **Nothing deployed there yet** — the base is installed without your overlay, so the
+  destination is guarded rather than left with no settings file at all. None of your
+  overlay applies until it is fixed, and every later refused run says the deployed file
+  is the base alone.
+- **A file is already deployed** — it is left exactly as it is, and the installer says
+  whether it still carries every value the base *protects* — the non-empty arrays and
+  objects of ADR 0043, not every scalar — or names the ones it is missing. Nothing is
+  written to it, so a deliberate hand edit is reported and not touched.
+
+A deployed file that is *missing* base values is the pre-ADR-0043 clobber: an overlay
+that named a protected path used to be merged silently, and that file is still live. To
+get back to a correct one, fix or remove the overlay and re-run. The installer then
+replaces the file and keeps the current one under
+`<config-dir>/.agent-config-backups/<timestamp>/drift/`; if an earlier run replaced that
+file, its predecessor is under the same directory.
 
 There is no overlay route to *extend* a protected array, so a host-specific
 `hooks.PreToolUse` entry or an extra `permissions.deny` entry has to be added to the
@@ -263,7 +289,9 @@ which selects and times one complete `just verify` run.
 `./install-test.sh` installs every agent into temporary directories, applies
 private overlay fixtures, verifies every installed skill tree against
 `content/skills/` including executable modes, checks generated files, verifies
-manifest pruning, and verifies managed-file drift backup.
+manifest pruning, and verifies managed-file drift backup. It also covers the refused
+overlay rules of ADR 0049 — the withheld path staying in the manifest, the empty
+destination taking the base, and each guarded `jq` call failing closed.
 
 `./scripts/check-skill-layout.sh` rejects agent-native workflow copies and
 validates the portable structure of the canonical skill packages.
