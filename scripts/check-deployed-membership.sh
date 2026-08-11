@@ -166,10 +166,8 @@ comm -13 "$workspace/present" "$workspace/declared" >"$workspace/missing"
 # Every finding before the run exits, not the first one: a branch that adds a
 # file and deletes another has to be told about both rather than sent round the
 # loop twice. The order is fixed so the suite can assert it.
-unexpected_reported=0
 while IFS= read -r relative; do
 	report unexpected-member "$relative"
-	unexpected_reported=1
 done <"$workspace/unexpected"
 
 while IFS= read -r relative; do
@@ -186,7 +184,7 @@ done <"$workspace/missing"
 # line is also green and would declare a merge artefact or a scratch draft as
 # content that installs for every user. The other two classes have unambiguous
 # remedies and get no such line.
-if ((unexpected_reported == 1)); then
+if [[ -s "$workspace/unexpected" ]]; then
 	printf 'deployed-membership: delete an unexpected member, or declare it here only if it is meant to install for every user\n' >&2
 fi
 
