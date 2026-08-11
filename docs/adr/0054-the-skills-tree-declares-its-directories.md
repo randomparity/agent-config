@@ -32,11 +32,11 @@ compared at a different granularity puts two comparison rules in one script.
 
 **The skills tree is declared in `scripts/check-deployed-membership.sh`, beside the three
 file-granularity trees, as a second declared list compared by the same rule at directory
-granularity.** One comparison mechanism serves both halves — set equality between what a
-wholesale-installed tree contains and what a list declares — and only the enumerator differs;
-the spec's *Enumeration* section holds the mechanics. 0045's siting objection is granted in part
-(the second half brings a parallel finding vocabulary, remedy line, summary clause and emission
-block, whose cost the Consequences record) and answered on two grounds.
+granularity.** 0045's siting objection is largely granted: the second half brings its own
+enumerator, survival filter, sorts, comparisons, finding vocabulary, remedy line, summary clause
+and emission block, and what the two halves actually share is the workspace, the `fault` helper,
+the `LC_ALL=C` collation pin and the idea of set equality. The Consequences record that cost.
+The siting rests on two grounds instead.
 
 *The alternative siting mixes two subjects.* `check-skill-layout.sh` answers "is each skill
 well-formed"; membership answers "which skills exist". Split that way, a reader asking what the
@@ -85,7 +85,11 @@ directory count, which edits the expected string in the rows that pin the summar
     no membership check. This is the residual the issue books deliberately, and it is the larger
     half by file count: 88 installed files sit inside the 36 declared directories, plus 8 more
     under `testdata` that `stage_skills` prunes before delivery. `check-skill-layout.sh`
-    constrains what those files may be named, contain and reference; nothing counts them.
+    constrains what those files may be named, contain and reference; nothing counts them. The
+    containment rule above stops at depth one for the same reason: a committed
+    `content/skills/<name>/link -> /` is refused only by `validate_portable_tree`, so inside a
+    declared directory this record does take the bet on the sibling gate that its top-level rule
+    declines to take.
   - *The manifest is source, so the gate cannot defend against edits to itself.* Deleting a
     declared name while the directory is there makes the directory undeclared, which is red.
     Deleting a name and its directory together is green, and correctly so — that is a removal.
@@ -112,10 +116,11 @@ directory count, which edits the expected string in the rows that pin the summar
     unwritable scan sink, so a fault there is indistinguishable from a finding. The siting
     argument above leans on that and does not fix it — the sibling gates were outside this
     change. Issue #158 owns it.
-- 0045's debris false positive now reaches `content/skills`, narrowed to top-level entries
-  because the enumeration prunes at depth one: a root-level `.DS_Store` on the macOS leg, or an
-  undeclared skill directory an author is still drafting, reddens a local `just verify` that
-  neither `verify-push.sh` nor CI sees. The remedy is the deletion or the declaration.
+- 0045's debris false positive now reaches `content/skills`, narrowed twice over: the
+  enumeration prunes at depth one, and `check-skill-layout.sh` already reddens most top-level
+  debris on its name rules. What is left is an author's undeclared local draft directory, which
+  reddens a `just verify` that neither `verify-push.sh` nor CI sees. The remedy is the
+  declaration.
 - The repository now has two answers to "what installs for every user" in one script and at two
   granularities. A reader has to know which tree they are asking about; the summary line names
   both counts so the split is visible rather than inferred.
@@ -154,12 +159,12 @@ directory count, which edits the expected string in the rows that pin the summar
   is the churn 0045 measured, an inline list means nothing apart from the comparison that
   consumes it, a derived list agrees with whatever is there, an installed-result assertion makes
   a source-tree question answerable only by running the installer, and a third script would
-  duplicate this one's workspace, fault, sort and comm machinery to assert the same rule.
+  be a second place a reader has to look to learn what installs for every user.
 - **Do nothing and rely on `check-skill-layout.sh` plus review.** The null option is stronger
   here than it was in 0045: `validate_inventory` already requires every top-level child to be a
   real directory with a portable non-reserved name and a valid UTF-8 `SKILL.md`, so what this
-  gate adds is refusal of a well-formed skill directory that arrives *undeclared* — the merge
-  artefact, the errant copy, the sibling branch that forgot the line — not of an unnoticed stray
-  file. Rejected anyway on the asymmetry: such a directory is a complete instruction set that
+  gate adds is refusal of a well-formed skill directory that arrives *undeclared* — in practice
+  the sibling branch that forgot the line, since a merge artefact or a duplicated directory
+  already fails on the name and frontmatter rules. Rejected anyway on the asymmetry: such a directory is a complete instruction set that
   lands in every user's global configuration and needs no further edit to keep acting, against a
   cost of one line per skill at two adding commits in the repository's history.
