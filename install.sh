@@ -863,6 +863,11 @@ except (RecursionError, MemoryError):
         "it nests too deeply for the TOML parser to read.\n"
     )
     raise SystemExit(2)
+except OSError as exc:
+    # Not a verdict about the file's contents -- the caller reports it and stops -- but it
+    # still travels as a message rather than as a traceback.
+    sys.stdout.write(f"{exc}\n")
+    raise SystemExit(3) from exc
 PY
 	case "$status" in
 	0) return 0 ;;
@@ -974,22 +979,25 @@ merge_toml_config() { # base overlay output
 		return 0
 	fi
 
-	if ! emit_merged_toml "$base" "$overlay" >"$output"; then
-		printf 'install: could not merge private overlay %s into %s\n' "$overlay" "$base" >&2
-		exit 1
-	fi
-
-	diagnostic="$(validate_toml "$output")" || status=$?
+	# The overlay is read on its own before the hoist touches it, because the hoist's reader
+	# cannot be trusted to reach a verdict about it. `awk` is locale-sensitive: the awk on
+	# macOS aborts on a byte sequence that is not valid in the current locale — `towc:
+	# multibyte conversion failure` — and exits non-zero, so a latin-1 overlay never reached
+	# the parser there and took the whole run down as an unreadable file, while on Linux the
+	# same file reached `tomllib` and got a verdict. This is ADR 0052's lesson in the other
+	# direction: the check has to run ahead of a reader that cannot express the answer.
+	#
+	# It also sharpens the two verdicts below. Everything that survives this parses on its
+	# own, so a merged document that does not parse, or that lost a base value, is the
+	# hoist's doing and can be reported as such without hedging.
+	diagnostic="$(validate_toml "$overlay")" || status=$?
 	case "$status" in
 	0) ;;
 	1)
-		report_toml_overlay "$overlay" 'does not merge into valid TOML:' \
+		report_toml_overlay "$overlay" 'is not valid TOML:' \
 			"$diagnostic" \
-			'The line and column above are positions in the merged document, not in your' \
-			'overlay: your file may parse on its own and still be split by the merge, which' \
-			'moves root settings above the base tables. An overlay that opens a multi-line' \
-			'string or array in its root section is the usual cause.'
-		unlink "$output"
+			"Run: python3 -c 'import tomllib,sys; tomllib.load(open(sys.argv[1],\"rb\"))' \\" \
+			"  '$overlay'"
 		return 1
 		;;
 	2)
@@ -998,6 +1006,33 @@ merge_toml_config() { # base overlay output
 			'check is a TOML parse. This host has no python3 that can import tomllib,' \
 			'which needs Python 3.11 or newer; install one and re-run. The base alone is' \
 			'all the installer can deploy until then (ADR 0057).'
+		return 1
+		;;
+	*)
+		printf 'install: could not read private overlay %s\n' "$overlay" >&2
+		if [[ -n "$diagnostic" ]]; then
+			printf 'install:   %s\n' "$diagnostic" >&2
+		fi
+		exit 1
+		;;
+	esac
+
+	if ! emit_merged_toml "$base" "$overlay" >"$output"; then
+		printf 'install: could not merge private overlay %s into %s\n' "$overlay" "$base" >&2
+		exit 1
+	fi
+
+	status=0
+	diagnostic="$(validate_toml "$output")" || status=$?
+	case "$status" in
+	0) ;;
+	1)
+		report_toml_overlay "$overlay" 'does not survive the merge:' \
+			"$diagnostic" \
+			'Your overlay parses on its own, so this is the merge splitting it: root settings' \
+			'are moved above the base tables, and the positions above are in that merged' \
+			'document rather than in your file. A root value that opens a multi-line string' \
+			'or array is the usual cause; put it inside a table of its own.'
 		unlink "$output"
 		return 1
 		;;
@@ -1019,16 +1054,14 @@ merge_toml_config() { # base overlay output
 		done <<<"$erased"
 		printf 'install: an overlay may add tables and keys, but every value the base\n' >&2
 		printf 'install:   defines must survive the merge unchanged (ADR 0057).\n' >&2
-		# An overlay that parses on its own did not write anything wrong; the merge's hoist
-		# did, and saying "your overlay may not erase this" would blame a legal file for the
-		# installer's own splitting. This is the row that motivated ADR 0057, so it gets the
-		# cause rather than the rule.
-		if validate_toml "$overlay" >/dev/null; then
-			printf 'install: your overlay is valid TOML on its own, so this is the merge\n' >&2
-			printf 'install:   splitting it: root settings are moved above the base tables, and\n' >&2
-			printf 'install:   a root value that opens a multi-line string or array swallows\n' >&2
-			printf 'install:   them. Put that value inside a table of its own and re-run.\n' >&2
-		fi
+		# The overlay already parsed on its own above, so it did not write anything wrong and
+		# the merge's hoist is what lost the value. Saying "your overlay may not erase this"
+		# would blame a legal file for the installer's own splitting, and this is the shape
+		# that motivated ADR 0057, so it gets the cause rather than the rule.
+		printf 'install: your overlay is valid TOML on its own, so this is the merge\n' >&2
+		printf 'install:   splitting it: root settings are moved above the base tables, and\n' >&2
+		printf 'install:   a root value that opens a multi-line string or array swallows\n' >&2
+		printf 'install:   them. Put that value inside a table of its own and re-run.\n' >&2
 		unlink "$output"
 		return 1
 	fi

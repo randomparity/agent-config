@@ -155,21 +155,21 @@ Returns 0 on success, 1 on refusal, and exits on anything else (R8).
 1. No overlay file: `render_base_toml`, print `no private overlay at <path>`, return 0.
    Not parsed — R2 gates the overlay-applied result only, and this branch is a copy of a
    file this repository ships.
-2. Otherwise concatenate as today. Each `emit_*` call and the redirection are status-tested;
-   a failure exits, naming the file it could not read. This is the `awk`-on-an-unreadable-
-   overlay path, which must not fall through as an empty contribution.
-3. `validate_toml` the result:
-   - 2 (no parser) — refuse: name the overlay, state that the overlay cannot be applied
-     without a `python3` that can `import tomllib`, and say the base alone is what the
-     installer can deploy here.
-   - 1 (rejected) — refuse: name the overlay, carry the parser's diagnostic, and say the
-     offsets index the merged document rather than the overlay, because the overlay may
-     parse cleanly on its own and be mangled by the hoist (row 8).
-   - 0 — continue.
-4. `erased_base_toml_paths`; if non-empty, refuse naming the overlay and each path, with
-   the sentence that an overlay may add tables and keys but may not erase or change what
-   the base defines (ADR 0057).
-5. Print `applied private overlay`, return 0 (R9).
+2. Otherwise parse the overlay on its own first (ADR 0057 rule 5), before `awk` reads it:
+   rejected — refuse naming the overlay and carrying its diagnostic, whose positions are
+   real positions in that file; no parser — the rule 2 refusal; unreadable — report and
+   exit, with the `OSError` text rather than a traceback.
+3. Then concatenate. Each `emit_*` call and the redirection are status-tested; a failure
+   exits, naming the file it could not read, and must not fall through as an empty
+   contribution.
+4. `validate_toml` the merged result. Rejected — refuse, naming the overlay and carrying
+   the diagnostic, and say plainly that the overlay parses on its own so this is the merge
+   splitting it, with offsets that index the merged document. No parser is unreachable here,
+   because step 2 already returned on it; it is treated as a machine failure.
+5. `erased_base_toml_paths`; if non-empty, refuse naming the overlay and each path, with
+   the rule that an overlay may add tables and keys but may not erase or change what the
+   base defines, and the same unhedged statement that the hoist is the cause.
+6. Print `applied private overlay`, return 0 (R9).
 
 Every refusal unlinks `$output` before returning (R7).
 

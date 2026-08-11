@@ -104,6 +104,18 @@ Four things are normative.
    not run must never be read as one that found nothing — the same trap `erased_base_paths`
    carries, and `awk` failing on an unreadable overlay is the way it is reached here.
 
+5. **The overlay is parsed on its own before the hoist reads it.** `awk` is locale-sensitive
+   where `tomllib` is not: the awk on macOS aborts with `towc: multibyte conversion failure`
+   on a byte sequence invalid in the current locale and exits non-zero, so a latin-1 overlay
+   never reached the parser there and took the whole run down as an unreadable file, while
+   the same file on Linux reached `tomllib` and got a verdict. A guarantee that changes
+   shape with the platform's awk is not one. This is ADR 0052's lesson pointed the other
+   way: there the check had to be byte-level because it shared jq with the merge; here it
+   has to run *ahead* of a reader that cannot express the answer. It also sharpens the two
+   verdicts that follow — everything reaching the merge parses on its own, so a merged
+   document that fails to parse, or that lost a base value, is the hoist's doing and is
+   reported as that rather than as a fault in the operator's file.
+
 ## Consequences
 
 `install: applied private overlay` prints after the result is accepted rather than before

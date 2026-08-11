@@ -1479,7 +1479,7 @@ run_overlay_case codex
 assert_overlay_refused 'duplicate table declaration'
 assert_stream_contains "$OVERLAY_ERR" "$OVERLAY_FILE/config.overlay.toml" \
 	'duplicate table declaration'
-assert_stream_contains "$OVERLAY_ERR" 'does not merge into valid TOML' \
+assert_stream_contains "$OVERLAY_ERR" 'does not survive the merge' \
 	'duplicate table declaration'
 assert_stream_lacks "$OVERLAY_ERR" 'agent-config.' 'duplicate table declaration'
 assert_stream_lacks "$OVERLAY_ERR" 'Traceback' 'duplicate table declaration'
@@ -1493,6 +1493,7 @@ write_text "$OVERLAY_FILE/config.overlay.toml" 'this is not = = toml'
 run_overlay_case codex
 assert_overlay_refused 'malformed overlay'
 assert_stream_contains "$OVERLAY_ERR" "$OVERLAY_FILE/config.overlay.toml" 'malformed overlay'
+assert_stream_contains "$OVERLAY_ERR" 'is not valid TOML' 'malformed overlay'
 assert_stream_lacks "$OVERLAY_ERR" 'agent-config.' 'malformed overlay'
 
 start_overlay_case codex
@@ -1633,7 +1634,7 @@ mode = "workspace-write"'
 run_overlay_case codex "$bad_base_repo/install.sh"
 assert_overlay_refused 'malformed base with an overlay'
 assert_stream_contains "$OVERLAY_ERR" 'base config' 'malformed base with an overlay'
-assert_stream_lacks "$OVERLAY_ERR" 'does not merge into valid TOML' \
+assert_stream_lacks "$OVERLAY_ERR" 'does not survive the merge' \
 	'malformed base with an overlay'
 
 # 48. Fails closed (ADR 0049 rule 1). `awk` exits non-zero on an unreadable overlay, and
@@ -1653,8 +1654,11 @@ mode = "workspace-write"'
 	run_overlay_case codex
 	chmod 644 "$OVERLAY_FILE/config.overlay.toml"
 	assert_overlay_refused 'unreadable overlay fails closed'
-	assert_stream_contains "$OVERLAY_ERR" 'could not merge private overlay' \
+	assert_stream_contains "$OVERLAY_ERR" 'could not read private overlay' \
 		'unreadable overlay fails closed'
+	# A message rather than a traceback: the file cannot be read, which is worth saying
+	# plainly, and the operator's terminal is not the place for a Python stack.
+	assert_stream_lacks "$OVERLAY_ERR" 'Traceback' 'unreadable overlay fails closed'
 	assert_stream_lacks "$OVERLAY_OUT" 'applied private overlay' \
 		'unreadable overlay fails closed'
 	assert_not_file "$OVERLAY_DEST/codex/config.toml"
