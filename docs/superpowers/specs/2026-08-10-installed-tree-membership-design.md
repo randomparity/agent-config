@@ -240,7 +240,15 @@ unfalsifiable:
 - an `assert_findings` helper compares the whole stderr finding sequence against an expected
   list in order, so multiplicity and emission order can fail. `assert_fails` remains for the
   single-finding rows, and `assert_absent` (also from the sibling suite) pins the lines a case
-  must *not* produce.
+  must *not* produce. Both finding helpers require exactly exit 1, not merely non-zero, or the
+  fault-versus-finding split would be asserted in one direction only.
+
+It reads the repository rather than building a disposable one, which still puts it under
+ADR 0035: it clears every variable `git rev-parse --local-env-vars` names at entry, since a
+hook environment's `GIT_DIR` overrides `git -C` and would aim the fixture build at the hook's
+repository. That record says a new suite needs its own isolation review, so the suite is also
+added to the array in `scripts/git-fixture-isolation-test.sh`, which is what exercises the
+boundary rather than merely asserting it in prose.
 
 The fixture is populated from the **index**, not the working tree:
 `git -C "$ROOT" ls-files -z -- <trees>` piped into

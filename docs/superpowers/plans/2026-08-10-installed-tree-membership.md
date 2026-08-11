@@ -68,6 +68,11 @@ Implement every row of the spec's suite table, with the two departures from
 - Guard the `mktemp -d` cleanup by path prefix, as the sibling suite does.
 - The unreadable-tree row must skip when running as root, and **announce the skip on stderr**
   — it is the only executable evidence that a fault never swallows a finding.
+- The suite reads the ambient repository, so ADR 0035 applies: clear every variable
+  `git rev-parse --local-env-vars` names at entry, or a hook environment's `GIT_DIR` overrides
+  `git -C` and the fixture is built from the hook's repository. Then add the suite to the
+  array in `scripts/git-fixture-isolation-test.sh`, which is what actually exercises that
+  boundary — the one file outside the original surface this change touches.
 - The order-asserting row must also run under a non-`C` caller locale, with its expected
   sequence still built under `LC_ALL=C`. Without that, every checker invocation inherits the
   suite's own `LC_ALL=C` and the gate's export is never what makes the row pass — the pin

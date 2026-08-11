@@ -278,6 +278,22 @@ else
 	printf 'deployed-membership-test: skipping the non-C locale rows: no collating locale is available\n' >&2
 fi
 
+# The only row that produces two non-regular members, and the only one that puts
+# a non-regular finding and a missing finding in the same run: without it neither
+# that class's multiplicity nor the order between those two blocks is pinned.
+build_fixture
+member="$(declared_member content/references)"
+rm "$FIXTURE/$member"
+ln -s "$ROOT/$(declared_member content/languages)" "$FIXTURE/content/languages/link-a.md"
+ln -s "$ROOT/$(declared_member content/languages)" "$FIXTURE/content/languages/link-b.md"
+assert_findings 'two non-regular members beside a missing one' '' \
+	'deployed-membership: unexpected-member: content/languages/link-a.md' \
+	'deployed-membership: unexpected-member: content/languages/link-b.md' \
+	'deployed-membership: non-regular-member: content/languages/link-a.md' \
+	'deployed-membership: non-regular-member: content/languages/link-b.md' \
+	"deployed-membership: missing-member: $member" \
+	"$REMEDY"
+
 # A checker that stopped at its first disagreement would satisfy every
 # single-delta row above.
 build_fixture
