@@ -270,6 +270,10 @@ above.
 - Never delete the base branch, a protected branch, a branch checked out in the main worktree
   or in the sweep's own worktree or in two worktrees at once, or a branch with no evidence of
   ever having been pushed under its own name.
+- Pass branch names and worktree paths as **arguments**, never interpolated into a shell
+  string. `git check-ref-format` rejects whitespace but permits `;`, `&`, `$` and `|`, and
+  repo-wide enumeration now feeds every local branch — including any created from a remote
+  someone else controls — into `gh pr list --head` and `git merge-base`.
 - One confirmation before the first deletion; list every branch, and every worktree path the
   plan would remove, before acting on it.
 - Never `git worktree remove --force`; never `-D` an unmerged branch.
