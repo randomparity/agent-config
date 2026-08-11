@@ -436,8 +436,11 @@ install_common_content() {
 
 	# Both sources are directories, so install_managed_path's cp -pR ships them
 	# whole to all three agents. Their membership is declared in the manifest in
-	# scripts/check-deployed-membership.sh; a file added here without a manifest
-	# line fails that gate, and a fourth wholesale tree needs adding to it.
+	# scripts/check-deployed-membership.sh, and a file added here without a
+	# manifest line fails that gate. Four directory sources reach
+	# install_managed_path in all: these two, agents/bob/shared/rules, and the
+	# staged skills tree, which is deliberately not declared (ADR 0045). A fifth
+	# needs adding to the manifest.
 	install_managed_path "$dest_dir" "$REPO/content/languages" "languages"
 	install_managed_path "$dest_dir" "$REPO/content/references" "references"
 	install_managed_path \

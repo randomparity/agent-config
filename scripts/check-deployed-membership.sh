@@ -61,8 +61,17 @@ content/languages/rust.md
 content/languages/typescript.md
 content/references/orchestration.md'
 
-workspace="$(mktemp -d "${TMPDIR:-/tmp}/deployed-membership.XXXXXX")"
-trap 'rm -R "$workspace"' EXIT
+# Both halves keep the environment out of the exit code. An unwritable TMPDIR
+# would otherwise let errexit propagate mktemp's status 1 -- the status this gate
+# reserves for a membership difference -- with no finding printed; and under
+# set -e a failing command inside an EXIT trap replaces the exiting status, so an
+# undeletable workspace would turn a green run's exit 0 into a 1 after stdout had
+# already said ok.
+if ! workspace="$(mktemp -d "${TMPDIR:-/tmp}/deployed-membership.XXXXXX")"; then
+	printf 'deployed-membership: could not create a workspace\n' >&2
+	exit 2
+fi
+trap 'rm -R "$workspace" 2>/dev/null || :' EXIT
 
 result_status=0
 

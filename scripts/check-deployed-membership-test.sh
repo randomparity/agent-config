@@ -319,7 +319,12 @@ ln -s "$ROOT/content/languages" "$FIXTURE/content/references"
 assert_fails 'a tree replaced by a symlink to a directory' missing-member "$member"
 assert_absent 'a tree replaced by a symlink to a directory' unexpected-member 'content/references'
 
+# The file outside the trees is planted in this fixture on purpose. With no tree
+# surviving the filter, find must not run at all: GNU find with no path operand
+# walks the current directory instead, and this is the row that would catch it.
 build_fixture
+mkdir -p "$FIXTURE/content/instructions"
+printf 'not deployed\n' >"$FIXTURE/content/instructions/notes.md"
 for tree in "${TREES[@]}"; do
 	rm -R "${FIXTURE:?}/$tree"
 done
@@ -336,6 +341,12 @@ if [[ "$(grep -c 'missing-member' "$SCRATCH/err")" != "$EXPECTED_MEMBERS" ]]; th
 		"should report all $EXPECTED_MEMBERS declared files as missing"
 fi
 assert_absent 'every declared tree removed' unexpected-member 'content/instructions/notes.md'
+# Every line, not just the one path: a find that walked the fixture root would
+# report paths this row cannot enumerate in advance, and the remedy line would
+# appear beside them.
+if [[ "$(grep -cv 'missing-member' "$SCRATCH/err")" != '0' ]]; then
+	fail 'every declared tree removed' 'should report nothing but missing members'
+fi
 
 # The only executable evidence that a fault never swallows a finding: a checker
 # letting find's failure fall through as an empty enumeration would report every

@@ -77,14 +77,13 @@ contributes no members, and its declared files therefore report as `missing-memb
 
 Every entry under a surviving tree that is not a directory is a member: regular files,
 symlinks, and dot-prefixed and ignored files alike, because `cp -pR` copies all of them.
-`find <surviving trees> ! -type d -print` produces exactly that set and has no ignore logic to
+`find <surviving trees> ! -type d -print0` produces exactly that set and has no ignore logic to
 defeat, which is why it is used here in place of the repository's usual `rg`. The trees are
 passed as `$ROOT`-absolute paths and each result has the `$ROOT/` prefix stripped, following
 `check-shared-standards.sh`; `find`'s exit status is captured directly rather than through a
-pipeline, so a scan that did not happen cannot read as an empty one. `-print` rather than
-`-print0` because the comparison below is newline-delimited anyway — a NUL delimiter that is
-converted to newlines before use buys nothing and only suggests a safety the design does not
-have.
+pipeline, so a scan that did not happen cannot read as an empty one. The NUL delimiter is what
+lets a path holding a newline be refused rather than silently mis-split — see *Comparison and
+verdicts*.
 
 **When no declared tree survives the filter, `find` is not invoked at all** and the present
 set is empty, so every manifest entry reports as `missing-member`. That is the per-tree rule
