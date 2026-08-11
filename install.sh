@@ -537,6 +537,7 @@ report_deployed_state() { # dest_dir base rel
 
 retain_managed_path() { # dest_dir base rel
 	local dest_dir="$1"
+	local base="$2"
 	local rel="$3"
 
 	ensure_safe_rel "$rel"
@@ -547,7 +548,7 @@ retain_managed_path() { # dest_dir base rel
 	# data (ADR 0049).
 	MANIFEST_ENTRIES+=("$rel")
 	WITHHELD_PATHS+=("$dest_dir/$rel")
-	report_deployed_state "$dest_dir" "$2" "$rel"
+	report_deployed_state "$dest_dir" "$base" "$rel"
 }
 
 destination_set_is_empty() { # dest_dir rel...
