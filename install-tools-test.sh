@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# ripgrep applies the contents of RIPGREP_CONFIG_PATH as arguments ahead of the
+# ones this suite passes, so a personal ripgreprc would otherwise decide what
+# assert_contains and assert_absent match -- and they are asserted in both
+# directions, so a steered config makes one of the pair lie (record 0051).
+unset RIPGREP_CONFIG_PATH
+
 fail() {
 	printf 'install-tools-test: %s\n' "$*" >&2
 	exit 1
