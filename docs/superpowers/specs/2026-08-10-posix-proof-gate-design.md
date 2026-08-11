@@ -130,6 +130,17 @@ the way `matrix.os` was. That is fail-closed — pointing it at a host whose `sh
 the step — but it is one line, and the guard suite cannot check it the way it checks the
 `env:` key, because a runner label does not say what its `/bin/sh` will be.
 
+## Accepted limits
+
+Three, stated together so the guarantee is not read as larger than it is:
+
+- two of five shipped hook bodies (issue #157);
+- behavioural, not structural — a non-POSIX construct on a branch the chosen inputs do not
+  reach is not detected (also #157);
+- a predicate over `sh`, not over the assertions. Deleting the `assert_posix_agrees` calls
+  leaves the requirement satisfied and the suite green, because the verify runner's `sh` is
+  still dash. That is the ordinary exposure of deleting a test.
+
 ## Verification
 
 - `just verify` bare, including `actionlint` and `zizmor --offline .github/workflows/`.

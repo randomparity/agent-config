@@ -87,6 +87,13 @@ operator to rediscover this record.
   done nothing, since `if: always()` includes cancellation and `verify` starts anyway. What
   bounds it in both cases is the same: `contents: read`, no secrets, and a SHA-pinned
   checkout with `persist-credentials: false`.
+- **The requirement is a predicate over `sh`, not over the assertions.** Refusing the skip
+  proves the environment can prove the property; it does not prove any assertion still
+  exists. Delete the four `assert_posix_agrees` calls and the verify runner's `sh` is still
+  dash, the requirement is still met, and the suite still reports the assertions as having
+  run. That is the ordinary exposure of deleting a test, not a route this gate is shaped to
+  close, and buying a source-text assertion over the suite's own body would trade it for
+  false reds on every refactor.
 - The step depends on the runner image providing `jq`. Its absence fails loudly on the first
   call rather than skipping, so the dependency cannot rot into a silent pass.
 
