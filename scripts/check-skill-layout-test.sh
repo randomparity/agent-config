@@ -361,7 +361,9 @@ assert_fails \
 # required file, so "delete it or move it out of the delivered tree" is not a remedy --
 # fixing the bytes is the only way out, and the message would be advising the reader to
 # break the skill. The suite matches by substring, so nothing else would notice.
-output="$(cd "$root" && bash scripts/check-skill-layout.sh 2>&1 || true)"
+set +e
+output="$(cd "$root" && bash scripts/check-skill-layout.sh 2>&1)"
+set -e
 if printf '%s\n' "$output" | rg --no-config -Fq "$payload_remedy"; then
 	fail "SKILL.md must not carry the payload remedy: $output"
 fi
@@ -374,7 +376,9 @@ root="$(new_fixture)"
 printf '%b' 'trailing\0000 nul\n' >>"$root/content/skills/skill-01/SKILL.md"
 assert_fails "content/skills/skill-01/SKILL.md: $payload_text_error (file contains a NUL byte)" \
 	"$root"
-output="$(cd "$root" && bash scripts/check-skill-layout.sh 2>&1 || true)"
+set +e
+output="$(cd "$root" && bash scripts/check-skill-layout.sh 2>&1)"
+set -e
 if printf '%s\n' "$output" | rg --no-config -Fq "$payload_remedy"; then
 	fail "a SKILL.md with a NUL must not carry the payload remedy: $output"
 fi
