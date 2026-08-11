@@ -12,9 +12,15 @@ set -euo pipefail
 # ripgrep unable to read a config file and requiring one form would force an edit
 # into files another change owns:
 #
-#   - `unset RIPGREP_CONFIG_PATH` alone on a line at column 0, which covers every
-#     ripgrep the source runs including one added later; or
-#   - `--no-config` on every line that invokes ripgrep.
+#   - `unset RIPGREP_CONFIG_PATH` alone on a line at column 0, above the calls it
+#     covers, which then covers every ripgrep below it including one added later;
+#     or
+#   - `--no-config` on the logical line that invokes ripgrep.
+#
+# The second form is checked per line, not per invocation: two calls on one line
+# where only the first passes --no-config satisfy it. Splitting a logical line
+# into its commands needs a shell rather than a scanner, and the residual is
+# recorded in 0051 rather than papered over here.
 #
 # Sources are discovered, never listed (list-shell-sources.sh), so a new script
 # is covered with no edit here. There is no exemption list: a file that never
@@ -109,15 +115,41 @@ findings=$(
 
 	# The separators after which a word is a command name. $( and <( reduce to (
 	# and && / || to &, so one character class covers them all.
-	function runs_ripgrep(s,   n, i, parts, seg) {
+	#
+	# What this recognises: a bare rg, one behind a keyword or a variable
+	# assignment, one behind a wrapper that takes flags of its own (xargs -0 rg,
+	# timeout 5 rg, sudo -u x rg, env rg, nice, stdbuf, nohup, ionice), one named
+	# by absolute path, and one after find -exec/-execdir.
+	#
+	# What it does not: a quoted command word ("rg"), one reached through a
+	# variable (RG=rg; "$RG"), an escaped spelling (r\g), and anything inside eval
+	# or bash -c. Those need a shell, not a scanner. They are worth knowing about
+	# because this gate is a backstop for the idiomatic shapes above, not a proof
+	# that no ripgrep anywhere is exposed.
+	function word_is_ripgrep(s,   n, i, words) {
+		n = split(s, words, /[ \t]+/)
+		for (i = 1; i <= n; i++) {
+			if (words[i] ~ /^(\/[^ \t]*\/)?rg$/) return 1
+		}
+		return 0
+	}
+
+	function runs_ripgrep(s,   n, i, parts, seg, wrapper) {
 		gsub(/[;|&(){}]/, "\n", s)
 		n = split(s, parts, "\n")
 		for (i = 1; i <= n; i++) {
 			seg = parts[i]
 			sub(/^[ \t]+/, "", seg)
+			if (seg ~ /(^|[ \t])-exec(dir)?[ \t]+(\/[^ \t]*\/)?rg([ \t]|$)/) return 1
+			wrapper = 0
 			while (1) {
 				if (seg ~ /^(if|then|else|elif|while|until|do|time|command|exec|!)[ \t]+/) {
 					sub(/^[^ \t]+[ \t]+/, "", seg)
+					continue
+				}
+				if (seg ~ /^(xargs|env|timeout|sudo|nice|stdbuf|nohup|ionice)[ \t]+/) {
+					sub(/^[^ \t]+[ \t]+/, "", seg)
+					wrapper = 1
 					continue
 				}
 				if (seg ~ /^[A-Za-z_][A-Za-z0-9_]*=[^ \t]*[ \t]+/) {
@@ -126,7 +158,12 @@ findings=$(
 				}
 				break
 			}
-			if (seg ~ /^rg([ \t]|$)/) return 1
+			# A wrapper execs one of its operands, and which of its own flags take
+			# an argument differs per wrapper (sudo -u user, timeout 5, xargs -0).
+			# Rather than model each, treat rg appearing as a whole word anywhere
+			# in the wrapped command as the invocation it almost certainly is.
+			if (wrapper && word_is_ripgrep(seg)) return 1
+			if (seg ~ /^(\/[^ \t]*\/)?rg([ \t]|$)/) return 1
 		}
 		return 0
 	}
@@ -164,9 +201,15 @@ findings=$(
 	}
 
 	{
-		# `unset RIPGREP_CONFIG_PATH` is required alone at column 0: that is what
-		# makes it file scope rather than a statement inside a branch that may
-		# never run, and it keeps the check answerable without tracking blocks.
+		# `unset RIPGREP_CONFIG_PATH` counts when it stands alone at column 0 and
+		# appears above the invocation it is meant to cover -- an unset below the
+		# call neutralises nothing, so only calls seen after it are cleared.
+		#
+		# Column 0 is a legibility rule, not a scope proof: this scanner does not
+		# track blocks, so an unset at column 0 inside a function body or an
+		# `if false` branch still counts even though it may never run. Catching
+		# that needs a shell. The rule is what makes the statement greppable and
+		# reviewable in the file it governs.
 		if ($0 ~ /^unset[ \t]+RIPGREP_CONFIG_PATH[ \t]*(#.*)?$/) neutralised[FILENAME] = 1
 
 		if (pending == "") start = FNR
@@ -179,7 +222,8 @@ findings=$(
 
 		terminator = heredoc_word(pending)
 		stripped = strip(pending)
-		if (runs_ripgrep(stripped) && stripped !~ /--no-config/) {
+		if (!neutralised[FILENAME] && runs_ripgrep(stripped) &&
+			stripped !~ /--no-config/) {
 			invocations[FILENAME] = invocations[FILENAME] start "\n"
 		}
 		pending = ""
@@ -187,7 +231,6 @@ findings=$(
 
 	END {
 		for (file in invocations) {
-			if (neutralised[file]) continue
 			n = split(invocations[file], lines, "\n")
 			for (i = 1; i <= n; i++) {
 				if (lines[i] != "") printf "%s:%s\n", file, lines[i]

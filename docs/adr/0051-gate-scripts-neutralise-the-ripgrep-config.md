@@ -92,13 +92,35 @@ recipe-level `unset` would protect only one of the paths.
   invocation is the obvious one — and the failure is a false positive, which is loud, not a
   false negative. It does not attempt to check that the flags a call passes are the right
   ones; that is what each gate's own suite is for.
+- The guard locates a bare `rg`, one behind a keyword or assignment, one behind a wrapper
+  (`xargs`, `env`, `timeout`, `sudo`, `nice`, `stdbuf`, `nohup`, `ionice`), one named by
+  absolute path, and one after `find -exec`. It does not see a quoted command word
+  (`"rg"`), one reached through a variable, an escaped spelling, or anything inside `eval`
+  or `bash -c`; those need a shell. It is a backstop for the idiomatic shapes, not a proof
+  that no exposed ripgrep exists.
+- `--no-config` is accepted per logical line, not per invocation: two calls on one line
+  where only the first carries the flag satisfy the guard. Splitting a logical line into
+  its commands needs the invocation boundary parsed rather than located. The `unset` form
+  has no such gap, which is why it is the one the gates use.
+- A `unset RIPGREP_CONFIG_PATH` at column 0 counts for the calls below it. Column 0 is a
+  legibility rule and not a scope proof — the scanner does not track blocks, so an `unset`
+  inside a function body or an `if false` branch still counts. Confirming it executes needs
+  a shell; what the rule buys is that the statement is greppable in the file it governs.
 - `Justfile`'s `hooks` recipe still runs `rg -qxF` to decide whether an existing pre-push
   hook is the managed one, and a steered config makes it overwrite a foreign hook. It is
   not a gate and not in the `verify` chain, so the guard does not see it. Tracked
   separately.
-- The gates' scan sets are unchanged. `.gitignore` and `.ignore` still remove files from
-  `check-public-safety.sh`'s view. Removing the config as an input does not make the scan
-  total, and this record does not claim it does.
+- `check-public-safety.sh` names its tracked files explicitly in addition to walking the
+  tree, because `.gitignore` and `.ignore` apply to tracked files too: `git add -f` on an
+  ignored path produced a file that ships to every clone and that the walk never opened,
+  and the gate answered 0. `--no-ignore` would have closed it by also scanning ignored
+  files that are *untracked* and therefore never ship — `CLAUDE.local.md` among them —
+  which fails the gate on the host-specific content that file exists to hold. Naming the
+  tracked files covers what ships under every ignore mechanism, not `.gitignore` alone.
+- The other gates' scan sets are unchanged: they still walk with ignore rules applied.
+  Their subject is the repository's own content rather than credential exposure, and a
+  tracked-but-ignored file is visible to them through the membership and layout manifests.
+  Removing the config as an input does not make any of those scans total.
 
 ## Considered & rejected
 

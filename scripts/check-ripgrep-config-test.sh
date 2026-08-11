@@ -172,6 +172,41 @@ track "$continued_root"
 assert_fails 'call across a continued line' "$continued_root" \
 	'scripts/continued.sh:2: runs rg'
 
+# An unset below the call it is meant to cover neutralises nothing, so only the
+# calls after it are cleared. The call above is still reported.
+late_root=$(new_fixture late)
+write_source "$late_root" scripts/scan.sh '#!/usr/bin/env bash
+rg -n early .
+unset RIPGREP_CONFIG_PATH
+rg -n late .'
+track "$late_root"
+assert_fails 'unset below the call' "$late_root" 'scripts/scan.sh:2: runs rg'
+
+# Wrappers that take flags of their own still front an invocation. These are the
+# idiomatic shapes a future gate is most likely to reach for.
+for wrapper in 'xargs -0 rg -n pattern' 'timeout 5 rg -n pattern .' \
+	'sudo -u nobody rg -n pattern .' 'env rg -n pattern .' \
+	'nice -n 5 rg -n pattern .' '/usr/bin/rg -n pattern .' \
+	'find . -exec rg -n pattern {} +'; do
+	name=${wrapper%% *}
+	wrapped_root=$(new_fixture "wrapped-$(printf '%s' "$name" | tr -c 'a-z0-9' '-')")
+	write_source "$wrapped_root" scripts/scan.sh "#!/usr/bin/env bash
+$wrapper"
+	track "$wrapped_root"
+	assert_fails "wrapper: $name" "$wrapped_root" 'scripts/scan.sh:2: runs rg'
+done
+
+# The same shapes are accepted once neutralised, so the wrapper handling reports
+# exposure rather than merely reporting the wrapper.
+wrapped_ok_root=$(new_fixture wrapped-ok)
+write_source "$wrapped_ok_root" scripts/scan.sh '#!/usr/bin/env bash
+unset RIPGREP_CONFIG_PATH
+xargs -0 rg -n pattern
+timeout 5 rg -n pattern .
+find . -exec rg -n pattern {} +'
+track "$wrapped_ok_root"
+assert_passes 'neutralised wrappers' "$wrapped_ok_root"
+
 # Discovery that cannot run is a fault, not a clean verdict: a gate that reports
 # ok on an empty source list is the silent miss this gate exists to prevent.
 faultless_root=$tmp_root/no-lister
