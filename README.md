@@ -209,6 +209,27 @@ If an overlay is absent, the installer uses the public base and reports that no
 private overlay was applied. Secrets should stay in environment variables or in
 private overlay files outside this repo.
 
+The three JSON overlays — Claude `settings.overlay.json`, Bob `settings.overlay.json`
+and `mcp.overlay.json` — are merged under one rule, stated over the result rather
+than over what the overlay names: an overlay may add new keys and may override
+scalars and object members, but an overlay that *changes* a path the base holds as a
+non-empty array, including by extending it, or that replaces a non-empty base object
+with a non-object, fails the install and names the path. That is what keeps a private
+overlay from silently dropping the shared hooks and `permissions.deny` entries; see
+[ADR 0043](docs/adr/0043-overlays-may-not-replace-a-base-array.md). Adding
+`permissions.allow`, as `examples/hosts/example-host/` does, is unaffected — the base
+defines no such key, so the overlay adds rather than replaces.
+
+There is no overlay route to *extend* a protected array, so a host-specific
+`hooks.PreToolUse` entry or an extra `permissions.deny` entry has to be added to the
+public base file in this repository. That is a real limit for a deny entry naming
+something host-specific, since the base is public; issue #118 tracks giving hosts a
+private route.
+
+The Codex `config.overlay.toml` carries no such guarantee: it is concatenated onto the
+base rather than merged, so what a duplicate key resolves to is the TOML parser's
+business. Issue #123 tracks that gap.
+
 ## IBM Bob Notes
 
 Bob has separate global paths for some IDE and Shell settings. The installer

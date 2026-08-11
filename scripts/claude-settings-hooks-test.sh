@@ -6,9 +6,10 @@ set -euo pipefail
 # object on standard input. Both directions are asserted — a hook that blocks
 # legitimate work is worked around, which is worse than no hook at all.
 #
-# Settings overlays replace arrays rather than merging them, so a private
-# settings.overlay.json that defines hooks.PreToolUse drops every hook asserted here.
-# Overlays must leave `hooks` alone.
+# These hooks are read out of the base file, and a private settings.overlay.json that
+# defines hooks.PreToolUse used to replace that array wholesale — dropping every hook
+# asserted here, silently. install.sh now refuses such an overlay rather than deploying
+# the result, so the constraint is enforced instead of requested; see ADR 0043.
 #
 # Four accepted limits of the masked-exit hook, all consequences of scoping it to the
 # known-masking targets rather than to any pipe of a guardrail command:

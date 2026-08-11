@@ -424,4 +424,195 @@ fixture_leftover="$(find "$fixture_dest/skills" -name "$fixture_entry" -print)"
 [[ -z "$fixture_leftover" ]] ||
 	fail "fixture install carries a test-only asset entry: $fixture_leftover"
 
+# --- Private overlays may not erase what the base defines (ADR 0043) ------------
+#
+# Every case below installs with a private overlay directory and a destination of its
+# own rather than the exported ones. Four of them need mutually exclusive contents at
+# the same overlay path, and the assertions above depend on the original overlay
+# staying where it is, so sharing one directory would make each case's fixture the
+# previous case's corruption.
+#
+# Both streams are captured because `install.sh` splits them: it refuses on standard
+# error and reports progress — `applied private overlay`, `no private overlay at` — on
+# standard output. A case asserts against whichever stream carries the message it is
+# about, and asserting the message rather than only the exit status is what keeps an
+# unrelated failure (an absent `jq`, a syntax error) from satisfying a refusal case.
+
+OVERLAY_CASE=0
+
+start_overlay_case() { # agent
+	OVERLAY_CASE=$((OVERLAY_CASE + 1))
+	OVERLAY_ROOT="$tmpdir/overlay-case-$OVERLAY_CASE"
+	OVERLAY_PRIVATE="$OVERLAY_ROOT/private"
+	OVERLAY_DEST="$OVERLAY_ROOT/dest"
+	OVERLAY_OUT="$OVERLAY_ROOT/stdout"
+	OVERLAY_ERR="$OVERLAY_ROOT/stderr"
+	OVERLAY_FILE="$OVERLAY_PRIVATE/hosts/test-host/$1"
+	mkdir -p "$OVERLAY_FILE" "$OVERLAY_DEST"
+}
+
+run_overlay_case() { # agent [repo-install-script]
+	OVERLAY_STATUS=0
+	AGENT_CONFIG_HOST=test-host \
+		AGENT_CONFIG_PRIVATE_DIR="$OVERLAY_PRIVATE" \
+		CLAUDE_CONFIG_DIR="$OVERLAY_DEST/claude" \
+		CODEX_CONFIG_DIR="$OVERLAY_DEST/codex" \
+		BOB_CONFIG_DIR="$OVERLAY_DEST/bob" \
+		"${2:-./install.sh}" --agent "$1" \
+		>"$OVERLAY_OUT" 2>"$OVERLAY_ERR" || OVERLAY_STATUS=$?
+}
+
+assert_overlay_refused() { # label
+	[[ "$OVERLAY_STATUS" -ne 0 ]] ||
+		fail "$1: install must refuse the overlay, got exit 0"
+}
+
+assert_overlay_installed() { # label
+	[[ "$OVERLAY_STATUS" -eq 0 ]] ||
+		fail "$1: install must succeed, got exit $OVERLAY_STATUS: $(cat "$OVERLAY_ERR")"
+}
+
+assert_stream_contains() { # stream-file needle label
+	grep -Fq -- "$2" "$1" ||
+		fail "$3: expected [$2] in $(basename "$1"): $(cat "$1")"
+}
+
+assert_stream_lacks() { # stream-file needle label
+	! grep -Fq -- "$2" "$1" ||
+		fail "$3: [$2] must not appear in $(basename "$1"): $(cat "$1")"
+}
+
+# Sorted so a key-order difference is not read as a value difference.
+assert_json_equal() { # file-a file-b filter label
+	local left right
+	left="$(jq -S "$3" "$1")"
+	right="$(jq -S "$3" "$2")"
+	[[ "$left" == "$right" ]] ||
+		fail "$4: $3 differs between $1 and $2"
+}
+
+BASE_SETTINGS="$REPO/agents/claude/shared/settings.base.json"
+
+# 1. The settings Claude Code actually loads still carry every hook and deny entry the
+#    base defines, read off the deployed file rather than the base the suite installed
+#    from. Green before this change as well as after: it pins the property, and case 2
+#    is what proves the property is enforced.
+assert_json_equal "$CLAUDE_CONFIG_DIR/settings.json" "$BASE_SETTINGS" '.hooks' \
+	'deployed hooks'
+assert_json_equal "$CLAUDE_CONFIG_DIR/settings.json" "$BASE_SETTINGS" \
+	'.permissions.deny' 'deployed permissions.deny'
+
+# 2. The reported defect. Before this change the install succeeds and deploys a
+#    settings.json carrying one hook instead of the base's five.
+start_overlay_case claude
+write_json "$OVERLAY_FILE/settings.overlay.json" \
+	'{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"true"}]}]}}'
+run_overlay_case claude
+assert_overlay_refused 'clobbering hooks overlay'
+assert_stream_contains "$OVERLAY_ERR" "$OVERLAY_FILE/settings.overlay.json" \
+	'clobbering hooks overlay'
+assert_stream_contains "$OVERLAY_ERR" 'hooks.PreToolUse' 'clobbering hooks overlay'
+assert_not_file "$OVERLAY_DEST/claude/settings.json"
+
+# 3. The same loss reached through an object rather than an array: `*` replaces the
+#    whole subtree, so the base's four privacy defaults leave without being named.
+start_overlay_case claude
+write_json "$OVERLAY_FILE/settings.overlay.json" '{"env":null}'
+run_overlay_case claude
+assert_overlay_refused 'null env overlay'
+assert_stream_contains "$OVERLAY_ERR" 'env' 'null env overlay'
+
+# 4. The ancestor route. An unguarded lookup raises `Cannot index string with string
+#    "PreToolUse"` here, so asserting the absence of that path is simultaneously the
+#    outermost-paths-only rule and proof the message is not jq's traversal error.
+start_overlay_case claude
+write_json "$OVERLAY_FILE/settings.overlay.json" '{"hooks":"x"}'
+run_overlay_case claude
+assert_overlay_refused 'non-indexable ancestor overlay'
+assert_stream_contains "$OVERLAY_ERR" 'hooks' 'non-indexable ancestor overlay'
+assert_stream_lacks "$OVERLAY_ERR" 'PreToolUse' 'non-indexable ancestor overlay'
+
+# 5. The overlay this repository publishes for operators to copy. It is the one piece
+#    of the out-of-repo compatibility surface that is in-repo, so it is the only part a
+#    gate here can hold: this fires the day a base change breaks the documented example.
+start_overlay_case claude
+cp "$REPO/examples/hosts/example-host/claude/settings.overlay.json" \
+	"$OVERLAY_FILE/settings.overlay.json"
+run_overlay_case claude
+assert_overlay_installed 'published example overlay'
+assert_json_equal "$OVERLAY_DEST/claude/settings.json" "$BASE_SETTINGS" '.hooks' \
+	'published example overlay'
+assert_json_equal "$OVERLAY_DEST/claude/settings.json" "$BASE_SETTINGS" \
+	'.permissions.deny' 'published example overlay'
+assert_json_value "$OVERLAY_DEST/claude/settings.json" \
+	'.permissions.allow[0]' 'Read(/path/to/project/**)'
+
+# 8. The default configuration: no private overlay at all. Nothing else in the suite
+#    reaches it — every case above writes an overlay first — so a check placed above
+#    the overlay-present branch would abort every first-time install with the rest of
+#    this file still green.
+start_overlay_case claude
+run_overlay_case claude
+assert_overlay_installed 'absent overlay'
+assert_stream_contains "$OVERLAY_OUT" 'no private overlay at' 'absent overlay'
+assert_json_equal "$OVERLAY_DEST/claude/settings.json" "$BASE_SETTINGS" '.' \
+	'absent overlay'
+
+# 9. The rule is over the merged result, not over which paths the overlay names. An
+#    overlay reproducing the base's array verbatim changes nothing, so it installs.
+#    This is the only case that fails against a build which refuses on overlay shape.
+start_overlay_case claude
+jq '{permissions: {deny: .permissions.deny}}' "$BASE_SETTINGS" \
+	>"$OVERLAY_FILE/settings.overlay.json"
+run_overlay_case claude
+assert_overlay_installed 'verbatim deny overlay'
+assert_json_equal "$OVERLAY_DEST/claude/settings.json" "$BASE_SETTINGS" \
+	'.permissions.deny' 'verbatim deny overlay'
+
+# 10. The abort message promises the deployed file is untouched, and every case above
+#     refuses into a tree where nothing was ever installed. Install once, then refuse
+#     against that same destination, and read the file that is really on disk.
+start_overlay_case claude
+write_json "$OVERLAY_FILE/settings.overlay.json" '{"env":{"AGENT_CONFIG_TEST":"first"}}'
+run_overlay_case claude
+assert_overlay_installed 'pre-existing deployment'
+write_json "$OVERLAY_FILE/settings.overlay.json" \
+	'{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"true"}]}]}}'
+run_overlay_case claude
+assert_overlay_refused 'refusal over a deployment'
+assert_json_equal "$OVERLAY_DEST/claude/settings.json" "$BASE_SETTINGS" '.hooks' \
+	'refusal over a deployment'
+assert_json_equal "$OVERLAY_DEST/claude/settings.json" "$BASE_SETTINGS" \
+	'.permissions.deny' 'refusal over a deployment'
+assert_json_value "$OVERLAY_DEST/claude/settings.json" '.env.AGENT_CONFIG_TEST' first
+
+# 7. The empty-container exemption's one in-repo instance: `agents/bob/shared/mcp.json`
+#    ships `{"mcpServers": {}}`, and replacing an empty container erases nothing, so
+#    this installs. Fails against a build that protects every base object regardless.
+start_overlay_case bob
+write_json "$OVERLAY_FILE/mcp.overlay.json" '{"mcpServers":null}'
+run_overlay_case bob
+assert_overlay_installed 'null empty-object overlay'
+
+# 6. The other half of that exemption has no instance in any base file, so it is the
+#    one rule a fixture has to construct. Without it an implementation that drops the
+#    `non-empty` qualifier passes everything else here, and breaks every host the day a
+#    base file seeds a key with `[]`.
+exempt_repo="$tmpdir/exempt-repo"
+mkdir -p "$exempt_repo/docs"
+cp -pR "$REPO/install.sh" "$REPO/content" "$REPO/agents" "$exempt_repo/"
+cp -pR "$REPO/docs/licenses" "$exempt_repo/docs/"
+exempt_base="$exempt_repo/agents/claude/shared/settings.base.json"
+jq '.permissions.allow = []' "$BASE_SETTINGS" >"$exempt_base"
+# The planted key has to be genuinely empty in the copy, or the case proves nothing.
+[[ "$(jq -c '.permissions.allow' "$exempt_base")" == '[]' ]] ||
+	fail "exempt fixture must plant an empty array"
+start_overlay_case claude
+write_json "$OVERLAY_FILE/settings.overlay.json" \
+	'{"permissions":{"allow":["Read(/tmp/**)"]}}'
+run_overlay_case claude "$exempt_repo/install.sh"
+assert_overlay_installed 'empty-array exemption'
+assert_json_value "$OVERLAY_DEST/claude/settings.json" '.permissions.allow[0]' \
+	'Read(/tmp/**)'
+
 printf 'install-test: ok\n'
