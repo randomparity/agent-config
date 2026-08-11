@@ -102,8 +102,20 @@ cleanup() {
 }
 trap cleanup EXIT
 
-printf '#!/usr/bin/env bash\nexit 127\n' >"$SCRATCH/jq"
-chmod +x "$SCRATCH/jq"
+# One stub directory per helper the hook bodies shell out to. A stub exits 2 — the status a
+# helper returns for an error, as opposed to grep's 1, which is an answer. jq gets a second
+# stub exiting 127, the status a shell reports for a command that is not on PATH at all, so
+# the "jq uninstalled" and "jq broken" paths are distinct cases rather than one assumed to
+# stand for the other. Prepending a stub directory shadows only that helper; the rest of
+# PATH still resolves, so each column of the matrix isolates one failure.
+for helper in jq grep awk printf echo; do
+	mkdir -p "$SCRATCH/broken-$helper"
+	printf '#!/usr/bin/env bash\nexit 2\n' >"$SCRATCH/broken-$helper/$helper"
+	chmod +x "$SCRATCH/broken-$helper/$helper"
+done
+mkdir -p "$SCRATCH/missing-jq"
+printf '#!/usr/bin/env bash\nexit 127\n' >"$SCRATCH/missing-jq/jq"
+chmod +x "$SCRATCH/missing-jq/jq"
 
 hook_command() { # message-marker
 	local marker=$1 matches count
@@ -134,23 +146,46 @@ assert_allowed() { # hook-command label command-string
 	[[ $status == 0 ]] || fail "$2 must allow [$3], got exit $status: $output"
 }
 
-run_hook_without_jq() { # hook-command
+# The payload is built before PATH is narrowed, so the stub never has to serve this jq call:
+# a stub that broke the harness's own input would prove nothing about the hook.
+run_hook_with_path() { # hook-command path-prefix command-string
 	local payload
-	payload=$(jq -nc '{tool_input: {command: "git clean -fd"}}')
-	printf '%s' "$payload" | PATH="$SCRATCH:$PATH" bash -c "$1"
+	payload=$(jq -nc --arg command "$3" '{tool_input: {command: $command}}')
+	printf '%s' "$payload" | PATH="$1:$PATH" bash -c "$2"
 }
 
-assert_fails_closed() { # hook-command label
+assert_fails_closed() { # hook-command label stub-dir command-string
 	local status=0 output
-	output=$(run_hook_without_jq "$1" 2>&1) || status=$?
-	[[ $status == 2 ]] || fail "$2 must fail closed without jq, got exit $status: $output"
-	[[ $output == BLOCKED:* ]] || fail "$2 must say why it failed closed: $output"
+	output=$(run_hook_with_path "$SCRATCH/$3" "$1" "$4" 2>&1) || status=$?
+	[[ $status == 2 ]] ||
+		fail "$2 must fail closed under $3 for [$4], got exit $status: $output"
+	[[ $output == BLOCKED:* ]] || fail "$2 must say why it failed closed under $3: $output"
 }
 
-assert_fails_open() { # hook-command label
+assert_unaffected_by() { # hook-command label stub-dir command-string expected-status
 	local status=0 output
-	output=$(run_hook_without_jq "$1" 2>&1) || status=$?
-	[[ $status == 0 ]] || fail "$2 must fail open without jq, got exit $status: $output"
+	output=$(run_hook_with_path "$SCRATCH/$3" "$1" "$4" 2>&1) || status=$?
+	[[ $status == "$5" ]] ||
+		fail "$2 under $3 must still exit $5 for [$4], got $status: $output"
+}
+
+# The strongest statement of fail-closed available without naming a helper: with no PATH at
+# all, every external command a body reaches for fails, including one added after this file
+# was written. A body that still refuses its triggering command refuses it for reasons its
+# author did not have to enumerate. The shell running the body has to be named by absolute
+# path: an empty PATH is also the one thing that stops the harness finding the shell itself.
+BASH_BIN=$(command -v bash) || fail 'no bash on PATH'
+
+assert_fails_closed_without_path() { # hook-command label command-string
+	local status=0 output payload
+	payload=$(jq -nc --arg command "$3" '{tool_input: {command: $command}}')
+	output=$(printf '%s' "$payload" | PATH='' "$BASH_BIN" -c "$1" 2>&1) || status=$?
+	[[ $status == 2 ]] ||
+		fail "$2 must fail closed with an empty PATH for [$3], got exit $status: $output"
+	# Contains rather than starts-with: with no PATH the shell prints its own
+	# `jq: command not found` to the same stderr ahead of the hook's message. Both reach
+	# Claude Code, and the requirement is that the explanation is among them.
+	[[ $output == *BLOCKED:* ]] || fail "$2 must say why it failed closed with no PATH: $output"
 }
 
 assert_posix_agrees() { # hook-command label command-string expected-status
@@ -255,8 +290,11 @@ assert_blocked "$CLEAN_HOOK" 'git clean hook' 'git clean -n && git clean -fd'
 assert_blocked "$CLEAN_HOOK" 'git clean hook' 'git clean -n; git clean -fd'
 assert_blocked "$CLEAN_HOOK" 'git clean hook' $'git clean -n\ngit clean -fd'
 
-# A destructive guard that cannot read its input must not wave the command through.
-assert_fails_closed "$CLEAN_HOOK" 'git clean hook'
+# A destructive guard that cannot read its input must not wave the command through. The full
+# helper-failure matrix for every hook is at the end of this file; this pair is the case the
+# guard was built around, kept beside the assertions it qualifies.
+assert_fails_closed "$CLEAN_HOOK" 'git clean hook' missing-jq 'git clean -fd'
+assert_fails_closed "$CLEAN_HOOK" 'git clean hook' broken-grep 'git clean -fd'
 
 # Forms that cannot force-delete stay legal.
 assert_allowed "$CLEAN_HOOK" 'git clean hook' 'git clean -n'
@@ -371,26 +409,109 @@ assert_blocked "$CLEAN_HOOK" 'git clean hook' $'git commit -m "note\ngit clean -
 assert_blocked "$CLEAN_HOOK" 'git clean hook' 'gh issue comment 1 --body "tried && git clean -fd"'
 assert_blocked "$MASK_HOOK" 'masked exit hook' $'cat >note.md <<EOF\njust ci | tail\nEOF'
 
-# The destructive guard fails closed without jq; the advisory one fails open, because a
-# missing jq would otherwise block every Bash call over a masking pattern that may not
-# even be present. Fail-open is also the shape of the three hooks that predate these two —
-# the rm -rf, push-to-main and rg guards each read the command without checking jq's exit
-# status — so the destructive guard is the exception, deliberately. jq is a declared
-# prerequisite: install.sh requires it at install time (install.sh:388) and
-# `just tools-check` (Justfile:33, reached from `just verify` at Justfile:152) re-checks
-# it. That second half is this repository only. In the other repositories these hooks ship
-# to, a jq that leaves PATH after install makes the advisory guard quiet, with no gate to
-# notice.
+# Helper failure. Claude Code blocks on exit 2 alone: every other non-zero status from a
+# PreToolUse hook is a non-blocking error, and the tool call proceeds. So a hook that dies
+# for a reason its body did not anticipate does not refuse the command — it permits it. All
+# five hooks now treat a helper that could not answer as a reason to refuse, and the
+# per-hook assertions below pin that one hook at a time (issue #139, ADR 0056).
 #
-# Only jq is guarded. Any other helper a guard calls can fail the same way unchecked: with
-# a grep that exits 2 on PATH, the destructive guard exits 0 on a real `git clean -fd`,
-# because Claude Code blocks on exit 2 alone. That is issue #139.
+# The helpers are jq, grep and awk. printf and echo are shell builtins in every shell these
+# bodies run under, so a PATH entry named printf or echo is never reached and cannot fail;
+# the assertions below prove that rather than assuming it, which is what makes the list of
+# three a list and not a guess.
 #
-# The masked-exit guard also depends on awk, but the consequence is the opposite of the jq
-# one. awk extracts only the text preceding `just ci`, which the `set -o pipefail`
-# exemption is tested against; a broken awk empties it, losing the exemption, so
-# `set -o pipefail; just ci | tail` is blocked. A false positive, not a hole.
-assert_fails_open "$MASK_HOOK" 'masked exit hook'
+# The reason uniform fail-closed costs nothing extra is worth stating, because it is not
+# obvious from any one hook: these five run on the same Bash tool call, and a single exit 2
+# blocks it. The destructive git clean guard has failed closed on jq since it was written,
+# so on a broken jq the call was already refused whatever the other four returned. Making
+# them fail closed too changes which diagnostics print, not which commands run — the cost
+# was already paid, and paying it visibly is better than four hooks whose silence depends
+# on a fifth hook's behaviour that nothing states.
+#
+# jq is a declared prerequisite: install.sh requires it at install time (install.sh:388)
+# and `just tools-check` (Justfile:33, reached from `just verify` at Justfile:152) re-checks
+# it. That second half is this repository only; in the other repositories these hooks ship
+# to, nothing re-checks it, which is why the hooks check it themselves.
+#
+# awk is the one helper deliberately left unguarded, and the reason is specific to how the
+# masked-exit guard uses it. awk extracts only the text preceding `just ci`, and that text
+# is read by exactly one test: the `set -o pipefail` exemption. A broken awk empties it, so
+# the exemption is lost and `set -o pipefail; just ci | tail` is blocked — which is already
+# failing closed, in the only branch whose answer awk affects, with no branch left where a
+# broken awk lets something through. A command that matches no masking pattern is untouched,
+# because nothing reads the empty text. Guarding awk explicitly would therefore trade a
+# false positive on one command shape for a block on every command, which is strictly worse.
+# The cost is a false positive, not a hole; issue #113's text says the opposite and is
+# wrong. Both halves are pinned below.
+assert_fails_closed "$CLEAN_HOOK" 'git clean hook' broken-jq 'git clean -fd'
+assert_fails_closed "$MASK_HOOK" 'masked exit hook' missing-jq 'just ci | tail'
+assert_fails_closed "$MASK_HOOK" 'masked exit hook' broken-grep 'just ci | tail'
+# awk: fail-closed on the one command shape whose verdict it decides, and inert everywhere
+# else. The first line is the accepted false positive — with awk healthy this command is
+# allowed, as the exemption assertions above pin.
+assert_fails_closed "$MASK_HOOK" 'masked exit hook' broken-awk 'set -o pipefail; just ci | tail -50'
+assert_unaffected_by "$MASK_HOOK" 'masked exit hook' broken-awk 'just ci | tee /tmp/ci.log' 0
+assert_unaffected_by "$MASK_HOOK" 'masked exit hook' broken-awk 'git status --porcelain' 0
+assert_unaffected_by "$MASK_HOOK" 'masked exit hook' broken-awk 'just ci | tail' 2
+
+# The three hooks that predate the two above had no assertions at all, and each read the
+# command without checking any helper's exit status. A fail-closed assertion on its own
+# would pass just as well against a hook that blocks everything, so each is paired with the
+# triggering and benign commands that make the pair bite.
+RM_HOOK=$(hook_command 'BLOCKED: Use trash')
+PUSH_HOOK=$(hook_command 'BLOCKED: Use feature branches')
+RG_HOOK=$(hook_command 'BLOCKED: ripgrep is recursive')
+
+assert_blocked "$RM_HOOK" 'rm -rf hook' 'rm -rf /tmp/scratch'
+assert_blocked "$RM_HOOK" 'rm -rf hook' 'cd /tmp && rm -fr build'
+assert_allowed "$RM_HOOK" 'rm -rf hook' 'trash /tmp/scratch'
+assert_allowed "$RM_HOOK" 'rm -rf hook' 'rm /tmp/one-file'
+assert_allowed "$RM_HOOK" 'rm -rf hook' 'git status --porcelain'
+
+assert_blocked "$PUSH_HOOK" 'push-to-main hook' 'git push origin main'
+assert_blocked "$PUSH_HOOK" 'push-to-main hook' 'git push origin master'
+assert_allowed "$PUSH_HOOK" 'push-to-main hook' 'git push origin feat/thing-1'
+assert_allowed "$PUSH_HOOK" 'push-to-main hook' 'git push -u origin HEAD'
+
+assert_blocked "$RG_HOOK" 'rg -r hook' 'rg -r foo src/'
+assert_allowed "$RG_HOOK" 'rg -r hook' 'rg -n foo src/'
+assert_allowed "$RG_HOOK" 'rg -r hook' 'rg -ln foo src/'
+
+for stub in missing-jq broken-jq broken-grep; do
+	assert_fails_closed "$RM_HOOK" 'rm -rf hook' "$stub" 'rm -rf /tmp/scratch'
+	assert_fails_closed "$PUSH_HOOK" 'push-to-main hook' "$stub" 'git push origin main'
+	assert_fails_closed "$RG_HOOK" 'rg -r hook' "$stub" 'rg -r foo src/'
+	# Failing closed is a property of the hook, not of the command: a guard that cannot read
+	# or evaluate its input does not know the command was benign either.
+	assert_fails_closed "$RM_HOOK" 'rm -rf hook' "$stub" 'ls -la'
+	assert_fails_closed "$CLEAN_HOOK" 'git clean hook' "$stub" 'git clean -n'
+	assert_fails_closed "$MASK_HOOK" 'masked exit hook' "$stub" 'just ci'
+	assert_fails_closed "$PUSH_HOOK" 'push-to-main hook' "$stub" 'git push origin feat/x'
+	assert_fails_closed "$RG_HOOK" 'rg -r hook' "$stub" 'rg -n foo src/'
+done
+
+# printf and echo resolve to builtins, so a broken one on PATH is never reached. Asserting
+# the healthy verdict under those stubs is what turns "the helpers are jq, grep and awk"
+# from an assumption into a checked claim: were either reached, these would go red.
+for stub in broken-printf broken-echo; do
+	assert_unaffected_by "$RM_HOOK" 'rm -rf hook' "$stub" 'rm -rf /tmp/scratch' 2
+	assert_unaffected_by "$RM_HOOK" 'rm -rf hook' "$stub" 'ls -la' 0
+	assert_unaffected_by "$CLEAN_HOOK" 'git clean hook' "$stub" 'git clean -fd' 2
+	assert_unaffected_by "$CLEAN_HOOK" 'git clean hook' "$stub" 'git clean -n' 0
+	assert_unaffected_by "$MASK_HOOK" 'masked exit hook' "$stub" 'just ci | tail' 2
+	assert_unaffected_by "$MASK_HOOK" 'masked exit hook' "$stub" 'just ci' 0
+	assert_unaffected_by "$PUSH_HOOK" 'push-to-main hook' "$stub" 'git push origin main' 2
+	assert_unaffected_by "$PUSH_HOOK" 'push-to-main hook' "$stub" 'git push origin feat/x' 0
+	assert_unaffected_by "$RG_HOOK" 'rg -r hook' "$stub" 'rg -r foo src/' 2
+	assert_unaffected_by "$RG_HOOK" 'rg -r hook' "$stub" 'rg -n foo src/' 0
+done
+
+# Enumeration-free: no PATH, so every external command fails, named here or not.
+assert_fails_closed_without_path "$RM_HOOK" 'rm -rf hook' 'rm -rf /tmp/scratch'
+assert_fails_closed_without_path "$CLEAN_HOOK" 'git clean hook' 'git clean -fd'
+assert_fails_closed_without_path "$MASK_HOOK" 'masked exit hook' 'just ci | tail'
+assert_fails_closed_without_path "$PUSH_HOOK" 'push-to-main hook' 'git push origin main'
+assert_fails_closed_without_path "$RG_HOOK" 'rg -r hook' 'rg -r foo src/'
 
 # The shell Claude Code runs a hook body in is not this suite's to choose, so both hook
 # bodies stay inside POSIX shell. Only a run whose sh rejects bashisms proves that, which
