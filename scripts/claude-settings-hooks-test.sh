@@ -23,10 +23,10 @@ set -euo pipefail
 # Both hooks read the command as text. The destructive guard fires only where three things
 # hold at once: a recognised command position, then an unbroken `git ... clean` on that one
 # line, then every token between `clean` and the next `;`, `&`, `|`, `)` or end of line
-# consumable by its flag alternation. Those are
-# separate axes, and the gaps below are grouped by the one each exploits — `sudo \git clean
-# -fd` is allowed despite sudo being a recognised position, because it fails the second.
-# Every form named was run against the shipped hook body.
+# consumable by its flag alternation. Those are separate axes, and the gaps below are
+# grouped by the one each exploits — `sudo \git clean -fd` is allowed despite sudo being a
+# recognised position, because it fails the second. Every form named was run against the
+# shipped hook body.
 #
 # Position. `xargs -n1 git clean -fd` blocks, correcting an earlier claim here that both
 # mechanisms miss xargs: 2cbe92b put xargs in the alternation. POS in settings.base.json is
@@ -60,16 +60,15 @@ set -euo pipefail
 # guard.
 #
 # Flags. The guard walks the tokens after `clean`, up to that same separator, and stops at
-# the first one its
-# alternation cannot consume, which leaves the whole command unmatched and allowed. Two
-# rules, not one: a single-dash token stops it when n or i appears anywhere in it (`-n`,
-# `-i`, `-fdn`), while a `--` token stops it only on the first letter after the dashes
-# being d or i — so `--dry-run` and `--interactive` are allowed while `--quiet` and
-# `--force` still block, as the assertions below pin. `--exclude=-n` blocks too, despite
-# ending in -n, because the double-dash rule reads only the first letter after the dashes;
-# it was run against the hook body but is not pinned. A token no alternative
-# consumes at all, such as a bare `-`, stops it too. git need not agree that a stopping
-# token is a preview, and `--` is not what makes the difference: after `--` a flag is a
+# the first one its alternation cannot consume, which leaves the whole command unmatched
+# and allowed. Two rules, not one: a single-dash token stops it when n or i appears
+# anywhere in it (`-n`, `-i`, `-fdn`), while a `--` token stops it only on the first letter
+# after the dashes being d or i — so `--dry-run` and `--interactive` are allowed while
+# `--quiet` and `--force` still block, as the assertions below pin, and `--exclude=-n`
+# blocks despite ending in -n. That last one was run against the hook body and is not
+# pinned. A token no alternative consumes at all, such as a bare `-`, stops it too. git
+# need not agree that a stopping token is a preview, and `--` is not what makes the
+# difference: after `--` a flag is a
 # pathspec, so `git clean -fd -- build/ -n` deletes and is allowed (git 2.55.0), and in
 # `git clean -fd -e -n` the -n is consumed as -e's exclude pattern. The git clean deny
 # entries are the only cover left, and they reach the simple uncompounded command only
