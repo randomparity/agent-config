@@ -10,13 +10,14 @@ Work the steps in order and keep the guardrails green at every commit. Don't
 advance past a red guardrail, an unresolved `$challenge` finding, a dirty-tree
 surprise, or an ambiguous user-facing design decision.
 
-> **One continuous task.** Preflight through hand-off is a single turn, and the
-> checkpoints inside it -- a `$challenge` verdict, a green guardrail, green CI --
-> are not places to stop. End your turn only when the PR is green and mergeable
-> (or merged, if the operator authorized it -- step 9), or when you hit a
-> blocker you have parked per *On a Blocker* -- naming it in chat is not enough,
-> the issue must carry the state. As a background subagent, an `approve` from
-> the review loop means proceed now, not wait.
+> **One continuous task.** Preflight through hand-off -- or through cleanup on
+> the authorized merge path -- is a single turn, and the checkpoints inside
+> it -- a `$challenge` verdict, a green guardrail, green CI -- are not places
+> to stop. End your turn only when the PR is green and mergeable (or merged,
+> if the operator authorized it -- step 9), or when you hit a blocker you have
+> parked per *On a Blocker* -- naming it in chat is not enough, the issue must
+> carry the state. As a background subagent, an `approve` from the review loop
+> means proceed now, not wait.
 
 > **Keep the durable facts durable.** Raw phase context -- brainstorm
 > transcripts, `$challenge` payloads, TDD output -- is droppable once the spec,
