@@ -125,6 +125,20 @@ only its settings file but the rest of its managed content: skills, `CLAUDE.md`,
 - `merge_toml_config` is untouched and has no equivalent guarantee. Codex's TOML overlay
   concatenates rather than merges, so its failure mode is different and is not addressed
   here.
+- **Superseded in part by [ADR 0049](0049-a-refused-overlay-withholds-one-file.md)
+  (2026-08-10), which closed #126.** The protected-set rule above still governs in full and
+  every case in this record's contract keeps its verdict. What 0049 replaced is this
+  record's *failure containment*, so four statements here no longer describe the installer:
+  "the install aborts" and "the offending agent deploys nothing" (Decision), "agents later
+  in the sequence do not install at all — the abort ends the run" (Decision), "what a
+  refused agent stops receiving is not only its settings file but the rest of its managed
+  content" (Decision), and "the abort *lengthens* that window, because the run that used to
+  complete now does nothing" (above). A refusal now withholds only the destination paths the
+  refused merge feeds, fills a wholly empty destination from the base, reports what the
+  deployed file actually holds, and still exits non-zero. Recorded as an append rather than
+  a `Superseded by` banner deliberately: the banner is whole-record, and a reader who took
+  it at face value would conclude the array rule no longer applies, which is the one
+  misreading this record exists to prevent.
 
 ## Considered & rejected
 

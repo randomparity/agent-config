@@ -939,6 +939,10 @@ run_overlay_case bob "$bob_repo/install.sh"
 assert_overlay_refused 'absent-path verdict'
 assert_stream_contains "$OVERLAY_ERR" 'no file is deployed at' 'absent-path verdict'
 assert_not_file "$OVERLAY_DEST/bob/mcp_settings.json"
+# The tail summary lists this absent path too, so its header has to be true of an absent
+# entry. An operator who reads only the tail must not be told a missing file is intact.
+assert_stream_contains "$OVERLAY_ERR" 'these paths were left untouched' 'absent-path verdict'
+assert_stream_lacks "$OVERLAY_ERR" 'deployed paths were kept' 'absent-path verdict'
 
 # 26. The base normalization behind the base-alone comparison is guarded like every other
 #     jq call, and is the one the shim's `normalize` shape reaches.

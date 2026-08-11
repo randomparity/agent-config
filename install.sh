@@ -58,7 +58,10 @@ report_refusals() {
 	if [[ ${#WITHHELD_PATHS[@]} -eq 0 ]]; then
 		return 0
 	fi
-	printf 'install: these deployed paths were kept as they are:\n' >&2
+	# "left untouched", not "deployed ... kept as they are": an absent path is withheld and
+	# listed here too, so a header claiming every entry is deployed would tell an operator
+	# reading only the tail that a missing file is present and intact.
+	printf 'install: these paths were left untouched:\n' >&2
 	for entry in "${WITHHELD_PATHS[@]}"; do
 		printf 'install:   %s\n' "$entry" >&2
 	done
