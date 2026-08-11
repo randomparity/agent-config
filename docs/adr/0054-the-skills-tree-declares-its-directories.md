@@ -105,10 +105,12 @@ directory count, which edits the expected string in the rows that pin the summar
     this gate and `check-skill-layout.sh` alike and never install — the one way a declared name
     can fail to reach a user. Naming it is the remedy; `reserved-skill-names.txt` is another
     change's surface.
-  - *A second, ungated enumeration of skill directory names.* `docs/licenses/superpowers.md`
-    lists eleven of them as the covered roots of the vendored MIT attribution, and no script,
-    workflow or recipe reads it. A rename now turns this gate red, which prompts an edit to
-    *this* list while the licensing one goes stale in the same commit. Issue #159 owns it.
+  - *Two other ungated enumerations of skill directory names.* `docs/licenses/superpowers.md`
+    lists eleven of them as the covered roots of the vendored MIT attribution, and `README.md`
+    names roughly twenty-five more across its lifecycle diagram and SDLC workflow table. No
+    script, workflow or recipe reads either. A rename now turns this gate red, which prompts an
+    edit to *this* list while both of those go stale in the same commit — and the licensing one
+    makes a claim about what is distributed under which terms. Issue #159 owns both.
   - *Directory names only.* The gate says nothing about whether a declared skill should ship, or
     what it contains.
   - *A skills-side fault now withholds the three-tree findings of the same run.* Every

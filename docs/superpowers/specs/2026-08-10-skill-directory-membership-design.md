@@ -272,9 +272,9 @@ three trees, and the `missing-member` rows, are the behaviors the issue names as
 must-not-regress, and their expected sequences are unchanged bytes.
 
 Every rule was mutation-tested — reverted one at a time, the suite re-run, the change restored.
-Thirteen reverts redden, including each enumerated-name sort's `|| fault` individually, the
+Thirteen reverts redden, including the first `comm` guard, each enumerated-name sort's `|| fault`, the
 newline refusal, the non-directory class, the summary clause, a phantom name added to the list,
-a real name removed from it, and the order of the two blocks. **Four survive, and each is
+a real name removed from it, and the order of the two blocks. **Six survive, and each is
 unassertable rather than merely untested:**
 
 - *The declared-list `sort`.* Both halves sort their declared list as
@@ -289,6 +289,11 @@ unassertable rather than merely untested:**
 - *The per-entry `>>` append and the `: >` truncations.* A redirection has no argv for a PATH
   mock to read, and the existing `mktemp` mock makes the whole workspace read-only, so it faults
   on the three-tree half's first truncation and never reaches the skills half.
+- *The `-u` on both skills-half sorts.* The declared list's is load-bearing — without it a line
+  duplicated by a careless edit outnumbers its single enumerated match, `comm -13` emits the
+  surplus, and the gate reports `missing-skill-directory` for a directory that is plainly there
+  — but no fixture can duplicate a line in a literal that lives in the script's source. The
+  present set's is inert by construction, since `find -maxdepth 1` cannot return a name twice.
 - *The `! -L` leg of the survival filter.* `find` does not follow a symlink operand, so with
   `-mindepth 1` a tree replaced by a symlink to a directory enumerates empty whether the filter
   admits it or not — the verdict is identical either way. The leg is kept for symmetry with the
