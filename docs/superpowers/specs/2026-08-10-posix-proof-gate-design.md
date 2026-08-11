@@ -125,8 +125,9 @@ The first row is the one place this design does not do what the issue's acceptan
 literally asks. Dropping the leg no longer removes the proving ground, so there is nothing
 left to turn red; the failure mode the issue names — the guarantee silently disappearing —
 is closed by removing the route rather than by detecting it. Encoding "the matrix must
-contain `ubuntu-latest`" would be a different property (OS coverage, ADR 0027's subject)
-guarded in the wrong place.
+contain `ubuntu-latest`" would be a different property — OS coverage, whose rationale lives
+in the `suite` job's own comment in `.github/workflows/verify.yml` — guarded in the wrong
+place.
 
 What stays outside the table is the runner itself: `verify.runs-on` is now load-bearing in
 the way `matrix.os` was. That is fail-closed — pointing it at a host whose `sh` is bash reds

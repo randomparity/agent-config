@@ -104,7 +104,12 @@ operator to rediscover this record.
   false reds on every refactor. One level up is the same: deleting
   `scripts/claude-settings-posix-guard-test.sh` removes the wiring check with no signal,
   because suite discovery is from the index and only an empty set fails. Named here so the
-  enumeration above is not mistaken for closure.
+  enumeration above is not mistaken for closure. The same is true of where it runs: the guard
+  is reached only through `just test` on the matrix legs, so the check that the gate is wired
+  stays matrix-resident even though the proof it guards does not. `verify` declares
+  `needs: suite`, so today a red guard reds the required check through the matrix assertion —
+  but a refactor that stopped `just ci` running `just test` would take the wiring check with
+  it.
 - The step depends on the runner image providing `jq` — newly load-bearing, since this job
   installed nothing before. Its absence fails loudly on the first call rather than skipping,
   so the dependency cannot rot into a silent pass, but it fails with the wrong cause:
@@ -151,6 +156,13 @@ are live and owned elsewhere, and neither is settled by this record.
   implements: the two can drift, and silently in the direction that matters — a workflow
   predicate that passes while the suite's stricter one still skips restores exactly the
   green-log skip #136 opened against.
+- **Invert the default: required unless waived.** A `POSIX_ASSERTIONS_OPTIONAL` set by the
+  `just test` recipe would remove the inert-wiring axis rather than detecting it, and most of
+  the guard suite's third assertion exists only because the default is off. Rejected because
+  the waiver would then live in the recipe, and a bare
+  `./scripts/claude-settings-hooks-test.sh` — how a contributor runs one suite, and how this
+  branch's own demonstrations were run — would fail on every developer host for a property
+  that host cannot prove. That trades a detectable misconfiguration for a guaranteed one.
 - **Do nothing.** Doing nothing costs nothing: no repo-wide red when the image drifts, no
   contributor-code checkout in the required check, no second suite run — and what is defended
   is four behavioural assertions over two of five bodies. Rejected anyway, because that is a
