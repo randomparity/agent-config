@@ -1,0 +1,232 @@
+# 0048 — Sweep branches on push evidence, not on a gone upstream
+
+## Status
+
+Accepted (2026-08-10)
+
+## Context
+
+Record 0044 accepted that a campaign can end with merged branches and their worktrees still
+on disk, and named the operator as the usual fallback owner because `$clean-branches` cannot
+collect them. Its reasoning: the sweep enumerates candidates by `%(upstream:track)` equal to
+`[gone]`, and merging a pull request in a repository with `deleteBranchOnMerge: false` leaves
+`origin/<branch>` in place, so the track field never reads `[gone]`. It closed by saying that
+closing the gap properly is a change to `$clean-branches`, tracked separately. This is that
+change.
+
+The situation is worse than "mostly does not work". `[gone]` is unreachable for a worker's
+branch for two independent reasons, both observed on this repository:
+
+- A branch created by `git worktree add <path> -b <branch> origin/<base>` has its upstream set
+  to the **base**, not to a head of its own, so its track field reads empty until its first
+  commit and `[ahead N, behind M]` after. Pushing it with `-u` moves the upstream to
+  `origin/<branch>`, whose track then reads empty or `[behind N]`. No state in that sequence
+  is ever `[gone]`. A branch created without an upstream at all reads empty throughout.
+- After the pull request merges, `deleteBranchOnMerge: false` keeps the remote head, so a
+  pruned fetch has nothing to prune and cannot produce `[gone]` either.
+
+The consequence is that the `merged` and `squash-merged` rows of the skill's classification
+table were unreachable for any branch that was not already `[gone]`. Record 0044 endorses
+those two tests, so the defect is entirely in who reaches them.
+
+Widening enumeration to every local branch is the obvious fix and is unsafe on its own,
+because ancestry against `origin/<base>` is true of far more than the leftovers. A branch
+created and not yet committed to, a bookmark parked at the base, and a merged worker branch
+are all ancestors of it. The `[gone]` predicate was, by accident, also the rule that spared
+the first two: a never-pushed branch has an empty track field, so it was never a candidate.
+Deleting the predicate deletes that protection, and the protection has to come back on
+purpose rather than as a side effect of the next predicate.
+
+## Decision
+
+**Enumerate every local branch, and delete on evidence that a branch was pushed — never on
+the absence of evidence that it was not.**
+
+Push evidence is either of two facts, both local and free once step 1's pruned fetch has run:
+
+- a remote-tracking ref under the branch's own name, `refs/remotes/origin/<branch>`, that
+  contains the branch tip; or
+- a `[gone]` track field **whose upstream was `origin/<branch>`**, which asserts that a head
+  of the branch's own name existed and has been deleted.
+
+A branch with neither is classified `not fully pushed` and skipped whatever its ancestry,
+which makes the rule the skill previously only implied into a row of its own.
+
+Containment on the first clause matters for the same reason the name scoping matters on the
+second: a remote head outlives the work that made it. Push a branch, merge it, delete the
+local branch, and with `deleteBranchOnMerge: false` the head remains; reuse the name for
+unrelated work and a name-only test calls the new branch pushed. Requiring the head to contain
+the tip rejects that, and rejects a branch carrying commits not yet pushed — the same
+guarantee stated the other way round.
+
+Both facts are stated in terms of `refs/remotes/origin`, so a branch whose push left nothing
+there is skipped forever. Two ways in: push without `-u` into a repository that deletes head
+branches on merge, where no upstream is ever set and the merge prunes the head; or push to a
+remote not named `origin` at all, where `refs/remotes/origin/<branch>` never existed. Both are
+accepted rather than closed. The only remaining witness in either case is a pull request found
+by branch *name*, and the decision below rules name-level evidence out of the deletion path
+entirely. The failure is a missed collection — `push -u`, `push.autoSetupRemote`, or a remote
+named `origin` avoids it.
+
+**The name scoping on the `[gone]` clause is not decoration.** `[gone]` is a fact about
+whatever the branch tracks, not about the branch: `git switch -c mine origin/theirs` pushes
+nothing, and when the colleague's pull request merges and their head is deleted, `mine` reads
+`[gone]` while `refs/remotes/origin/mine` never existed — and `mine` is by then an ancestor of
+the base. An unscoped clause would delete a never-pushed branch, which is the exact failure
+this decision exists to prevent.
+
+**An upstream is not push evidence.** `git checkout -b <branch> origin/<base>` sets one
+without pushing anything, so a non-empty `%(upstream)` is equally true of a campaign worker's
+branch and of a local branch started thirty seconds ago.
+
+**A merged branch with no push evidence is skipped, and stays skipped.** Ancestry proves the
+commits are in the base; it does not prove the branch is residue. This sweep collects the
+residue of shipped work, and a branch that was never pushed shipped nothing — there is no
+remote head and no pull request anywhere saying the operator was finished with it. Such a
+branch is reported as a skip on every sweep and deleted by hand.
+
+**The classification rows are ordered and the first match wins.** Repo-wide enumeration makes
+several rows true of one branch at once, and the base branch is itself an ancestor of
+`origin/<base>`; an unordered table would classify it `merged`.
+
+**Push evidence decides eligibility; only a sha decides that the work landed.** Both evidence
+facts are about the branch's *name*, and a name is reusable. Delete a branch once its pull
+request has merged, start new work under the same name, and — with the head ref kept — the
+name-matched merged pull request answers for commits that exist nowhere else. Ancestry is
+immune, being a statement about the commits; the squash-merged test was not, so it now
+requires the branch tip to be contained in the merged pull request's `headRefOid`.
+
+Containment rather than equality, because a local tip *behind* the merged head is ordinary —
+a reviewer committing a suggestion in the web interface advances the remote head, and a plain
+fetch never fast-forwards the local branch — and everything such a tip holds is in the pull
+request. A tip carrying commits the pull request does not is refused.
+
+That same lagging tip is why the merged head sha may be absent from the local object database,
+in which case `git merge-base --is-ancestor` exits 128 rather than answering. The sweep fetches
+`refs/pull/<number>/head` once and retries; where that fails, the branch is reported rather
+than deleted. An error is never read as a verdict — the failure this sweep exists to be
+distinguishable from.
+
+Record 0044 endorsed the branch-name lookup as "sound in a repo-wide sweep". That endorsement
+was made about a sweep whose candidates were `[gone]` branches, where reuse was much harder to
+reach — the head was deleted, so a stale one could not vouch for a new branch of the same
+name. Harder, not impossible: reuse a name whose second head is *also* deleted and the branch
+reads `[gone]` again, so the old test had the same defect on a narrower path. Widening
+enumeration turns a narrow path into the common one, so tightening the test belongs to the
+change that widened it rather than to a later one. The
+containment check costs one extra JSON field on a call the row already makes, and it subsumes
+the smaller case of commits added after the merge.
+
+**The rows are how this is enforced; the invariant is what it means.** Every deleted branch's
+tip must be contained in a ref that lives on the remote — an ancestor of `origin/<base>` or of
+a merged pull request's `headRefOid` — and the sweep deletes no remote ref, so every deletion
+is recoverable from the remote plus the sha it reports. This is stated in the skill because a
+row table is not a thing a future editor can check a new row against, and enumerating the rows
+and arguing each is safe is precisely the reasoning that failed twice here.
+
+**Widening enumeration admits a category the `[gone]` predicate never reached, so the table
+gains a protected-branch row.** A long-lived integration branch — `release/1.2` merged into
+the base with `--no-ff` and kept — is an ancestor with a live remote head, and no local test
+distinguishes it from a feature branch nobody cleaned up. The remote's branch-protection
+setting is the signal that does, so the sweep reads it once per run.
+
+## Consequences
+
+- The leftovers 0044 deliberately creates are collectable by the sweep, in either repository
+  setting, instead of by the operator alone. Collectable, not standing: the sweep has no
+  liveness signal of its own, so it must not run while a dispatched worker is in flight, and
+  0044 defers cleanup precisely when a worker's end was *not* observed. That timing rule is
+  the whole guard, and it is a hard constraint rather than a test. The dirty-worktree row does
+  satisfy 0044's accepted observable, but it does not catch 0044's observed incident: a worker
+  that has committed and is mid-`push` reads clean, and so does one that ended tidily. Nothing
+  in the sweep can see a process inside a directory. The operator still
+  chooses the moment; what changes is that the sweep then does the work instead of being a
+  no-op. 0044's own prose about `$clean-branches` and the matching paragraph in `$campaign`
+  step 6 describe the old behaviour and are now wrong; 0044 is an accepted record and is not
+  rewritten, and the `$campaign` correction is issue #130 rather than a fold-in to a change
+  whose scope the filed issue restricted to one file.
+- A branch whose commits are not on the remote is never collected automatically, however
+  thoroughly its commits are in the base. That is a permanent, accepted gap and the direct
+  cost of the decision above: at least one such branch exists on the machine that produced
+  issue #116, and the sweep will report it as a skip forever. The alternative costs a
+  local-only branch with no remote copy, which is the one thing in this sweep that a deletion
+  cannot be undone from.
+- Sweep output grows. Every local branch now appears in the plan table with a classification,
+  where previously only `[gone]` branches did. That is the honest report of what the sweep
+  considered, and the ordered rows make each spared branch say why it was spared.
+- The pull-request lookup fires more often: once per pushed non-ancestor branch rather than
+  once per `[gone]` non-ancestor branch. Ordering the free local rows ahead of it bounds the
+  set to branches that are either squash-merged or genuinely unmerged, which is small in a
+  working checkout but not bounded in principle. A rate-limited or absent `gh` degrades those
+  branches to `unmerged`, which is report-only, so exhaustion costs a missed collection and
+  never a wrong deletion.
+- No new *kind* of branch can be deleted — only `merged` and `squash-merged` delete,
+  `unmerged` is still report-only, and the operator naming a branch after seeing it in the
+  plan is still the only route to deleting an unmerged one. But more branches reach those two
+  rows, and that is a real exposure rather than a formality: a protected or long-lived
+  integration branch that is an ancestor of the base was previously out of reach and is now
+  spared only by the new row 2, whose input is a remote setting the sweep may be unable to
+  read. Where `gh` cannot supply the protected set, the confirmation is the last guard, so
+  the plan says the set was unknown instead of implying it was empty.
+- The squash-merged row is narrower than it was: a branch carrying commits its merged pull
+  request does not now falls to `unmerged` and is reported instead of deleted. That is the
+  intended reading, and it costs a repository that squashes a reported leftover whenever
+  someone commits to a branch after its merge.
+- Ignored files under a removed worktree are the sole irreversible loss in the design, since
+  the invariant makes every deleted branch's commits recoverable from the remote. They are
+  therefore inventoried onto each removal line of the plan — count plus root-level entries —
+  rather than covered by a generic warning. Showing them is not the `--ignored` gating
+  rejected below: that one decided whether to *skip*, this one decides what the operator reads
+  before confirming, and the single confirmation is the only moment it can be read.
+- Removing a worktree destroys the ignored files under it — `.env`, local build state — and
+  `git status --porcelain` cannot see them, so the dirty-worktree row does not spare them.
+  Testing `--ignored` there instead was rejected: it would skip every worktree with a
+  `node_modules`, which is most of them, and turn the sweep back into the no-op this skill
+  was written against. The plan names the path instead, and the deletion report keeps it.
+
+## Considered & rejected
+
+- **Keeping the `[gone]` predicate and adding a second enumeration pass for merged branches.**
+  Rejected: two predicates feeding one classification table is two places to get the safety
+  rules right, and the `[gone]` pass becomes a subset of the second one the moment push
+  evidence is defined — `[gone]` *is* push evidence.
+- **Treating a non-empty `%(upstream)` as push evidence.** Rejected: it is the reading that
+  looks correct and is not. It happens to admit a campaign worker's branch and happens to
+  exclude a branch created with `--no-track`, so it passes both cases in issue #116 while
+  admitting every branch made with `git checkout -b <branch> origin/<base>` — the ordinary way
+  to start work, and an ancestor of the base until its first commit.
+- **Deleting a merged never-pushed branch anyway, since its commits are in the base.** Rejected
+  on the asymmetry: a branch with a remote head can be restored from the remote, and one
+  without can be restored only from a reflog that expires. The sweep reports the sha it
+  deleted, which helps a human who notices; nothing helps one who does not.
+- **Prompting per never-pushed merged branch instead of skipping.** Rejected: the skill takes
+  exactly one confirmation before the first deletion, on purpose, and a per-branch prompt for
+  the category most likely to be a deliberate bookmark trains the operator to answer without
+  reading. Reporting it as a skip states the same fact and costs no decision.
+- **Batching the pull-request lookup into one `gh pr list --state merged --json
+  headRefName,headRefOid` query over the whole repository.** Rejected on cost and complexity
+  rather than on scope: it trades a bounded number of small calls for one unbounded paginated
+  sweep of every merged pull request the repository has ever had, plus the join and the
+  page-exhaustion failure mode, to save latency that only a checkout with dozens of pushed
+  unmerged branches would notice. The per-branch call's failure mode is already safe. Worth
+  revisiting if such a checkout is ever observed.
+- **Using the reflog to decide whether a branch was ever pushed.** Rejected on measurement:
+  it does not answer the one case `refs/remotes` cannot, because `git fetch --prune` deletes
+  `.git/logs/refs/remotes/origin/<branch>` along with the ref. It is also expiring, local, and
+  absent in a fresh clone.
+- **Admitting a merged pull request found by branch name as a third evidence source, to close
+  the push-without-`-u` gap above.** Rejected: it is the same name-level inference the
+  `headRefOid` decision just removed from the deletion path, and it would fire an API call for
+  every bookmark in the checkout on every sweep — the largest and safest category, and the one
+  the row ordering exists to keep free.
+- **Dropping the `[gone]` clause entirely and testing only for `refs/remotes/origin/<branch>`.**
+  Simpler, and rejected: in a repository with `deleteBranchOnMerge: true` the merge prunes
+  that ref, so every branch the sweep was originally written to collect would classify
+  `not fully pushed` and be skipped — before ever reaching the row where its merged pull
+  request could vouch for it, since that row has to come first to do its job. The name scoping
+  above is what the clause actually needed.
+- **Treating `git branch -d` as a second land check and keeping the sweep's old claim that it
+  is one.** Rejected on measurement: `-d` tests against the branch's own upstream when it has
+  one, so on the squash path it warns and succeeds on a branch that is no ancestor of the
+  base. `$campaign` already documents this correctly; the two prompts disagreed, and the
+  ancestry and pull-request rows are the only land checks.
