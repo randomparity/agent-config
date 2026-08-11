@@ -25,6 +25,14 @@ matched.
    would then read an empty remote-head set, call every branch `not fully pushed`, and report
    that as a fact. Stop and say so if there is no `origin` or the fetch fails (offline, auth) —
    do not evaluate a single branch against stale or absent state.
+
+   **Then pin `gh` to that same remote.** Every git test below reads `refs/remotes/origin`,
+   while `gh` resolves a default repository of its own, and on a fork clone the two are
+   different repositories. Confirm `gh repo view --json nameWithOwner` matches `origin`'s URL
+   and stop if it does not, or pass `--repo <owner>/<name>` on every `gh` call in this sweep.
+   Unpinned, step 2 returns the parent's default branch while ancestry runs against the fork's,
+   step 5's protected set describes the parent, and row 7's recovery fetches a parent pull
+   request number from the fork.
 2. **Resolve the base branch.** `gh repo view --json defaultBranchRef --jq .defaultBranchRef.name`;
    without `gh`, `git symbolic-ref --short refs/remotes/origin/HEAD` and strip the `origin/`.
    Every ancestry test below runs against `origin/<base>` — the ref you just fetched, not a
@@ -85,8 +93,24 @@ matched.
    would let the plan promise one removal and then fail the deletion.
 7. **Classify every candidate** (table below) before touching anything.
 8. **Plan → confirm.** Present one table — `branch → classification → action` — including the
-   skips and their reasons, and naming the path of every worktree the plan would remove. Take
-   one explicit confirmation, then apply. A failure on one branch does not abort the sweep.
+   skips and their reasons, and naming the path of every worktree the plan would remove.
+
+   **Every removal line carries its ignored-file inventory.** Run
+   `git -C <path> status --porcelain --ignored` while assembling the plan, and put the count
+   and the root-level entries on the line:
+
+   ```text
+   delete feat/x (PR #42) — remove worktree /path/to/wt — destroys 2 ignored: .env, node_modules/
+   ```
+
+   Not on request. The invariant below makes every deleted branch's commits recoverable from
+   the remote; ignored files under a removed worktree are the one thing in this sweep that
+   nothing restores, so they are the only part of the plan the operator cannot check
+   afterwards. A single confirmation over a list of paths, with one generic sentence saying
+   ignored files go too, does not put `.env` in front of anyone.
+
+   Take one explicit confirmation, then apply. A failure on one branch does not abort the
+   sweep.
 
 ## Classification
 
@@ -102,7 +126,7 @@ unordered table would classify it `merged` and delete it.
 | 4 | not fully pushed | neither push evidence holds: no `refs/remotes/origin/<branch>` in step 4's set **containing** the tip (`git merge-base --is-ancestor <branch> refs/remotes/origin/<branch>`), and no `%(upstream:track)` of `[gone]` whose `%(upstream:short)` is `origin/<branch>` | **skip, never delete** |
 | 5 | dirty or unreadable worktree | the branch has a worktree and `git -C <path> status --porcelain` is non-empty or does not exit 0 | skip, name it |
 | 6 | merged | `git merge-base --is-ancestor <branch> origin/<base>` succeeds | delete |
-| 7 | squash-merged | not an ancestor, but `gh pr list --head <branch> --state merged --json number,title,headRefOid --limit 1` returns a PR, and `git merge-base --is-ancestor <branch> <headRefOid>` succeeds | delete; the plan line names the PR |
+| 7 | squash-merged | not an ancestor, but `gh pr list --head <branch> --base <base> --state merged --json number,title,headRefOid --limit 20` returns a PR whose `headRefOid` satisfies `git merge-base --is-ancestor <branch> <headRefOid>` | delete; the plan line names that PR |
 | 8 | unmerged | neither — no ancestry, and no merged PR containing this tip (or no `gh`/GitHub remote, or the merged head sha could not be obtained) | **report, never delete** |
 
 **Row 2 is new because enumeration is.** Under the old `[gone]` predicate a long-lived
@@ -120,9 +144,13 @@ of the two paths destroys a directory and still cannot delete the branch.
 **This sweep has no liveness signal, and enumeration is now repo-wide, so any *other* linked
 worktree it reaches may belong to an agent that is still running.** A dispatched worker's
 pull request merges some way before the worker itself stops, and in that window the branch is
-an ancestor of the base and the worktree is live. Do not run the sweep while a campaign or a
-dispatched worker is in flight. Row 5 catches only the workers that left modified or untracked
-files behind, and a worker that ended cleanly leaves neither.
+an ancestor of the base and the worktree is live. **The hard constraint below — do not run the
+sweep while a campaign or a dispatched worker is in flight — is the only guard against this.**
+
+Do not read row 5 as a second one. It catches a worker that left modified or untracked files,
+which a worker that ended cleanly does not, and neither does one that has committed and is
+mid-`push` — the state the incident behind this rule was actually observed in. A clean
+`status` means nothing about whether a process is inside that directory.
 
 **Never delete a branch whose commits are not on the remote.** Row 4 states a rule that used
 to be an accident of enumeration — a branch with no upstream yielded an empty track field and
@@ -173,11 +201,14 @@ anywhere, so the operator has to deal with the worktree first.
 destroys the ignored ones.** `git status --porcelain` says nothing about `.env`,
 `node_modules`, or local build state, so a worktree holding only those reads clean and
 `git worktree remove` deletes them without `--force`. Under the old predicate almost no
-worktree reached this; now every clean merged branch's does. Name the path in the plan and say
-that ignored files there go with it — `git -C <path> status --porcelain --ignored` lists what
-would be lost, when the operator asks. Run it *in* the worktree, as every row 5 test is:
-passing another worktree's path as a pathspec fatals with `outside repository` and empty
-stdout, which reads as "nothing would be lost" about a directory holding `.env`.
+worktree reached this; now every clean merged branch's does. That is why step 8 inventories
+them onto the removal line rather than leaving them to a generic warning.
+
+Gating row 5 on `--ignored` instead would skip every worktree holding a `node_modules`, which
+is most of them, and turn the sweep back into the no-op this skill was written against. Show,
+do not skip. Run the inventory *in* the worktree, as every row 5 test is: passing another
+worktree's path as a pathspec fatals with `outside repository` and empty stdout, which reads
+as "nothing would be lost" about a directory holding `.env`.
 
 Read the exit code, not just the output. A worktree whose directory has been deleted is still
 listed by `git worktree list --porcelain` and still enters the map, and `git status` there
@@ -214,20 +245,55 @@ collectable. A tip *ahead* holds commits the pull request does not, falls to row
 reported: that is work, not residue. Under a reused name the local commits are not ancestors
 of the old head either, which is the property this row exists for.
 
+**Scoped to `<base>`, and to every merged pull request rather than one.** `--head` matches a
+head branch *name* across head repositories and says nothing about where the branch landed, so
+without `--base` a branch merged into its parent in a stack — and still open against the base
+— reads squash-merged here, and the sweep deletes a live working branch of an in-flight stack.
+Its commits survive in `refs/pull/<n>/head`, so the invariant below holds, but the operator
+loses the branch. `--limit 1` has the matching defect when several merged pull requests share
+a head name: it picks one and the row's verdict turns on which. Take every merged pull request
+for that head against this base and ask whether *any* of them contains the tip.
+
 **`headRefOid` may not be in the local object database.** That is the same lagging-tip case:
 the remote head advanced past what was fetched, and if the merge deleted it, a pruned fetch
 never brings the sha down. `git merge-base --is-ancestor` then exits **128** with
 `fatal: Not a valid commit name`, which is a missing object, not a verdict. Fetch it once —
 `git fetch origin refs/pull/<number>/head`, which survives head-branch deletion and updates
-only `FETCH_HEAD` — and re-run the test. Any other non-zero exit, and a failed fetch, mean
-row 8. Neither is a sweep failure.
+only `FETCH_HEAD` — then re-run `git merge-base --is-ancestor <branch> <headRefOid>`.
 
-Both push-evidence clauses are name-level too, which is why row 4 only decides whether a
-branch is *eligible* to be classified. Rows 6 and 7 are what prove the work landed, and both
-test shas. Keep that division — loosening either to a name-level test reopens the hazard
-above.
+**Against the sha, never against `FETCH_HEAD`.** The fetch exists to put the object in the
+database, not to become the thing compared. Testing containment in `FETCH_HEAD` would key the
+delete decision on a pull request *number* — a name-level inference again, in the row this
+change removed one from — and `FETCH_HEAD` is whatever was fetched last, which under a
+mispointed `gh` (step 1) can be a different pull request's head entirely.
 
-**Deletion rules:**
+Any other non-zero exit, and a failed fetch, mean row 8. Neither is a sweep failure.
+
+## The invariant
+
+Check a future widening against this, not against the row table:
+
+> **Every deleted branch's tip is contained in a ref that lives on the remote.** Deletion
+> requires `tip` to be an ancestor of `origin/<base>` (row 6) or of a merged pull request's
+> `headRefOid` (row 7), and this sweep never deletes a remote ref — there is no
+> `git push --delete` anywhere in it.
+
+So a deletion is recoverable: the tip is still on the remote, and the reported sha with
+`git branch <name> <sha>` restores the local ref. A new row, or a loosened test, that can
+delete a branch whose tip is not contained in a remote ref breaks this — whatever the row
+table says, and whatever the row is called.
+
+The row table is how the invariant is currently enforced, not the thing to reason from. It has
+been wrong twice: both push-evidence clauses in row 4 and the original row 7 were name-level
+tests, and a name is reusable, so each in turn admitted a branch whose tip was on no remote
+ref. Enumerating the rows and arguing each is safe is exactly the reasoning that failed. Ask
+instead which ref the deletion's containment is anchored to, and whether that ref is remote.
+
+**Ignored files under a removed worktree are the one exception**, and therefore the only
+irreversible loss in this design. They are on no remote and in no reflog. That is what the
+plan lines in step 8 exist to show.
+
+## Deletion rules
 
 - **Row 6 and row 7 are the only land checks.** Do not read `git branch -d` as a second,
   independent guard: it tests a branch against its own upstream when it has one and against
@@ -262,14 +328,17 @@ above.
 
 ## Hard constraints
 
-- Confirm `origin` exists and `git fetch --prune` succeeds before any evaluation, and stop if
-  the base branch does not resolve. Every row below reads `refs/remotes/origin`, and a stale,
-  absent, or misidentified reference is worse than no sweep.
+- **Never delete a branch whose tip is not contained in a ref that lives on the remote.** The
+  invariant above; every other rule here serves it.
+- Confirm `origin` exists, `git fetch --prune` succeeds, `gh` resolves to that same repository,
+  and the base branch resolves — before any evaluation. Every row reads `refs/remotes/origin`,
+  and a stale, absent, or misidentified reference is worse than no sweep.
 - Candidates are every local branch, read from `for-each-ref` plumbing, never from grepping
   `git branch` output. The ordered rows decide what happens to each, not the enumeration.
-- Never delete the base branch, a protected branch, a branch checked out in the main worktree
-  or in the sweep's own worktree or in two worktrees at once, or a branch with no evidence of
-  ever having been pushed under its own name.
+- Never delete the base branch, a protected branch, or a branch checked out in the main
+  worktree, in the sweep's own worktree, in a locked worktree, or in two worktrees at once.
+- Show every removal's ignored-file inventory in the plan before the confirmation. It is the
+  only loss in this sweep that nothing can undo.
 - Pass branch names and worktree paths as **arguments**, never interpolated into a shell
   string. `git check-ref-format` rejects whitespace but permits `;`, `&`, `$` and `|`, and
   repo-wide enumeration now feeds every local branch — including any created from a remote

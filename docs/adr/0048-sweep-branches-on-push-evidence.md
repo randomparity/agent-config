@@ -59,13 +59,14 @@ unrelated work and a name-only test calls the new branch pushed. Requiring the h
 the tip rejects that, and rejects a branch carrying commits not yet pushed — the same
 guarantee stated the other way round.
 
-The two facts cover `deleteBranchOnMerge: false` unconditionally, and `true` only for a branch
-that was pushed with `-u`. Push without it in a repository that deletes head branches on
-merge and no upstream is ever set, while the merge prunes the head — so nothing local
-distinguishes that branch from one never pushed at all, and it is skipped forever. That is
-accepted rather than closed: the only remaining witness is a pull request found by branch
-*name*, and the decision below rules name-level evidence out of the deletion path entirely.
-The failure is a missed collection, and `push -u` or `push.autoSetupRemote` avoids it.
+Both facts are stated in terms of `refs/remotes/origin`, so a branch whose push left nothing
+there is skipped forever. Two ways in: push without `-u` into a repository that deletes head
+branches on merge, where no upstream is ever set and the merge prunes the head; or push to a
+remote not named `origin` at all, where `refs/remotes/origin/<branch>` never existed. Both are
+accepted rather than closed. The only remaining witness in either case is a pull request found
+by branch *name*, and the decision below rules name-level evidence out of the deletion path
+entirely. The failure is a missed collection — `push -u`, `push.autoSetupRemote`, or a remote
+named `origin` avoids it.
 
 **The name scoping on the `[gone]` clause is not decoration.** `[gone]` is a fact about
 whatever the branch tracks, not about the branch: `git switch -c mine origin/theirs` pushes
@@ -107,11 +108,21 @@ than deleted. An error is never read as a verdict — the failure this sweep exi
 distinguishable from.
 
 Record 0044 endorsed the branch-name lookup as "sound in a repo-wide sweep". That endorsement
-was made about a sweep whose candidates were `[gone]` branches, where a name could not be in
-reuse: the head was deleted. Widening enumeration is what invalidates its premise, so
-tightening the test belongs to the change that widened it rather than to a later one. The
+was made about a sweep whose candidates were `[gone]` branches, where reuse was much harder to
+reach — the head was deleted, so a stale one could not vouch for a new branch of the same
+name. Harder, not impossible: reuse a name whose second head is *also* deleted and the branch
+reads `[gone]` again, so the old test had the same defect on a narrower path. Widening
+enumeration turns a narrow path into the common one, so tightening the test belongs to the
+change that widened it rather than to a later one. The
 containment check costs one extra JSON field on a call the row already makes, and it subsumes
 the smaller case of commits added after the merge.
+
+**The rows are how this is enforced; the invariant is what it means.** Every deleted branch's
+tip must be contained in a ref that lives on the remote — an ancestor of `origin/<base>` or of
+a merged pull request's `headRefOid` — and the sweep deletes no remote ref, so every deletion
+is recoverable from the remote plus the sha it reports. This is stated in the skill because a
+row table is not a thing a future editor can check a new row against, and enumerating the rows
+and arguing each is safe is precisely the reasoning that failed twice here.
 
 **Widening enumeration admits a category the `[gone]` predicate never reached, so the table
 gains a protected-branch row.** A long-lived integration branch — `release/1.2` merged into
@@ -124,7 +135,11 @@ setting is the signal that does, so the sweep reads it once per run.
 - The leftovers 0044 deliberately creates are collectable by the sweep, in either repository
   setting, instead of by the operator alone. Collectable, not standing: the sweep has no
   liveness signal of its own, so it must not run while a dispatched worker is in flight, and
-  0044 defers cleanup precisely when a worker's end was *not* observed. The operator still
+  0044 defers cleanup precisely when a worker's end was *not* observed. That timing rule is
+  the whole guard, and it is a hard constraint rather than a test. The dirty-worktree row does
+  satisfy 0044's accepted observable, but it does not catch 0044's observed incident: a worker
+  that has committed and is mid-`push` reads clean, and so does one that ended tidily. Nothing
+  in the sweep can see a process inside a directory. The operator still
   chooses the moment; what changes is that the sweep then does the work instead of being a
   no-op. 0044's own prose about `$clean-branches` and the matching paragraph in `$campaign`
   step 6 describe the old behaviour and are now wrong; 0044 is an accepted record and is not
@@ -157,6 +172,12 @@ setting is the signal that does, so the sweep reads it once per run.
   request does not now falls to `unmerged` and is reported instead of deleted. That is the
   intended reading, and it costs a repository that squashes a reported leftover whenever
   someone commits to a branch after its merge.
+- Ignored files under a removed worktree are the sole irreversible loss in the design, since
+  the invariant makes every deleted branch's commits recoverable from the remote. They are
+  therefore inventoried onto each removal line of the plan — count plus root-level entries —
+  rather than covered by a generic warning. Showing them is not the `--ignored` gating
+  rejected below: that one decided whether to *skip*, this one decides what the operator reads
+  before confirming, and the single confirmation is the only moment it can be read.
 - Removing a worktree destroys the ignored files under it — `.env`, local build state — and
   `git status --porcelain` cannot see them, so the dirty-worktree row does not spare them.
   Testing `--ignored` there instead was rejected: it would skip every worktree with a
