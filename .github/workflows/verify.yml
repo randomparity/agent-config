@@ -62,7 +62,7 @@ jobs:
           persist-credentials: false
       - name: Prove the hook bodies are POSIX
         env:
-          POSIX_ASSERTIONS_REQUIRED: '1'
+          POSIX_ASSERTIONS_REQUIRE: '1'
         run: ./scripts/claude-settings-hooks-test.sh
       - name: Check matrix result
         env:
