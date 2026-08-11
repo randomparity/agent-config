@@ -519,7 +519,7 @@ merge_json_settings() {
 	# than a refusal because the base is this repository's file — a malformed one is a defect
 	# here, not a mistake the operator can fix (ADR 0052).
 	if ! jq -s --arg base "$base" '
-		if length == 2 then .[0] * .[1]
+		if length == 2 and (.[0] | type) == "object" then .[0] * .[1]
 		else error("base settings \($base) are not exactly one JSON object")
 		end
 	' "$base" "$overlay" >"$output"; then

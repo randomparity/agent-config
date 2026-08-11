@@ -72,14 +72,15 @@ Four things are normative.
    rather than closed — distinguishing the two would mean probing jq's health on every
    overlay, and the run fails either way with nothing written.
 
-The merge is `.[0] * .[1]` as before, now guarded by a length test. `-s` slurps *both*
-files into one array, so the overlay's index depends on the base as well: a two-document
-base would merge the base with itself and leave the whole overlay unread, under a green
-`applied private overlay`. The precondition above pins one side and the length test pins
-the other, which together are what make `.[1]` correct rather than accidentally correct. A
-base failing that test is a defect in this repository rather than a mistake the operator
-can fix, so it takes the merge's existing hard failure and not a refusal. Every ADR 0043
-verdict over the merged result is reached by the same product as before.
+The merge is `.[0] * .[1]` as before, now guarded by the same one-object test over the
+base. `-s` slurps *both* files into one array, so the overlay's index depends on the base
+as well: a two-document base would merge the base with itself and leave the whole overlay
+unread, under a green `applied private overlay`. The precondition above pins one side and
+this test pins the other, which together are what make `.[1]` correct rather than
+accidentally correct. A base failing it is a defect in this repository rather than a
+mistake the operator can fix, so it takes the merge's existing hard failure and not a
+refusal. Every ADR 0043 verdict over the merged result is reached by the same product as
+before.
 
 ## Consequences
 
@@ -100,10 +101,15 @@ verdict over the merged result is reached by the same product as before.
 - One extra `jq` invocation per JSON overlay per run — three in an `--agent all` run, on
   the success path as well as the refusal path. It reads a file the merge is about to read
   anyway.
-- A base file that is not exactly one JSON object now fails the merge and names itself,
-  where before it merged the base with itself and reported the operator's overlay as
-  applied. No base in this repository is in that shape, and the length test costs no extra
-  process — it rides in the merge's own filter.
+- A base file that is not exactly one JSON object now fails the merge, and the message
+  says so in as many words; before, a two-document base merged the base with itself and
+  reported the operator's overlay as applied, and a non-object base printed the same raw
+  multiplication error this record removes elsewhere. No base in this repository is in
+  either shape, and the test costs no extra process — it rides in the merge's own filter.
+  What the message cannot fix is jq's own location prefix, which names the last input it
+  read and so points at the overlay for a fault in the base. Correcting that would mean a
+  second bash-side check duplicating one the merge already makes; the sentence carries the
+  attribution instead.
 - The overlay file format is now a stated contract rather than whatever jq tolerates. A
   future relaxation — JSON with comments, a document array — is an ADR, not a patch.
 - `install.sh` grows a second refusal reporter. The protected-key refusal keeps its own

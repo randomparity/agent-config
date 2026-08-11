@@ -438,6 +438,13 @@ fixture_leftover="$(find "$fixture_dest/skills" -name "$fixture_entry" -print)"
 # about, and asserting the message rather than only the exit status is what keeps an
 # unrelated failure (an absent `jq`, a syntax error) from satisfying a refusal case.
 
+# Pinned, not inherited. Two cases below assert that a deployed settings.json is not
+# group- or world-readable, which is a check on where the file came from: a fresh 0600
+# `new_temp_file`, not a redirection that takes the umask. Under a hardened umask a
+# redirection produces 0600 too, so the assertions pass over the very regression they
+# exist to catch — and the suite reports ok on a developer box that happens to run 077.
+umask 022
+
 OVERLAY_CASE=0
 
 start_overlay_case() { # agent
@@ -1151,6 +1158,18 @@ run_overlay_case claude "$two_document_repo/install.sh"
 assert_overlay_refused 'two-document base'
 assert_stream_contains "$OVERLAY_ERR" 'are not exactly one JSON object' 'two-document base'
 assert_stream_lacks "$OVERLAY_OUT" 'applied private overlay' 'two-document base'
+assert_not_file "$OVERLAY_DEST/claude/settings.json"
+
+# 35c. Count is not shape: a base holding one document that is not an object reaches the
+#      multiplication and fails with the raw jq message this whole section exists to
+#      remove. Built by re-planting the fixture repo case 35b already copied.
+printf '[]\n' >"$two_document_base"
+start_overlay_case claude
+write_json "$OVERLAY_FILE/settings.overlay.json" '{"env":{"AGENT_CONFIG_TEST":"lost"}}'
+run_overlay_case claude "$two_document_repo/install.sh"
+assert_overlay_refused 'non-object base'
+assert_stream_contains "$OVERLAY_ERR" 'are not exactly one JSON object' 'non-object base'
+assert_stream_lacks "$OVERLAY_ERR" 'cannot be multiplied' 'non-object base'
 assert_not_file "$OVERLAY_DEST/claude/settings.json"
 
 # 36. The shape check is a jq call like any other, so it fails closed (ADR 0049 rule 1).
