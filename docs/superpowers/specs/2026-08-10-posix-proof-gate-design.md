@@ -111,11 +111,9 @@ is closed by removing the route rather than by detecting it. Encoding "the matri
 contain `ubuntu-latest`" would be a different property (OS coverage, ADR 0027's subject)
 guarded in the wrong place.
 
-The fourth row is the bound. Deleting the step or its `env:` line returns the suite to the
-skip branch and a green log, and nothing here detects that; `verify.runs-on` is now
-load-bearing in the way `matrix.os` was, fail-closed but equally one line. What the design
-removes is the churn that takes the proving ground away as a side effect of an unrelated
-decision, not deliberate removal.
+The fourth row is the bound, and the ADR states it: what the design removes is churn that
+takes the proving ground away as a side effect of an unrelated decision, not deliberate
+removal of the step.
 
 ## Verification
 
@@ -149,23 +147,13 @@ repository's existing CI posture, decided before this change and not altered by 
 compromise and action supply chain are covered by SHA pinning and `zizmor` in
 `actions-check`.
 
-## When the guard fires
-
-The designed trigger is an upstream change nobody here controls: `ubuntu-latest` ceasing to
-ship dash as `/bin/sh`. It reds `verify` — the required check — on every open pull request,
-not only ones touching shell. The intended response is to install a POSIX shell in that one
-step and point `sh` at it, which is the CI-only toolchain floor rejected today and the
-operator's call on the day it is needed. Relaxing or deleting the gate under a red required
-check is what stating this in advance exists to prevent.
-
 ## Not doing
 
-- **Installing dash in CI now.** The operator rejected raising the toolchain floor when
-  deciding #112; this design keeps the floor where they put it while the image supplies
-  dash for free.
+- **Installing dash in the CI job.** #136 marks the CI-only case an open operator call,
+  separate from #112's developer-host rejection. It stays open, and the ADR names it as the
+  remedy if the image drifts.
 - **Weakening the skip.** Same condition, same notice, same verdict line, same exit status
   on the unrequired path; two factually stale sentences inside it are corrected.
 - **Replacing the executable proof with `shellcheck -s sh` over the extracted bodies.**
-  Simpler and broader, and it can never skip — but it proves constructs rather than exit
-  statuses, so it is issue #157's addition, not this change's substitution. See the ADR.
+  Issue #157.
 - **Cross-job reporting of which leg proved what.** See the ADR.
