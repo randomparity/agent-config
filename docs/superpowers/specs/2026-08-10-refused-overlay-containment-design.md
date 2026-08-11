@@ -53,35 +53,52 @@ Signature and merge rule are unchanged. What changes is the failure mechanism.
 | No overlay file | Copy the base through `jq '.'`; report no overlay. Return 0. Unchanged. |
 | Overlay whose merged result preserves every protected base value | Merge; report the overlay applied. Return 0. Unchanged. |
 | Overlay whose merged result changes a base non-empty array or leaves a non-object where the base held a non-empty object | Report to standard error, naming the overlay and each outermost base path not preserved, **delete the merged output**, and **return 1**. Was `exit 1`. |
+| `jq` missing, or either `jq` invocation failing | Report and **`exit 1`**, as today. |
 
-Deleting the merged output is not tidiness. The merged file is written before it is checked, so on
-refusal a fully-formed, guard-erased settings document exists on disk; `exit 1` used to make it
-unreachable. Removing it keeps ADR 0043's "no unguarded settings file is deployed" structural — a
+Two properties of that table matter more than they look.
+
+**Refusal is the only condition that returns.** `install.sh` runs under `set -euo pipefail`, but
+testing a function's status at the call site suppresses `errexit` for its *entire body*, not just
+the tested command. So once the call sites branch on the status, a failing `jq -s '.[0] * .[1]'`
+inside `merge_json_settings` no longer aborts: execution falls through to `erased_base_paths` with
+an empty or truncated `$output`, every protected base path compares unequal, and the installer
+accuses a blameless overlay of erasing all of them — then continues and installs the rest of the
+tree. Both `jq` invocations are therefore tested explicitly and `exit 1` on failure, keeping "the
+overlay is refused" distinguishable from "the merge did not run".
+
+**A refused merge leaves no installable artifact.** The merged file is written before it is checked,
+so on refusal a fully-formed, guard-erased settings document exists on disk; `exit 1` used to make
+it unreachable. Removing it keeps ADR 0043's "no unguarded settings file is deployed" structural — a
 call site that installs it anyway hits `install_managed_path`'s missing-source check and fails
 loudly instead of deploying it under a green summary. The EXIT trap still covers the file on every
-other path, and `cleanup` already tests for existence before unlinking, so the early delete is
-safe. The refusal path writes nothing to the destination, so no half-written file survives it.
+other path, and `cleanup` already tests for existence before unlinking, so the early delete is safe.
 
 ### Call sites
 
-Three call sites, four destination paths (Bob's merged MCP document installs to both `mcp.json`
-and `mcp_settings.json`). Each becomes: merge; on success install every destination path from the
-merged file; on refusal **retain** every destination path. The status must be tested at the call
-site — `install.sh` runs under `set -euo pipefail`, so a bare call to a function that returns
-non-zero terminates the script and silently restores the abort.
+Three call sites, four destination paths — Bob's merged MCP document installs to both `mcp.json`
+and `mcp_settings.json`, so **the unit is the destination path, not the agent**. Each call site
+becomes: merge; on success install every destination path from the merged file; on refusal
+**withhold** every destination path.
 
-Retaining a path means:
+Withholding a path means:
 
-1. It is counted `retained` and reported in the agent's summary line.
-2. It is **added to the new manifest**. A manifest that omits it is a manifest that tells
+1. **The base is deployed where nothing is deployed.** If the destination path holds no file, the
+   normalized base — `jq '.' base`, byte-identical to what a no-overlay install writes — is
+   installed there and named as such. Nothing is overwritten and no operator value is discarded,
+   because there is nothing there; what it prevents is a fresh destination receiving the full
+   instruction payload beside no settings file and therefore none of the base's guards. Where a
+   file *is* deployed, it is left exactly as it is.
+2. It is **added to the new manifest** either way. A manifest that omits it is a manifest that tells
    `prune_removed` to delete the deployed file — withholding a deploy must never become deleting a
    deployment. This is the one place where narrowing the abort could destroy operator data, and the
-   manifest entry is the whole of the defense.
-3. The base is compared against the **deployed** file and the result reported:
-   - deployed file absent → say the agent has no settings file until the overlay is fixed;
-   - deployed file present and carrying every protected base value → say so;
-   - deployed file present and missing some → name them, and state the repair route.
-   - deployed file present and unreadable as JSON → say so and name it, without guessing.
+   manifest entry is the whole of the defense. `mcp_settings.json` is the path most easily missed.
+3. A retained path is counted `retained` in the agent's summary line, and the path is recorded so
+   the end-of-run summary can name it. A path filled from the base is an ordinary `added`.
+4. For a path that was retained, the base is compared against the **deployed** file and the result
+   reported:
+   - deployed file carries every protected base value → say so;
+   - deployed file is missing some → name them, and state the repair route;
+   - deployed file cannot be read as JSON → say so and name it, without guessing.
 
 The comparison is `erased_base_paths base deployed` — the same derived-protected-set check the
 merge uses, applied to what is live rather than to what would have been written. A deployed file
@@ -93,9 +110,14 @@ edit.
 
 ### Run outcome
 
-The run attempts every agent it was asked for. Afterwards, if any settings file was withheld, the
-installer names the count on standard error and exits 1. The status is unchanged; what it now
-reports is a run that installed almost everything and withheld one file per refused agent.
+The run attempts every agent it was asked for and exits 1 if anything was withheld. The summary
+naming the withheld paths is emitted from the **existing `trap cleanup EXIT`**, not from the end of
+`main`: `install.sh` still exits directly on a missing command, an unsafe managed path, a symlinked
+ancestor, an uncomparable payload or a missing source, and a summary written at the end of `main`
+would be swallowed by any of them during a later agent. `cleanup` already prints without
+propagating status, which is exactly the discipline this needs; it emits nothing when nothing was
+withheld. The status is unchanged; what it now reports is a run that installed almost everything
+and withheld some paths.
 
 ### Repair route
 
@@ -126,24 +148,36 @@ Each is a test in `install-test.sh` unless noted.
 7. **Idempotent.** Running the refused case twice leaves the same deployed file, the same exit
    status, and the same report.
 8. **The refused merge's output is unusable.** A refused run leaves no merged settings file behind
-   for a mis-written call site to install. Asserted through the observable consequence: the refusal
-   case's destination holds no `settings.json`, and the existing "refusal over a deployment" case's
-   deployed file is unchanged.
-9. **#110's verdicts unchanged.** The five constrained cases keep theirs: clobbering
-   `hooks.PreToolUse` refused; `permissions.deny` replacement refused; `permissions.allow` addition
-   installed; `{"env":null}` refused; `{"hooks":"x"}` refused naming `hooks` and not `PreToolUse`.
-   Already covered by existing cases 2–6, 9, 10.
-10. **No test writes outside its fixture.** Every case exports `HOME`, `*_CONFIG_DIR`, and
+   for a mis-written call site to install. Asserted through the observable consequence: the existing
+   "refusal over a deployment" case's deployed file is unchanged, and the empty-destination case
+   (below) deploys the base rather than the merged result.
+9. **An empty destination is filled from the base.** A refused Claude overlay against a destination
+   with no deployed `settings.json` deploys the base: the file exists afterwards, carries the base's
+   `hooks` and `permissions.deny`, and does *not* carry the overlay's value. The run still exits
+   non-zero. Reddens if the empty-destination rule is removed.
+10. **Bob's second MCP destination survives.** A refused Bob `mcp.overlay.json` against a destination
+    already holding `mcp.json` and `mcp_settings.json` leaves **both** present after the run reaches
+    `prune_removed`. Reddens if only one path is retained.
+11. **A failed merge is not reported as a refusal.** With the merge forced to fail, the run exits
+    non-zero and its output does not accuse the overlay of erasing base values.
+12. **The withheld summary survives a later hard failure.** The summary is emitted from the EXIT
+    trap, so a refused agent followed by a hard failure in a later agent still names the withheld
+    path.
+13. **#110's verdicts unchanged.** The five constrained cases keep theirs: clobbering
+    `hooks.PreToolUse` refused; `permissions.deny` replacement refused; `permissions.allow` addition
+    installed; `{"env":null}` refused; `{"hooks":"x"}` refused naming `hooks` and not `PreToolUse`.
+    Already covered by existing cases 2–6, 9, 10.
+14. **No test writes outside its fixture.** Every case exports `HOME`, `*_CONFIG_DIR`, and
     `AGENT_CONFIG_PRIVATE_DIR` under the suite's `mktemp -d`, removed by the existing EXIT trap.
-11. `README.md` states the withheld-file behavior and the repair route. Not a test.
-12. `just verify` passes bare.
+15. `README.md` states the withheld-path behavior, the empty-destination rule, and the repair route.
+    Not a test.
+16. `just verify` passes bare.
 
 ## Out of scope
 
-- Repairing a deployed file the installer cannot correctly reconstruct. With the overlay refused
-  there is no merged result to write, and writing the bare base would discard every legitimate
-  scalar override the operator has. The one sub-case where there is nothing to discard — a first
-  install with no deployed file — is an accepted residual, argued in ADR 0049.
+- Repairing a deployed file. With the overlay refused there is no merged result to write, and
+  writing the bare base over an existing file would discard every legitimate scalar override the
+  operator has. The empty destination is not this case: nothing is overwritten there.
 - Any new command-line flag or environment variable.
 - `merge_toml_config`, which concatenates rather than merges and has no protected-value guarantee
   to withhold (#123).
