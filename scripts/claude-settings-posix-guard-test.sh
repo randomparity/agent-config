@@ -96,9 +96,11 @@ printf '%s\n' "$block" |
 	grep -qE '^ +run: \./scripts/claude-settings-hooks-test\.sh *$' ||
 	fail "the '$STEP' step has no plain 'run: ./scripts/claude-settings-hooks-test.sh' line." \
 		'It was changed to another form -- a block scalar, or a trailing "|| true" --' \
-		'which swallows the refusal and leaves the gate unable to fail.'
+		'which swallows the refusal and leaves the gate unable to fail. To install or' \
+		'repoint sh, add a separate step before this one: this run: line is asserted' \
+		'verbatim and must stay a plain one-liner.'
 printf '%s\n' "$block" |
-	grep -qE "^ +POSIX_ASSERTIONS_REQUIRED: *'?1'? *$" ||
+	grep -qE '^ +POSIX_ASSERTIONS_REQUIRED: *"?'"'"'?1"?'"'"'? *$' ||
 	fail "the '$STEP' step does not set POSIX_ASSERTIONS_REQUIRED to 1: the guard is inert"
 if printf '%s\n' "$block" | grep -qE '^ +if:'; then
 	fail "the '$STEP' step carries an if: condition: a skipped step reports as success"
@@ -111,7 +113,7 @@ fi
 if printf '%s\n' "$job" | grep -q 'continue-on-error'; then
 	fail "the verify job carries continue-on-error: the gate cannot fail the required check"
 fi
-printf '%s\n' "$job" | grep -qE '^ {4}if: *always\(\) *$' ||
+printf '%s\n' "$job" | grep -qE '^ {4}if: *(always\(\)|\$\{\{ *always\(\) *\}\}) *$' ||
 	fail "the verify job's if: is not always(): a skipped required check reads as success to" \
 		'branch protection, so a failed or cancelled matrix would bypass the proof.'
 

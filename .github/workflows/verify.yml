@@ -52,7 +52,8 @@ jobs:
       # instead takes the guarantee out of the matrix: dropping a leg or re-homing one cannot
       # remove this job, and an image whose /bin/sh stops being dash reds it rather than
       # skipping quietly. POSIX_ASSERTIONS_REQUIRED is what refuses the skip (ADR 0053), and
-      # scripts/claude-settings-posix-guard-test.sh fails if these two lines stop agreeing.
+      # scripts/claude-settings-posix-guard-test.sh fails if this step, or this job's
+      # if: always(), stops being what the gate needs.
       # It runs before the matrix assertion because a leg's result is legible from its own
       # check entry and this verdict is reported nowhere else.
       - name: Checkout

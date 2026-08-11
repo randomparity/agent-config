@@ -49,9 +49,14 @@ the guarantee stops depending on which operating systems the matrix lists.
 
 Against a missing or mistyped `env:` key nothing on a dash runner can help — a wired gate and
 an inert one produce identical output there, and diverge only on the day the gate is needed.
-So the wiring itself is asserted from the repository side:
-`scripts/claude-settings-posix-guard-test.sh` fails when `.github/workflows/verify.yml` stops
-setting `POSIX_ASSERTIONS_REQUIRED` to `1`, which is also what defends the step against
+So the wiring itself is asserted from the repository side.
+`scripts/claude-settings-posix-guard-test.sh` reads `.github/workflows/verify.yml` and fails
+unless, inside the `verify` job, the proof step runs the suite on a plain `run:` line, sets
+`POSIX_ASSERTIONS_REQUIRED` to `1`, and carries no `if:`; and unless the job itself carries
+no `continue-on-error` and still carries `if: always()`. The last is not shell portability's
+business, but it is what makes this job a gate rather than a rubber stamp, and the proof it
+now holds is worth no less than the matrix assertion beside it. Each is a way to leave the
+gate wired in appearance only, and the same reading is what defends the step against
 deletion. `verify.runs-on` remains load-bearing in the way `matrix.os` was, fail-closed.
 
 Because the refusal is the message an operator meets at an unknown future date, it must name
@@ -66,8 +71,10 @@ operator to rediscover this record.
 - **The designed failure blocks the whole repository, and its remedy is a decision nobody
   has taken yet.** When `ubuntu-latest` stops shipping dash as `/bin/sh` — an upstream change
   arriving without warning — `verify` reds on every open pull request, including ones
-  touching nothing here. The intended response is to install a POSIX shell in that one step
-  and point `sh` at it, which is the open operator call below. Relaxing or deleting the gate
+  touching nothing here. The intended response is to install a POSIX shell and point `sh` at
+  it in a **separate step placed before the proof step** — the proof step's `run:` line is
+  asserted verbatim as a plain one-liner, so editing it in place reds the guard instead. That
+  install is the open operator call below. Relaxing or deleting the gate
   under a red required check is the outcome this bullet exists to prevent.
 - **The gate is not reachable through `just ci`.** Every required-check assertion about
   repository content was until now, and `scripts/verify-push.sh` rehearses CI by running

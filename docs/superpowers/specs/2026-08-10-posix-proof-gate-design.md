@@ -117,7 +117,8 @@ to convert a loud failure into a slightly earlier loud failure buys nothing.
 | `ubuntu-latest` dropped from the matrix | silent green, property untested | green, and honest: the `verify` job still proves it |
 | `ubuntu-latest` image's `/bin/sh` stops being dash | silent green | **red** — the `verify` job's proof step fails |
 | `verify` moved to macOS, or to a container whose `sh` is bash | n/a | **red** — same step |
-| the proof step or its `env:` key is deleted or mistyped | n/a | **red** — the guard suite reads the workflow |
+| the proof step or its `env:` key is deleted, mistyped, moved to a matrix leg, made conditional, or suffixed with `\|\| true` | n/a | **red** — the guard suite reads the workflow |
+| the verify job loses `if: always()` or gains `continue-on-error` | silent: a skipped required check reads as success | **red** — same suite |
 | macOS leg skipping | green | green, unchanged |
 
 The first row is the one place this design does not do what the issue's acceptance sentence
