@@ -457,9 +457,23 @@ overlay_is_one_object() { # overlay
 	local count
 	local kind
 
+	# Ahead of the shape check, because the shape check cannot see it. jq strips a UTF-8
+	# byte-order mark only at offset 0 of its concatenated input stream, so an overlay
+	# carrying one parses cleanly when jq reads it alone and fails as the merge's *second*
+	# input: the check would pass the file and the merge would abort the run with the raw
+	# parse error this whole precondition exists to remove. It gets a verdict of its own
+	# rather than folding into the one below, because `jq . <overlay>` — the remedy that
+	# verdict prints — succeeds on it and shows the operator a well-formed object.
+	if [[ "$(head -c 3 "$overlay")" == $'\357\273\277' ]]; then
+		report_overlay_shape "$overlay" 'begins with a UTF-8 byte-order mark' \
+			'The mark is invisible in an editor and jq accepts the file on its own, but' \
+			'the merge reads it second and stops there. Save the file as UTF-8 with no BOM.'
+		return 1
+	fi
+
 	if ! shape="$(overlay_shape "$overlay" 2>/dev/null)"; then
 		report_overlay_shape "$overlay" 'is not valid JSON' \
-			"Run: jq . $overlay"
+			"Run: jq . '$overlay'"
 		return 1
 	fi
 	IFS=$'\t' read -r count kind <<<"$shape" || true

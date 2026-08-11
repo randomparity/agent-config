@@ -42,12 +42,19 @@ by path, with a remedy, on ADR 0049's refusal terms.**
 
 Four things are normative.
 
-1. **The overlay's shape is a precondition, checked before `.[0] * .[1]` runs.** Four
-   verdicts, each with its own message: not valid JSON; no JSON value at all (empty or
-   whitespace-only); more than one JSON value; exactly one value that is not an object.
-   Every message names the overlay path — never the base — states which of the four it is,
-   and says what to do about it. The base is not the subject of any of them: the operator's
-   file is what is wrong.
+1. **The overlay's shape is a precondition, checked before `.[0] * .[1]` runs.** Five
+   verdicts, each with its own message: a leading UTF-8 byte-order mark; not valid JSON; no
+   JSON value at all (empty or whitespace-only); more than one JSON value; exactly one
+   value that is not an object. Every message names the overlay path — never the base —
+   states which of the five it is, and says what to do about it. The base is not the
+   subject of any of them: the operator's file is what is wrong.
+
+   The BOM is a verdict rather than a spelling of "not valid JSON" because jq strips a mark
+   only at offset 0 of its concatenated input stream. Such an overlay parses when jq reads
+   it alone and fails as the merge's *second* input, so a check that reads it alone passes
+   it and the merge aborts the run with the raw parse error — position, not content,
+   decides. Folding it in would also print a remedy that disproves itself: `jq . <overlay>`
+   succeeds on the file and shows a well-formed object.
 2. **A multi-document overlay is refused, not merged.** Merging every document in order is
    the permissive alternative and is rejected below. The contract is one object per file,
    and a file holding two is an accident being reported, not a format being supported.
@@ -98,9 +105,10 @@ before.
   not. It writes only what ADR 0049 already permits on a refusal: the rest of the managed
   tree, and the base alone into a destination set that holds no file. Nothing derived from
   the overlay is written, and nothing deployed is replaced.
-- One extra `jq` invocation per JSON overlay per run — three in an `--agent all` run, on
-  the success path as well as the refusal path. It reads a file the merge is about to read
-  anyway.
+- One extra `jq` invocation and one `head -c 3` per JSON overlay per run — three of each
+  in an `--agent all` run, on the success path as well as the refusal path. They read a
+  file the merge is about to read anyway, though not from the position the merge reads it
+  from, which is the whole of the byte-order-mark case above.
 - A base file that is not exactly one JSON object now fails the merge, and the message
   says so in as many words; before, a two-document base merged the base with itself and
   reported the operator's overlay as applied, and a non-object base printed the same raw

@@ -1093,8 +1093,33 @@ write_text "$OVERLAY_FILE/settings.overlay.json" '{"env": '
 run_overlay_case claude
 assert_overlay_refused 'unparseable overlay'
 assert_stream_contains "$OVERLAY_ERR" 'is not valid JSON' 'unparseable overlay'
-assert_stream_contains "$OVERLAY_ERR" "jq . $OVERLAY_FILE/settings.overlay.json" \
+# Quoted, because it is the one paste-and-run string the installer prints and a private
+# directory may hold a space.
+assert_stream_contains "$OVERLAY_ERR" "jq . '$OVERLAY_FILE/settings.overlay.json'" \
 	'unparseable overlay'
+
+# 32b. An overlay whose only fault is a UTF-8 byte-order mark. jq strips a BOM at offset 0
+#      of its input stream and nowhere else, so this file parses alone and fails as the
+#      merge's second input — the shape check passes it and the merge aborts the run with
+#      the raw parse error, which is case 32's verdict arriving through a file that is not
+#      actually malformed. Its remedy has to differ too: `jq . <overlay>` succeeds here.
+start_overlay_case claude
+mkdir -p "$OVERLAY_FILE"
+printf '\357\273\277{"env":{"AGENT_CONFIG_TEST":"bom"}}\n' \
+	>"$OVERLAY_FILE/settings.overlay.json"
+run_overlay_case claude
+assert_overlay_refused 'byte-order-marked overlay'
+assert_stream_contains "$OVERLAY_ERR" 'begins with a UTF-8 byte-order mark' \
+	'byte-order-marked overlay'
+assert_stream_lacks "$OVERLAY_ERR" 'parse error' 'byte-order-marked overlay'
+assert_stream_lacks "$OVERLAY_ERR" 'could not merge private overlay' \
+	'byte-order-marked overlay'
+# The fixture must really carry a BOM and really be sound JSON on its own, or the case is
+# just another spelling of case 32.
+[[ "$(head -c 3 "$OVERLAY_FILE/settings.overlay.json")" == $'\357\273\277' ]] ||
+	fail 'byte-order-marked overlay: fixture must begin with a BOM'
+jq -e . "$OVERLAY_FILE/settings.overlay.json" >/dev/null ||
+	fail 'byte-order-marked overlay: fixture must parse on its own'
 
 # 33. The refusal takes ADR 0049's terms rather than aborting. Built on a destination
 #     produced by a *real* install: `prune_removed` returns early where there is no
