@@ -521,9 +521,6 @@ build_fixture
 # Root skips: it writes to a mode-555 directory regardless.
 mock_bin="$SCRATCH/mockbin"
 mkdir -p "$mock_bin"
-# Read by the delegating mocks below, which have to remove exactly this directory
-# from PATH before reaching the real tool.
-export MOCK_BIN="$mock_bin"
 # Under SCRATCH so this suite's own cleanup, which restores write permission
 # first, reclaims the mode-555 directory the mock leaves behind.
 export SCRATCH_MOCK_WORKSPACE="$SCRATCH/readonly-workspace"
@@ -552,7 +549,15 @@ assert_environment_fault() { # name mock-name mock-body
 assert_discriminating_fault() { # name tool operand-pattern expected-message
 	local name="$1" tool="$2" pattern="$3" expected="$4" code=0
 
-	printf '#!/usr/bin/env bash\ntool=%s\npattern=%s\n' "$tool" "$pattern" >"$mock_bin/$tool"
+	# The real tool is resolved here, before $mock_bin reaches PATH, and baked into the
+	# mock as an absolute path -- the shape check-skill-layout-test.sh already uses for
+	# its shims. A mock ending `exec "$tool" "$@"` would find itself again on the PATH it
+	# runs under and fork without bound, and a PATH-stripping guard only holds while the
+	# mock directory is PATH's first element. What that costs is not a red row: it is a
+	# CI job consumed to its timeout, with no `not ok -` banner and no
+	# `deployed-membership:` line for an operator to read.
+	printf '#!/usr/bin/env bash\ntool=%s\npattern=%s\nreal=%s\n' \
+		"$tool" "$pattern" "$(command -v "$tool")" >"$mock_bin/$tool"
 	cat >>"$mock_bin/$tool" <<'MOCK'
 for arg in "$@"; do
 	case "$arg" in
@@ -563,12 +568,7 @@ for arg in "$@"; do
 		;;
 	esac
 done
-# Re-invoked with the mock directory stripped from PATH rather than `exec "$tool"`,
-# which would find this script again and loop until the suite was killed. Stripping
-# beats an absolute path: it adds no second host assumption on the macOS leg.
-PATH="${PATH#"$MOCK_BIN:"}"
-export PATH
-exec "$tool" "$@"
+exec "$real" "$@"
 MOCK
 	chmod +x "$mock_bin/$tool"
 	PATH="$mock_bin:$PATH" "$CHECKER" "$FIXTURE" >"$SCRATCH/out" 2>"$SCRATCH/err" || code=$?
