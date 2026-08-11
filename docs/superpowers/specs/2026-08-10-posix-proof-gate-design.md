@@ -103,7 +103,9 @@ matrix result is legible from the leg's own check entry, while this job is the o
 the POSIX verdict is reported at all — so on a run where both would fail, running the
 unique signal first is worth the five seconds of checkout.
 
-The step needs `jq`, `bash`, `sh`, `grep` and `mktemp`, all present on the runner image.
+The step needs `jq`, `bash`, `sh`, `grep` and `mktemp`, all present on the runner image. It
+is the fourth execution of the hooks suite in a Linux CI run — `just test` runs it once
+directly and the guard suite drives it twice more — at about a second each.
 `install-tools.sh` is deliberately not run here: `jq` is the only real dependency and its
 absence fails loudly on the first `hook_command` call, so paying a full toolchain install
 to convert a loud failure into a slightly earlier loud failure buys nothing.

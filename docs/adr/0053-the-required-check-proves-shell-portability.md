@@ -79,8 +79,9 @@ operator to rediscover this record.
 - The guarantee is two of five hook bodies, and behavioural rather than structural: a
   non-POSIX construct on a branch the chosen inputs do not reach is not detected. Issue #157
   owns widening it.
-- The hooks suite runs twice per CI run on Linux, once in the ubuntu leg and once in
-  `verify`. It takes seconds and needs no toolchain install.
+- The hooks suite runs four times per CI run on Linux: once directly under `just test`,
+  twice inside the guard suite's shimmed invocations, and once in `verify`. Each run is about
+  a second and needs no toolchain install.
 - `verify` gains a checkout and therefore executes contributor code on a fork pull request,
   where before it only compared a string. On a completed run the `suite` job already does
   strictly more of this, so the exposure is not new in kind; on a cancelled one it may have

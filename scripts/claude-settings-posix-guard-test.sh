@@ -89,19 +89,30 @@ printf '%s\n' "$job" >"$SCRATCH/verify-job.yml"
 
 block=$(block_of "$SCRATCH/verify-job.yml" 6 "- name: $STEP")
 [[ -n $block ]] ||
-	fail "the verify job of $WORKFLOW has no '$STEP' step: the required check no longer proves the hook bodies"
+	fail "no step named '$STEP' in the verify job of $WORKFLOW: it was deleted, renamed, moved" \
+		'out of that job, or the file was reindented. If it was renamed, update STEP in this' \
+		'suite; otherwise the required check no longer proves the hook bodies.'
 printf '%s\n' "$block" |
 	grep -qE '^ +run: \./scripts/claude-settings-hooks-test\.sh *$' ||
-	fail "the '$STEP' step does not run the hooks suite unconditionally: a suffix such as '|| true' swallows the refusal"
+	fail "the '$STEP' step has no plain 'run: ./scripts/claude-settings-hooks-test.sh' line." \
+		'It was changed to another form -- a block scalar, or a trailing "|| true" --' \
+		'which swallows the refusal and leaves the gate unable to fail.'
 printf '%s\n' "$block" |
 	grep -qE "^ +POSIX_ASSERTIONS_REQUIRED: *'?1'? *$" ||
 	fail "the '$STEP' step does not set POSIX_ASSERTIONS_REQUIRED to 1: the guard is inert"
 if printf '%s\n' "$block" | grep -qE '^ +if:'; then
 	fail "the '$STEP' step carries an if: condition: a skipped step reports as success"
 fi
-# Job level as well as step level: continue-on-error on the job greens it whatever the step did.
+# Two more that live on the job rather than the step. continue-on-error greens the job
+# whatever its steps did. `if: always()` is what makes this job a gate at all: without it a
+# failed or cancelled matrix skips it, and a skipped required check reads as success to
+# branch protection -- so deleting or falsifying that one line bypasses both the proof and
+# the matrix assertion while every check above still passes. Match the value, not the key.
 if printf '%s\n' "$job" | grep -q 'continue-on-error'; then
 	fail "the verify job carries continue-on-error: the gate cannot fail the required check"
 fi
+printf '%s\n' "$job" | grep -qE '^ {4}if: *always\(\) *$' ||
+	fail "the verify job's if: is not always(): a skipped required check reads as success to" \
+		'branch protection, so a failed or cancelled matrix would bypass the proof.'
 
 printf 'claude-settings-posix-guard-test: ok (guard refuses, skip intact, wiring present)\n'
