@@ -3,12 +3,19 @@ set -euo pipefail
 
 # `install_managed_path` ends in `cp -pR`, so a call whose source is a directory
 # ships that whole subtree into the agent's configuration directory verbatim.
-# Three of those trees hold files that are deployed content in their own right,
-# and nothing else counts their entries: check-shared-standards.sh names one file
-# inside the rules tree, and check-deployed-references.sh scans these trees for
-# what a deployed file may say. So a file dropped into one of them reaches every
-# user's global configuration with no gate asking whether it belongs, which is
-# the residual ADR 0041 disclosed and this gate closes.
+# Four of those trees reach a user, and nothing else counts their entries:
+# check-shared-standards.sh names one file inside the rules tree, and
+# check-deployed-references.sh scans these trees for what a deployed file may say.
+# So an entry dropped into one of them reaches every user's global configuration
+# with no gate asking whether it belongs, which is the residual ADR 0041 disclosed
+# and this gate closes.
+#
+# The gate compares each tree at the granularity that tree's unit of delivery has.
+# Three of them deploy files, so their members are files (ADR 0045). The fourth,
+# `content/skills`, deploys skill directories, so its members are the tree's
+# top-level children (ADR 0054). One comparison, two enumerators; the two halves
+# share the workspace, the `fault` helper and the collation pin below, and keep
+# their own finding vocabulary so a reader can tell which one spoke.
 #
 # The manifest is the answer to "should this be deployed", and it is source: this
 # gate cannot defend against edits to itself. Narrowing it is only mostly caught
@@ -43,10 +50,11 @@ if (($# == 1)); then
 	fi
 fi
 
-# Every tree the installer copies whole whose members are deployed content in
-# their own right. `content/skills` is deliberately absent: its unit of delivery
-# is the skill directory, check-skill-layout.sh gates that unit's shape, and a
-# per-file manifest there would churn on ordinary work (ADR 0045).
+# Every tree the installer copies whole whose members are deployed *files* in their
+# own right. `content/skills` is not among them because its members are
+# directories, not because it is ungated: it is declared below (ADR 0054). A
+# per-file manifest there would churn on ordinary work, which is the cost argument
+# ADR 0045 made and this script still honours.
 trees='agents/bob/shared/rules
 content/languages
 content/references'
@@ -60,6 +68,53 @@ content/languages/python.md
 content/languages/rust.md
 content/languages/typescript.md
 content/references/orchestration.md'
+
+# The tree whose unit of delivery is the directory. Its top-level children are the
+# members; what is inside one is deliberately ungated, and check-skill-layout.sh
+# owns their shape (ADR 0054).
+skills_tree='content/skills'
+
+# Every skill directory that tree may contain. A line here is the deliberate act of
+# deploying a complete instruction set to every user; adding a directory without one
+# fails this gate. Two commits in this repository's history ever added one, so the
+# churn objection that keeps the files inside them undeclared does not reach this
+# list.
+skill_directories='brainstorming
+build-tdd
+campaign
+challenge
+clean-branches
+codex-fleet
+compound
+decision-records
+design
+epic
+executing-plans
+finishing-a-development-branch
+github-tracking
+groom
+issue
+merge-cleanup
+merge-dependabot
+preflight
+receiving-code-review
+recover-orphans
+requesting-code-review
+retro
+review-loop
+scope
+scope-audit
+ship-pr
+simplify-changes
+subagent-driven-development
+systematic-debugging
+test-driven-development
+threat-scan
+triage-issues
+using-git-worktrees
+verification-before-completion
+work-issue
+writing-plans'
 
 # Exit 1 means this gate found a difference. Nothing about the environment may
 # borrow that status, so every step that can fail for a reason other than the
@@ -176,6 +231,81 @@ comm -23 "$workspace/present" "$workspace/declared" >"$workspace/unexpected" ||
 comm -13 "$workspace/present" "$workspace/declared" >"$workspace/missing" ||
 	fault 'could not compare the enumerated members against the manifest'
 
+# The skills tree gets the same `-d` and not `-L` filter, for the same reason: a tree
+# replaced by a symlink to a directory would otherwise be walked and its target's
+# children reported as this repository's. A tree that does not survive contributes no
+# entries, so every declared directory reports as missing -- the same
+# no-fault-for-a-missing-tree answer the three trees get.
+# `-mindepth 1 -maxdepth 1` excludes the root by depth. The two ways of excluding it
+# by pattern both have a case where the match fails, `find` then prints the tree root
+# and descends no further, and this gate reports the tree itself as an unexpected entry
+# beside every declared name as missing -- a total false red. `! -path "$root"` matches
+# by fnmatch, so a checkout path holding a well-formed bracket expression does not match
+# itself. `! -name .` fails on the platform this repository gates: BSD find sets a start
+# point's `fts_name` to the whole operand rather than its basename, so the macos-latest
+# leg would prune at the root. Depth matches no pattern at all.
+# The survival filter is inline because there is one tree here, not a list: `-d` and not
+# `-L`, as above. The `! -L` leg is defensive rather than load-bearing at this
+# granularity -- `find` does not follow a symlink operand, so with `-mindepth 1` a tree
+# replaced by a symlink enumerates empty whether it survives the filter or not. It is
+# kept for symmetry with the filter above, where the leg decides the answer, and no
+# suite row can distinguish it.
+: >"$workspace/skill-absolute" || fault 'could not write to the workspace'
+if [[ -d "$ROOT/$skills_tree" && ! -L "$ROOT/$skills_tree" ]]; then
+	find "$ROOT/$skills_tree" -mindepth 1 -maxdepth 1 -print0 >"$workspace/skill-absolute" ||
+		fault 'could not enumerate the skills tree'
+fi
+
+# Every child is a member whatever its type, so a stray file at the top level is
+# reported as the undeclared entry it is. A child that is not a directory is
+# additionally a finding whatever the list says: `cp -pR` preserves a symlink and
+# `find -mindepth 1` does not descend one, so a declared name resolving to a link would
+# deploy whatever its target resolves to on the user's machine -- an unbounded subtree
+# admitted by one declaration. That is `non-regular-member`'s argument at this
+# granularity, and check-skill-layout.sh refusing the same entry does not make it this
+# gate's to skip.
+: >"$workspace/skill-present-unsorted" || fault 'could not write to the workspace'
+: >"$workspace/skill-non-directory-unsorted" || fault 'could not write to the workspace'
+while IFS= read -r -d '' absolute; do
+	name="${absolute##*/}"
+	# Refused rather than reported, for the reason the member paths are: both halves of
+	# a split name can equal declared entries, `sort -u` then collapses them, and the
+	# undeclared directory vanishes from the comparison while `cp -pR` still ships it.
+	# The name is not echoed -- a newline in a diagnostic is how it would be misread.
+	case "$name" in
+	*$'\n'*) fault 'a skill directory name contains a newline and cannot be compared' ;;
+	esac
+	printf '%s\n' "$name" >>"$workspace/skill-present-unsorted" ||
+		fault 'could not write to the workspace'
+	if [[ ! -d "$absolute" || -L "$absolute" ]]; then
+		printf '%s\n' "$name" >>"$workspace/skill-non-directory-unsorted" ||
+			fault 'could not write to the workspace'
+	fi
+done <"$workspace/skill-absolute"
+
+# The non-directory list is sorted too. It is built from `find` output, which is readdir
+# order, so without this its block would emit in whatever order the filesystem gave. No
+# fixture can prove that portably -- tmpfs, ext4 with dir_index and APFS each answer
+# differently -- so the sort is defensive and rests on being read.
+#
+# The two sorts are told apart in their messages for the reason the three-tree half tells
+# `could not sort the enumerated members` from `could not sort the manifest`: a full disk
+# during one must not report the other. The comparison messages name the skills tree for
+# the same reason, so an operator can tell which half faulted.
+sort -u -o "$workspace/skill-present" "$workspace/skill-present-unsorted" ||
+	fault 'could not sort the enumerated skill directories'
+sort -u -o "$workspace/skill-non-directory" "$workspace/skill-non-directory-unsorted" ||
+	fault 'could not sort the enumerated skill directories'
+printf '%s\n' "$skill_directories" | sort -u >"$workspace/skill-declared" ||
+	fault 'could not sort the declared skill directories'
+
+comm -23 "$workspace/skill-present" "$workspace/skill-declared" \
+	>"$workspace/skill-unexpected" ||
+	fault 'could not compare the enumerated skill directories against the declared set'
+comm -13 "$workspace/skill-present" "$workspace/skill-declared" \
+	>"$workspace/skill-missing" ||
+	fault 'could not compare the enumerated skill directories against the declared set'
+
 # Every finding before the run exits, not the first one: a branch that adds a
 # file and deletes another has to be told about both rather than sent round the
 # loop twice. The order is fixed so the suite can assert it.
@@ -201,10 +331,41 @@ if [[ -s "$workspace/unexpected" ]]; then
 	printf 'deployed-membership: delete an unexpected member, or declare it here only if it is meant to install for every user\n' >&2
 fi
 
+# The skills block comes whole after the file block and its remedy, rather than
+# interleaving the two rules' classes. That is what keeps every expected sequence the
+# suite already pinned for the three trees asserting the same bytes.
+while IFS= read -r name; do
+	report unexpected-skill-entry "$skills_tree/$name"
+done <"$workspace/skill-unexpected"
+
+while IFS= read -r name; do
+	report non-directory-skill-entry "$skills_tree/$name"
+done <"$workspace/skill-non-directory"
+
+while IFS= read -r name; do
+	report missing-skill-directory "$skills_tree/$name"
+done <"$workspace/skill-missing"
+
+# Its own remedy line, not the one above. That one says "member", the two blocks fire
+# independently, and a reader handed the other block's remedy has to work out which
+# finding it addresses. The hazard is the same: deleting the entry is correct, and
+# declaring it is also green while shipping a whole instruction set to every user.
+if [[ -s "$workspace/skill-unexpected" ]]; then
+	printf 'deployed-membership: delete an unexpected entry, or declare it here only if it is a skill meant to install for every user\n' >&2
+fi
+
 if ((result_status == 0)); then
-	printf 'deployed-membership: ok (%s declared members across %s installed trees)\n' \
+	# Both granularities, because the gate now answers at two and a reader who saw only
+	# the member count would take it for the whole deployment. The tree is named because
+	# it is a fourth installed tree, and the counts mean different things: the tree count
+	# is of *surviving* trees and drops when one is absent, while the directory count is
+	# of declared names and never does. The skills tree is deliberately not folded into
+	# `surviving`.
+	printf 'deployed-membership: ok (%s declared members across %s installed trees, %s declared skill directories in %s)\n' \
 		"$(wc -l <"$workspace/declared" | tr -d '[:space:]')" \
-		"${#surviving[@]}"
+		"${#surviving[@]}" \
+		"$(wc -l <"$workspace/skill-declared" | tr -d '[:space:]')" \
+		"$skills_tree"
 fi
 
 exit "$result_status"

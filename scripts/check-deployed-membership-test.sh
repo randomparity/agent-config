@@ -35,9 +35,18 @@ trap cleanup EXIT
 
 TREES=(agents/bob/shared/rules content/languages content/references)
 
+# The fourth wholesale-installed tree, kept out of TREES on purpose: EXPECTED_MEMBERS
+# is the file-granularity count and must not absorb the 96 files under this one.
+SKILL_TREE='content/skills'
+
 # Emitted once after every finding whenever an unexpected member was reported.
 # Held here so the expected sequences below stay readable.
 REMEDY='deployed-membership: delete an unexpected member, or declare it here only if it is meant to install for every user'
+
+# The skills half's own remedy. Separate text, because the two blocks fire
+# independently and a reader given the file half's line would not know which
+# finding it addressed.
+SKILL_REMEDY='deployed-membership: delete an unexpected entry, or declare it here only if it is a skill meant to install for every user'
 
 # The fixture is checked out of the index rather than written synthetically or
 # copied from the working tree. A synthetic fixture would have to restate the
@@ -52,28 +61,54 @@ REMEDY='deployed-membership: delete an unexpected member, or declare it here onl
 # sees it, so adding one and its manifest line without `git add` shows up here as
 # a missing-member on the pass case.
 EXPECTED_MEMBERS=0
+EXPECTED_SKILL_DIRECTORIES=0
 
-build_fixture() {
+# The optional argument names a fixture root other than the default, which is how
+# the bracket-expression row below checks the gate out under a path holding fnmatch
+# metacharacters.
+build_fixture() { # [fixture-root]
 	local unmerged
 
+	FIXTURE="${1:-$SCRATCH/repo}"
+	# The same containment check `cleanup` makes, for the same reason: the root became a
+	# parameter here, and a recursive delete over caller-supplied input should refuse
+	# rather than trust the next row that wants a differently-rooted fixture.
+	case "$FIXTURE" in
+	"$SCRATCH"/*) ;;
+	*)
+		printf 'deployed-membership-test: refusing fixture root: %s\n' "$FIXTURE" >&2
+		exit 2
+		;;
+	esac
 	rm -R "$FIXTURE" 2>/dev/null || :
 	mkdir -p "$FIXTURE"
 
 	# An unmerged path lists once per stage and checkout-index refuses it, so
 	# without this the run would die on git's "is unmerged" lines rather than on
 	# any verdict this suite asserts.
-	unmerged="$(git -C "$ROOT" ls-files -u -- "${TREES[@]}")"
+	unmerged="$(git -C "$ROOT" ls-files -u -- "${TREES[@]}" "$SKILL_TREE")"
 	if [[ -n "$unmerged" ]]; then
 		printf 'deployed-membership-test: the covered trees have unmerged paths; resolve the conflict first\n' >&2
 		exit 2
 	fi
 
-	git -C "$ROOT" ls-files -z -- "${TREES[@]}" |
+	git -C "$ROOT" ls-files -z -- "${TREES[@]}" "$SKILL_TREE" |
 		git -C "$ROOT" checkout-index -f -z --stdin --prefix="$FIXTURE/"
 
 	EXPECTED_MEMBERS="$(git -C "$ROOT" ls-files -- "${TREES[@]}" | wc -l | tr -d '[:space:]')"
 	if ((EXPECTED_MEMBERS == 0)); then
 		printf 'deployed-membership-test: the covered trees are empty; the suite would be vacuous\n' >&2
+		exit 2
+	fi
+
+	# NF>3 rather than every third field: a tracked file directly under the skills
+	# tree has three fields, and counting it as a directory would inflate this to 37
+	# while the checker's list stayed 36 -- so the pass row would fail on a summary
+	# mismatch instead of on the unexpected-skill-entry pair that is the real answer.
+	EXPECTED_SKILL_DIRECTORIES="$(git -C "$ROOT" ls-files -- "$SKILL_TREE" |
+		awk -F/ 'NF>3 {print $3}' | sort -u | wc -l | tr -d '[:space:]')"
+	if ((EXPECTED_SKILL_DIRECTORIES == 0)); then
+		printf 'deployed-membership-test: the skills tree is empty; the suite would be vacuous\n' >&2
 		exit 2
 	fi
 }
@@ -114,7 +149,7 @@ assert_passes() { # name [locale]
 	if ! run_checker "$@"; then
 		fail "$name" 'should pass'
 	fi
-	expected="deployed-membership: ok ($EXPECTED_MEMBERS declared members across ${#TREES[@]} installed trees)"
+	expected="deployed-membership: ok ($EXPECTED_MEMBERS declared members across ${#TREES[@]} installed trees, $EXPECTED_SKILL_DIRECTORIES declared skill directories in $SKILL_TREE)"
 	if [[ "$(cat "$SCRATCH/out")" != "$expected" ]]; then
 		fail "$name" "stdout should be exactly: $expected"
 	fi
@@ -180,6 +215,17 @@ assert_exit_two() { # name expected-message [argument...]
 
 declared_member() { # tree
 	git -C "$ROOT" ls-files -- "$1" | sed -n 1p
+}
+
+# The first declared skill directory, taken from the index for the reason the member
+# helper is: a literal here would be a second copy of the checker's list.
+#
+# awk drains its input rather than `exit`-ing on the first match. Under this suite's
+# `pipefail`, terminating the producer early would leave `git ls-files` writing into a
+# closed pipe once the tree outgrows one pipe buffer of path text, and the resulting 141
+# would surface as an errexit-fatal assignment with no `not ok -` banner naming a row.
+declared_skill() {
+	git -C "$ROOT" ls-files -- "$SKILL_TREE" | awk -F/ 'NF>3 && !seen++ {print $3}'
 }
 
 build_fixture
@@ -320,6 +366,170 @@ mkdir -p "$FIXTURE/content/instructions"
 printf 'not deployed\n' >"$FIXTURE/content/instructions/notes.md"
 assert_passes 'a file outside the declared trees'
 
+# --- content/skills, compared at directory granularity (ADR 0054) -------------
+#
+# The rows below are the skills half's counterparts of the file half's above. Each
+# pins a class the file half already pins at its own granularity, and the ones that
+# have no counterpart -- the tree replaced by a regular file, the ordering between
+# the two halves' blocks -- say so where they sit.
+
+build_fixture
+mkdir -p "$FIXTURE/$SKILL_TREE/undeclared-skill"
+printf 'payload\n' >"$FIXTURE/$SKILL_TREE/undeclared-skill/SKILL.md"
+assert_fails 'a new undeclared skill directory' unexpected-skill-entry \
+	"$SKILL_TREE/undeclared-skill"
+
+# find reads no ignore rules and skips no dot-prefixed entry, and cp -pR ships both.
+# Neither case exists on the live tree, so a fixture is the only place either can be
+# shown to work -- and they are the two an rg-based enumeration would silently drop.
+build_fixture
+mkdir -p "$FIXTURE/$SKILL_TREE/.hidden-skill"
+assert_fails 'a dot-prefixed undeclared directory' unexpected-skill-entry \
+	"$SKILL_TREE/.hidden-skill"
+
+build_fixture
+printf 'ignored-skill\n' >"$FIXTURE/.ignore"
+mkdir -p "$FIXTURE/$SKILL_TREE/ignored-skill"
+assert_fails 'an ignored undeclared directory' unexpected-skill-entry \
+	"$SKILL_TREE/ignored-skill"
+
+build_fixture
+skill="$(declared_skill)"
+rm -R "${FIXTURE:?}/$SKILL_TREE/${skill:?}"
+assert_fails 'a declared skill directory removed' missing-skill-directory "$SKILL_TREE/$skill"
+
+# A top-level entry that is not a directory is both undeclared and the wrong shape,
+# and the two findings are true on different terms -- so both lines, as the file
+# half emits unexpected-member beside non-regular-member.
+build_fixture
+printf 'stray\n' >"$FIXTURE/$SKILL_TREE/README.md"
+assert_findings 'a stray top-level file' '' \
+	"deployed-membership: unexpected-skill-entry: $SKILL_TREE/README.md" \
+	"deployed-membership: non-directory-skill-entry: $SKILL_TREE/README.md" \
+	"$SKILL_REMEDY"
+
+# Declaring a name must not admit whatever it points at: find -mindepth 1 does not
+# descend a symlink, so this enumerates as one entry while cp -pR would deploy the
+# target's whole subtree. It is present, so it is not missing.
+build_fixture
+skill="$(declared_skill)"
+rm -R "${FIXTURE:?}/$SKILL_TREE/${skill:?}"
+ln -s "$ROOT/content/references" "$FIXTURE/$SKILL_TREE/$skill"
+assert_fails 'a declared skill directory replaced by a symlink' non-directory-skill-entry \
+	"$SKILL_TREE/$skill"
+assert_absent 'a declared skill directory replaced by a symlink' missing-skill-directory \
+	"$SKILL_TREE/$skill"
+
+# Zeta sorts before alpha under C and after it elsewhere, so this pins the gate's own
+# collation as well as same-class multiplicity.
+build_fixture
+mkdir -p "$FIXTURE/$SKILL_TREE/Zeta-skill" "$FIXTURE/$SKILL_TREE/alpha-skill"
+assert_findings 'two undeclared skill directories' '' \
+	"deployed-membership: unexpected-skill-entry: $SKILL_TREE/Zeta-skill" \
+	"deployed-membership: unexpected-skill-entry: $SKILL_TREE/alpha-skill" \
+	"$SKILL_REMEDY"
+
+# A checker that stopped at its first skills disagreement would satisfy every
+# single-delta row above.
+build_fixture
+skill="$(declared_skill)"
+mkdir -p "$FIXTURE/$SKILL_TREE/undeclared-skill"
+rm -R "${FIXTURE:?}/$SKILL_TREE/${skill:?}"
+assert_findings 'one undeclared and one removed skill directory' '' \
+	"deployed-membership: unexpected-skill-entry: $SKILL_TREE/undeclared-skill" \
+	"deployed-membership: missing-skill-directory: $SKILL_TREE/$skill" \
+	"$SKILL_REMEDY"
+
+# The only row producing two non-directory entries, and the only one putting a
+# non-directory finding and a missing finding in the same run: without it neither that
+# class's multiplicity nor the order between those two blocks is pinned.
+build_fixture
+skill="$(declared_skill)"
+printf 'stray\n' >"$FIXTURE/$SKILL_TREE/AAA.md"
+printf 'stray\n' >"$FIXTURE/$SKILL_TREE/BBB.md"
+rm -R "${FIXTURE:?}/$SKILL_TREE/${skill:?}"
+assert_findings 'two stray files beside a removed skill directory' '' \
+	"deployed-membership: unexpected-skill-entry: $SKILL_TREE/AAA.md" \
+	"deployed-membership: unexpected-skill-entry: $SKILL_TREE/BBB.md" \
+	"deployed-membership: non-directory-skill-entry: $SKILL_TREE/AAA.md" \
+	"deployed-membership: non-directory-skill-entry: $SKILL_TREE/BBB.md" \
+	"deployed-membership: missing-skill-directory: $SKILL_TREE/$skill" \
+	"$SKILL_REMEDY"
+
+# The residual, asserted rather than assumed: membership *inside* a skill directory is
+# deliberately ungated (ADR 0054), so this has to keep passing. Without the row a later
+# widening to per-file declaration would look like a bug fix rather than a scope change.
+build_fixture
+skill="$(declared_skill)"
+printf 'payload\n' >"$FIXTURE/$SKILL_TREE/$skill/extra-asset.md"
+assert_passes 'a file added inside a declared skill directory'
+
+# Both halves of the split name a declared directory, so a line-delimited comparison
+# would collapse them under sort -u and print ok over a directory cp -pR ships.
+build_fixture
+mkdir -p "$FIXTURE/$SKILL_TREE/$(printf 'brainstorming\ncampaign')"
+assert_exit_two 'a skill directory name containing a newline' \
+	'a skill directory name contains a newline and cannot be compared' "$FIXTURE"
+
+# Git tracks no empty directory, so removing every skill would remove the tree. That
+# must read as the deletion it is, not as the gate being unable to run.
+build_fixture
+rm -R "${FIXTURE:?}/$SKILL_TREE"
+if run_checker; then
+	fail 'the skills tree removed' 'should fail'
+fi
+if [[ "$(grep -c 'missing-skill-directory' "$SCRATCH/err")" != "$EXPECTED_SKILL_DIRECTORIES" ]]; then
+	fail 'the skills tree removed' \
+		"should report all $EXPECTED_SKILL_DIRECTORIES declared directories as missing"
+fi
+if [[ "$(grep -cv 'missing-skill-directory' "$SCRATCH/err")" != '0' ]]; then
+	fail 'the skills tree removed' 'should report nothing but missing skill directories'
+fi
+
+build_fixture
+rm -R "${FIXTURE:?}/$SKILL_TREE"
+printf 'not a tree\n' >"$FIXTURE/$SKILL_TREE"
+skill="$(declared_skill)"
+assert_fails 'the skills tree replaced by a regular file' missing-skill-directory \
+	"$SKILL_TREE/$skill"
+assert_absent 'the skills tree replaced by a regular file' unexpected-skill-entry "$SKILL_TREE"
+
+# What this pins is the verdict: an absent or symlinked tree reports every declared name
+# missing and contributes no entry from behind the link. It does *not* pin the `! -L` leg
+# of the survival filter, which is defensive here -- `find` does not descend a symlink
+# operand, so `-mindepth 1` enumerates empty whether the filter admits the tree or not.
+# The three-tree row above is where that leg decides the answer.
+build_fixture
+rm -R "${FIXTURE:?}/$SKILL_TREE"
+ln -s "$ROOT/content/skills" "$FIXTURE/$SKILL_TREE"
+skill="$(declared_skill)"
+assert_fails 'the skills tree replaced by a symlink to a directory' missing-skill-directory \
+	"$SKILL_TREE/$skill"
+assert_absent 'the skills tree replaced by a symlink to a directory' unexpected-skill-entry \
+	"$SKILL_TREE/$skill"
+
+# The two halves' blocks in one run, in order: file findings, the file remedy, then the
+# skills findings and the skills remedy. This is what keeps every expected sequence
+# above -- all of which predate this change -- asserting the same bytes.
+build_fixture
+printf 'stray\n' >"$FIXTURE/content/languages/unexpected.md"
+mkdir -p "$FIXTURE/$SKILL_TREE/undeclared-skill"
+assert_findings 'a three-tree finding and a skills finding in one run' '' \
+	'deployed-membership: unexpected-member: content/languages/unexpected.md' \
+	"$REMEDY" \
+	"deployed-membership: unexpected-skill-entry: $SKILL_TREE/undeclared-skill" \
+	"$SKILL_REMEDY"
+
+# The root is excluded by depth, not by matching a pattern against it. `! -path "$root"`
+# matches by fnmatch, so a root holding a well-formed bracket expression does not match
+# itself: find then prints the tree root and none of its children, and the gate emits one
+# unexpected entry beside every declared name as missing. This row is the form-pin.
+bracket_root="$SCRATCH/br[ab]d"
+mkdir -p "$bracket_root"
+build_fixture "$bracket_root/repo"
+assert_passes 'a fixture root holding a bracket expression'
+build_fixture
+
 # An environment that breaks the gate's own I/O must read as "could not run",
 # never as "found a difference": exit 1 is reserved for a membership difference,
 # and a bare tool diagnostic with no deployed-membership: line is not something
@@ -347,6 +557,48 @@ assert_environment_fault() { # name mock-name mock-body
 	fi
 }
 
+# The unconditional mock above is consumed by the three-tree half's first call, so it
+# says nothing about whether the skills half's calls are routed to `fault` too. This one
+# discriminates on its operands -- only the skills workspace files carry a `skill-`
+# prefix -- and delegates otherwise, so it lands in exactly one half by construction,
+# with no counter and no dependence on which half the script computes first. It asserts
+# the exact message rather than the `deployed-membership:` prefix, which is what fails
+# the row if it ever lands in the wrong half.
+assert_discriminating_fault() { # name tool operand-pattern expected-message
+	local name="$1" tool="$2" pattern="$3" expected="$4" code=0
+
+	# The real tool is resolved here, before $mock_bin reaches PATH, and baked into the
+	# mock as an absolute path -- the shape check-skill-layout-test.sh already uses for
+	# its shims. A mock ending `exec "$tool" "$@"` would find itself again on the PATH it
+	# runs under and fork without bound, and a PATH-stripping guard only holds while the
+	# mock directory is PATH's first element. What that costs is not a red row: it is a
+	# CI job consumed to its timeout, with no `not ok -` banner and no
+	# `deployed-membership:` line for an operator to read.
+	printf '#!/usr/bin/env bash\ntool=%s\npattern=%s\nreal=%s\n' \
+		"$tool" "$pattern" "$(command -v "$tool")" >"$mock_bin/$tool"
+	cat >>"$mock_bin/$tool" <<'MOCK'
+for arg in "$@"; do
+	case "$arg" in
+	$pattern)
+		printf '%s: refusing the skills operand
+' "$tool" >&2
+		exit 1
+		;;
+	esac
+done
+exec "$real" "$@"
+MOCK
+	chmod +x "$mock_bin/$tool"
+	PATH="$mock_bin:$PATH" "$CHECKER" "$FIXTURE" >"$SCRATCH/out" 2>"$SCRATCH/err" || code=$?
+	rm -f "$mock_bin/$tool"
+	if ((code != 2)); then
+		fail "$name" "should exit 2, exited $code"
+	fi
+	if ! grep -qF -- "deployed-membership: $expected" "$SCRATCH/err"; then
+		fail "$name" "should say $expected"
+	fi
+}
+
 if [[ "$(id -u)" -eq 0 ]]; then
 	printf 'deployed-membership-test: skipping the unwritable-workspace row: running as root\n' >&2
 else
@@ -358,12 +610,31 @@ fi
 build_fixture
 assert_environment_fault 'a comparison that could not run' comm 'exit 1'
 
+# Both skills comparisons take the same two operands, so one mock reaches both. Dropping
+# the *first* call's `|| fault` reddens this row: under errexit the unguarded `comm`
+# propagates its own exit 1 and the row requires exit 2. Dropping the *second* survives,
+# because the first has already faulted with the same message. So this row covers the
+# pair, and the second guard alone is unassertable.
+build_fixture
+assert_discriminating_fault 'a skills comparison that could not run' comm '*/skill-*' \
+	'could not compare the enumerated skill directories against the declared set'
+
+# The two enumerated-name sorts share a message, so each needs its own operand pattern
+# or the surviving one masks the other's reverted guard.
+build_fixture
+assert_discriminating_fault 'the skills present sort could not run' sort '*/skill-present*' \
+	'could not sort the enumerated skill directories'
+
+build_fixture
+assert_discriminating_fault 'the skills non-directory sort could not run' sort \
+	'*/skill-non-directory*' 'could not sort the enumerated skill directories'
+
 # POSIXLY_CORRECT stops getopt permuting argv, which is what would turn an option
 # written after a file operand into another input file. The environment must not
 # reach this verdict any more than the caller's locale does.
 build_fixture
 POSIXLY_CORRECT=1 "$CHECKER" "$FIXTURE" >"$SCRATCH/out" 2>"$SCRATCH/err" || :
-if [[ "$(cat "$SCRATCH/out")" != "deployed-membership: ok ($EXPECTED_MEMBERS declared members across ${#TREES[@]} installed trees)" ]]; then
+if [[ "$(cat "$SCRATCH/out")" != "deployed-membership: ok ($EXPECTED_MEMBERS declared members across ${#TREES[@]} installed trees, $EXPECTED_SKILL_DIRECTORIES declared skill directories in $SKILL_TREE)" ]]; then
 	fail 'a POSIXLY_CORRECT caller' 'should pass unchanged'
 fi
 if [[ -s "$SCRATCH/err" ]]; then
@@ -435,6 +706,24 @@ else
 	assert_exit_two 'an unreadable tree' 'could not enumerate the installed trees' "$FIXTURE"
 	assert_absent 'an unreadable tree' missing-member 'content/languages/bash.md'
 	chmod u+rwx "$FIXTURE/content/languages"
+
+	build_fixture
+	chmod 000 "$FIXTURE/$SKILL_TREE"
+	assert_exit_two 'an unreadable skills tree' 'could not enumerate the skills tree' "$FIXTURE"
+	assert_absent 'an unreadable skills tree' missing-skill-directory "$SKILL_TREE/$(declared_skill)"
+	chmod u+rwx "$FIXTURE/$SKILL_TREE"
+
+	# Every comparison completes before any finding is emitted, so a skills-side fault
+	# withholds the three-tree findings of the same run. ADR 0054 records that as a
+	# disclosed consequence; this is what pins it, and no other row combines the two.
+	build_fixture
+	printf 'stray\n' >"$FIXTURE/content/languages/unexpected.md"
+	chmod 000 "$FIXTURE/$SKILL_TREE"
+	assert_exit_two 'a skills fault beside a three-tree finding' \
+		'could not enumerate the skills tree' "$FIXTURE"
+	assert_absent 'a skills fault beside a three-tree finding' unexpected-member \
+		'content/languages/unexpected.md'
+	chmod u+rwx "$FIXTURE/$SKILL_TREE"
 fi
 
 build_fixture
