@@ -56,15 +56,16 @@ without it. It runs on every leg and every developer host through `just test`.
 | `sh` accepts `[[ ]]` | variable | result |
 |---|---|---|
 | no | unset / empty | assertions run; `ok (POSIX assertions ran under <path>)` |
-| no | non-empty | assertions run; identical output — the requirement is already met |
+| no | `1` | assertions run; identical output — the requirement is already met |
 | yes | unset / empty | skip notice; `ok (POSIX assertions SKIPPED)` — unchanged from #112 |
-| yes | non-empty | `fail` with exit 1, naming the shell and the variable |
+| yes | `1` | `fail` with exit 1, naming the shell and the variable |
+| either | any other non-empty value | `fail` with exit 1, naming the variable and `1` |
 
-Any non-empty value requires the assertions. Not `= 1`: a wiring that reads
-`POSIX_ASSERTIONS_REQUIRED=true` and is silently ignored is the inert guard this issue is
-about, and a spelling mistake in the workflow should not be the difference between a gate
-and a no-op. The cost is that `POSIX_ASSERTIONS_REQUIRED=0` also requires them; that is
-stated in the suite's comment and is the less dangerous reading.
+The value is validated rather than merely tested for emptiness. Matching only the literal
+`1` and ignoring everything else fails open: a workflow that says `true` gets a no-op gate
+that reads as wired, which is the inert guard this issue is about. Treating any non-empty
+value as yes fails the other way: `POSIX_ASSERTIONS_REQUIRED=0` would require the
+assertions. Rejecting the unrecognised value costs one branch and avoids both.
 
 The variable is read once, at the point of decision, and nothing else in the repository
 sets it. It is a new contract on a tracked script, so it is documented where it is read.
@@ -96,9 +97,15 @@ to convert a loud failure into a slightly earlier loud failure buys nothing.
 The first row is the one place this design does not do what the issue's acceptance sentence
 literally asks. Dropping the leg no longer removes the proving ground, so there is nothing
 left to turn red; the failure mode the issue names — the guarantee silently disappearing —
-is closed by making it impossible rather than by detecting it. Encoding "the matrix must
+is closed by removing the route rather than by detecting it. Encoding "the matrix must
 contain `ubuntu-latest`" would be a different property (OS coverage, ADR 0027's subject)
 guarded in the wrong place.
+
+The fourth row is the bound. Deleting the step or its `env:` line returns the suite to the
+skip branch and a green log, and nothing here detects that; `verify.runs-on` is now
+load-bearing in the way `matrix.os` was, fail-closed but equally one line. What the design
+removes is the churn that takes the proving ground away as a side effect of an unrelated
+decision, not deliberate removal.
 
 ## Verification
 
