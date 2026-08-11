@@ -3,6 +3,14 @@
 Issue: <https://github.com/randomparity/agent-config/issues/106>
 Record: [0045](../../adr/0045-installed-trees-declare-their-membership.md)
 
+> **Superseded in part by [2026-08-10-skill-directory-membership-design.md](2026-08-10-skill-directory-membership-design.md)**
+> (record [0054](../../adr/0054-the-skills-tree-declares-its-directories.md), issue #124).
+> `content/skills` is no longer out of scope — the same gate now declares its top-level
+> directories — so this document's non-goal and its exclusion note below no longer describe
+> the repository, and the exit-0 summary in *Comparison and verdicts* gained a
+> `, <k> declared skill directories in content/skills` clause. Everything else here still
+> governs the three file-granularity trees in full.
+
 ## Problem
 
 `install_managed_path` ends in `cp -pR`. When its source is a directory the whole subtree

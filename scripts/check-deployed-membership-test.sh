@@ -209,8 +209,13 @@ declared_member() { # tree
 
 # The first declared skill directory, taken from the index for the reason the member
 # helper is: a literal here would be a second copy of the checker's list.
+#
+# awk drains its input rather than `exit`-ing on the first match. Under this suite's
+# `pipefail`, terminating the producer early would leave `git ls-files` writing into a
+# closed pipe once the tree outgrows one pipe buffer of path text, and the resulting 141
+# would surface as an errexit-fatal assignment with no `not ok -` banner naming a row.
 declared_skill() {
-	git -C "$ROOT" ls-files -- "$SKILL_TREE" | awk -F/ 'NF>3 {print $3; exit}'
+	git -C "$ROOT" ls-files -- "$SKILL_TREE" | awk -F/ 'NF>3 && !seen++ {print $3}'
 }
 
 build_fixture
