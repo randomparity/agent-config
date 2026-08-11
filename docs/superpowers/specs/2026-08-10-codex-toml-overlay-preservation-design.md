@@ -255,6 +255,12 @@ style of `run_overlay_case_jq` hides `tomllib` from one run. Every case asserts 
 the stream that carries it, not only an exit status, so a refusal for an unrelated reason
 cannot satisfy it.
 
+R8's three fallible calls each get their own arm, because one globally failing tool proves
+none of them: `supports_tomllib` catches a broken `python3` before the parse, and the run
+never reaches the comparison. A shim fails one selected call, chosen by argument shape and
+occurrence — base parse, overlay parse, merged parse, comparison — the pattern
+`run_overlay_case_jq` already uses on the JSON side for the same reason.
+
 The suite covers, in order: the swallowing overlay and the `features.goals` override that
 motivated the record; an additive `[features.sub]` that must still install; a base table
 replaced by a scalar in a document that parses; a retyped scalar (`goals = 1`); a non-UTF-8
@@ -287,6 +293,10 @@ that owns it:
 | drop the type comparison | base scalar retyped — installed at exit 0 |
 | `awk` reads its operand instead of stdin | overlay path `awk` reads as an assignment |
 | stub out `report_deployed_toml_state` | no parser over a deployment |
+| `emit_merged_toml` unguarded | failing awk fails closed |
+| base validator unguarded | failing base validator fails closed |
+| merged validator unguarded | failing merged validator fails closed |
+| comparison unguarded | failing comparison fails closed |
 
 ### Two consequences the suite carries
 

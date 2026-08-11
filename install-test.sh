@@ -1738,6 +1738,104 @@ assert_stream_contains "$OVERLAY_ERR" 'could not merge private overlay' \
 assert_stream_lacks "$OVERLAY_OUT" 'applied private overlay' 'failing awk fails closed'
 assert_not_file "$OVERLAY_DEST/codex/config.toml"
 
+# 48c. The other two fallible calls in the merge, each failing on its own (ADR 0049 rule 1).
+#      One globally failing python3 proves neither: `supports_tomllib` catches it first and
+#      the run never reaches the parse, let alone the comparison. This shim fails one
+#      selected call, chosen by argument shape, and delegates the rest — the pattern
+#      `run_overlay_case_jq` uses for the same reason.
+#
+#      The comparison is the one that matters most: `erased_base_toml_paths` reports
+#      "nothing erased" and "I could not tell" with the same empty stdout, so a build
+#      reading its failure as a clean result would deploy a merged document that erases the
+#      base under `applied private overlay`.
+python_shim_dir="$tmpdir/python-shim"
+mkdir -p "$python_shim_dir"
+cat >"$python_shim_dir/python3" <<'SHIM'
+#!/usr/bin/env bash
+set -u
+# `probe` is the supports_tomllib check, `validate` a one-path parse, `compare` the
+# two-path base/merged walk. Counting positional paths is what separates the last two.
+shape=probe
+paths=0
+for arg in "$@"; do
+	case $arg in
+	-* | 'import tomllib') ;;
+	*) paths=$((paths + 1)) ;;
+	esac
+done
+case $paths in
+1) shape=validate ;;
+2) shape=compare ;;
+esac
+if [[ $shape == "${AGENT_CONFIG_TEST_PY_FAIL:-}" ]]; then
+	count=0
+	if [[ -f $AGENT_CONFIG_TEST_PY_COUNT ]]; then
+		count=$(cat "$AGENT_CONFIG_TEST_PY_COUNT")
+	fi
+	count=$((count + 1))
+	printf '%s\n' "$count" >"$AGENT_CONFIG_TEST_PY_COUNT"
+	if [[ $count -eq ${AGENT_CONFIG_TEST_PY_NTH:-1} ]]; then
+		printf 'python-shim: forced failure (%s #%s)\n' "$shape" "$count" >&2
+		exit 3
+	fi
+fi
+exec "$AGENT_CONFIG_TEST_REAL_PYTHON" "$@"
+SHIM
+chmod +x "$python_shim_dir/python3"
+
+run_overlay_case_python() { # agent fail-shape [nth]
+	OVERLAY_STATUS=0
+	rm -f "$OVERLAY_ROOT/python-count"
+	PATH="$python_shim_dir:$PATH" \
+		AGENT_CONFIG_TEST_REAL_PYTHON="$real_python" \
+		AGENT_CONFIG_TEST_PY_FAIL="$2" \
+		AGENT_CONFIG_TEST_PY_NTH="${3:-1}" \
+		AGENT_CONFIG_TEST_PY_COUNT="$OVERLAY_ROOT/python-count" \
+		AGENT_CONFIG_HOST=test-host \
+		AGENT_CONFIG_PRIVATE_DIR="$OVERLAY_PRIVATE" \
+		CLAUDE_CONFIG_DIR="$OVERLAY_DEST/claude" \
+		CODEX_CONFIG_DIR="$OVERLAY_DEST/codex" \
+		BOB_CONFIG_DIR="$OVERLAY_DEST/bob" \
+		./install.sh --agent "$1" \
+		>"$OVERLAY_OUT" 2>"$OVERLAY_ERR" || OVERLAY_STATUS=$?
+}
+
+start_overlay_case codex
+write_text "$OVERLAY_FILE/config.overlay.toml" '[sandbox]
+mode = "workspace-write"'
+# The first validate call is the base's, so failing it pins `require_valid_base_toml`.
+run_overlay_case_python codex validate 1
+assert_overlay_refused 'failing base validator fails closed'
+assert_stream_contains "$OVERLAY_ERR" 'could not validate base config' \
+	'failing base validator fails closed'
+assert_stream_lacks "$OVERLAY_OUT" 'applied private overlay' \
+	'failing base validator fails closed'
+assert_not_file "$OVERLAY_DEST/codex/config.toml"
+
+# The third is the merged document's -- base, then overlay, then merged. Read as accepted,
+# an unverified concatenation deploys.
+start_overlay_case codex
+write_text "$OVERLAY_FILE/config.overlay.toml" '[sandbox]
+mode = "workspace-write"'
+run_overlay_case_python codex validate 3
+assert_overlay_refused 'failing merged validator fails closed'
+assert_stream_contains "$OVERLAY_ERR" 'could not validate the merged TOML' \
+	'failing merged validator fails closed'
+assert_stream_lacks "$OVERLAY_OUT" 'applied private overlay' \
+	'failing merged validator fails closed'
+assert_not_file "$OVERLAY_DEST/codex/config.toml"
+
+start_overlay_case codex
+write_text "$OVERLAY_FILE/config.overlay.toml" '[sandbox]
+mode = "workspace-write"'
+run_overlay_case_python codex compare
+assert_overlay_refused 'failing comparison fails closed'
+assert_stream_contains "$OVERLAY_ERR" 'could not compare the merged result' \
+	'failing comparison fails closed'
+assert_stream_lacks "$OVERLAY_OUT" 'applied private overlay' \
+	'failing comparison fails closed'
+assert_not_file "$OVERLAY_DEST/codex/config.toml"
+
 # 48b. An overlay path awk would read as a variable assignment. POSIX awk treats an operand
 #      matching `name=value` as an assignment rather than a file, so a *relative*
 #      AGENT_CONFIG_PRIVATE_DIR of that shape made awk read stdin, print nothing and exit
