@@ -16,6 +16,12 @@ hook is a non-blocking error: it is surfaced, and the tool call proceeds. A hook
 for a reason its body did not anticipate therefore does not refuse the command — it permits
 it, which is the opposite of what a guard is for.
 
+The same shape reached the input itself. `jq -r '.tool_input.command'` prints the string
+`null` and exits 0 when the field is absent, so a payload carrying no command left every
+guard matching its patterns against the literal text `null` — no match, exit 0, call
+permitted. A guard that never saw a command was answering as though it had seen a harmless
+one.
+
 Only one helper failure was handled. The `git clean` guard has checked `jq`'s exit status
 since it was written; nothing else checked anything. `grep` exits 1 for "no match" and 2 or
 more for an error, so the two are distinguishable, but a bare `if … | grep -q …; then` reads
@@ -73,14 +79,28 @@ the diagnostic. A command matching no masking pattern no longer runs `awk` at al
 entry of either name is never reached. The suite asserts this rather than assuming it, which
 is what makes the helper list — `jq`, `grep`, `awk` — a checked claim.
 
-**One path still returns 0 without evaluating anything, deliberately.** The push-to-main
-guard exits 0 immediately when `GT_REFINERY=1`, ahead of every helper, and this record does
-not change that: it is an explicit operator opt-out for that one guard, and an opt-out that
-stopped working when `grep` broke would be a worse escape hatch than none. The consequence is
-bounded by the same property the rest of this decision rests on — the other four hooks refuse
-the same tool call on helper failure, so `GT_REFINERY=1` suppresses one guard's verdict, not
-the block. Reordering the check against the `jq` guard is a change to the escape hatch's
-meaning and is not made here.
+**One path still returns 0 without evaluating the command, and its degraded behaviour is
+split.** The push-to-main guard exits 0 when `GT_REFINERY=1` — an explicit operator opt-out
+for that one guard. The check sits where it sits in the base revision: *after* the `jq`
+capture and *before* the `grep`. Guarding `jq` therefore gives the hatch two different
+answers under a broken helper. A broken `jq` refuses even with `GT_REFINERY=1`, because the
+capture runs first; a broken `grep` is never reached, so the hatch still permits.
+
+That split is a consequence of statement order rather than a designed boundary, and this
+record does not reorder the check — moving it would change what the escape hatch means, which
+is a separate decision from the one here. It is stated and asserted instead, so the next
+reader finds it recorded rather than discovering it. Either way the block holds: the other
+four hooks refuse the same tool call on helper failure, so `GT_REFINERY=1` suppresses one
+guard's verdict, never the refusal.
+
+**Unreadable input is treated as unreadable, not as an empty command.** `jq -r` prints the
+string `null` for an absent field and exits 0, so each guard was matching its patterns
+against the literal text `null`, finding nothing, and permitting the call — a payload with no
+`command` field, no `tool_input`, or empty stdin was allowed by all five. The capture uses
+`jq -er`, whose non-zero status on a null result the existing `||` branch already handles.
+Malformed JSON was never affected: `jq` fails to parse and the branch fires. A command that is
+genuinely the empty string still reads as a command and is still allowed, since it runs
+nothing.
 
 ## Consequences
 

@@ -196,6 +196,22 @@ assert_fails_closed_without_path() { # hook-command label command-string
 	[[ $output == *BLOCKED:* ]] || fail "$2 must say why it failed closed with no PATH: $output"
 }
 
+# Feeds a raw payload rather than a command string: these cases are about input the hook
+# cannot read a command out of, which run_hook's jq -n construction can never produce.
+assert_payload_fails_closed() { # hook-command label payload description
+	local status=0 output
+	output=$(printf '%s' "$3" | bash -c "$1" 2>&1) || status=$?
+	[[ $status == 2 ]] ||
+		fail "$2 must fail closed on $4, got exit $status: $output"
+	[[ $output == *BLOCKED:* ]] || fail "$2 must say why it failed closed on $4: $output"
+}
+
+assert_payload_allowed() { # hook-command label payload description
+	local status=0 output
+	output=$(printf '%s' "$3" | bash -c "$1" 2>&1) || status=$?
+	[[ $status == 0 ]] || fail "$2 must allow $4, got exit $status: $output"
+}
+
 assert_posix_agrees() { # hook-command label command-string expected-status
 	local status=0 output
 	output=$(jq -nc --arg command "$3" '{tool_input: {command: $command}}' |
@@ -453,6 +469,12 @@ assert_blocked "$MASK_HOOK" 'masked exit hook' $'cat >note.md <<EOF\njust ci | t
 # the assertions below prove that rather than assuming it, which is what makes the list of
 # three a list and not a guess.
 #
+# Reading the input is the same problem as running a helper, and was the same defect. jq -r
+# prints the string "null" for an absent field and exits 0, so a payload carrying no command
+# left every guard matching against the literal text "null" and permitting the call. The
+# capture is jq -er, whose non-zero status on null the existing || branch already handled.
+# The enumeration loop asserts it for every hook.
+#
 # The reason uniform fail-closed costs nothing extra is worth stating, because it is not
 # obvious from any one hook: these five run on the same Bash tool call, and a single exit 2
 # blocks it. The destructive git clean guard has failed closed on jq since it was written,
@@ -508,6 +530,20 @@ assert_allowed "$RM_HOOK" 'rm -rf hook' 'git status --porcelain'
 
 assert_blocked "$PUSH_HOOK" 'push-to-main hook' 'git push origin main'
 assert_blocked "$PUSH_HOOK" 'push-to-main hook' 'git push origin master'
+# The GT_REFINERY escape hatch, and what it does when a helper is broken. The hatch sits
+# after the jq capture and before the grep, which is main's statement order kept unchanged —
+# so a broken jq refuses even under the hatch, while a broken grep is never reached and the
+# hatch still permits. That split is a consequence of statement order rather than a designed
+# boundary, so it is pinned here and recorded in ADR 0056 rather than left to be rediscovered.
+# Reordering the hatch is a change to its meaning and is not made here.
+(
+	export GT_REFINERY=1
+	assert_allowed "$PUSH_HOOK" 'push-to-main hook under GT_REFINERY' 'git push origin main'
+	assert_fails_closed "$PUSH_HOOK" 'push-to-main hook under GT_REFINERY' missing-jq \
+		'git push origin main'
+	assert_unaffected_by "$PUSH_HOOK" 'push-to-main hook under GT_REFINERY' broken-grep \
+		'git push origin main' 0
+) || exit 1
 assert_allowed "$PUSH_HOOK" 'push-to-main hook' 'git push origin feat/thing-1'
 assert_allowed "$PUSH_HOOK" 'push-to-main hook' 'git push -u origin HEAD'
 
@@ -566,6 +602,24 @@ while IFS= read -r body; do
 	assert_fails_closed "$body" "PreToolUse hook $hook_count" missing-jq 'git status'
 	assert_fails_closed "$body" "PreToolUse hook $hook_count" broken-jq 'git status'
 	assert_fails_closed "$body" "PreToolUse hook $hook_count" broken-grep 'git status'
+	# Input the hook cannot read a command out of, which is the same failure as a helper it
+	# cannot run: `jq -r` prints the string "null" for an absent field and exits 0, so
+	# without -e each guard matched its patterns against the literal text "null", found
+	# nothing, and permitted the call. Malformed JSON was already covered — jq fails to
+	# parse and the || fires — so these three are the cases that were not.
+	assert_payload_fails_closed "$body" "PreToolUse hook $hook_count" \
+		'{"tool_input":{}}' 'a payload with no command field'
+	assert_payload_fails_closed "$body" "PreToolUse hook $hook_count" \
+		'{}' 'a payload with no tool_input'
+	assert_payload_fails_closed "$body" "PreToolUse hook $hook_count" \
+		'' 'empty stdin'
+	assert_payload_fails_closed "$body" "PreToolUse hook $hook_count" \
+		'not json' 'a payload that is not JSON'
+	# A command that is genuinely the empty string is readable and runs nothing, so it is
+	# allowed. This is the line that keeps the four above from being satisfied by a hook
+	# that simply refuses everything.
+	assert_payload_allowed "$body" "PreToolUse hook $hook_count" \
+		'{"tool_input":{"command":""}}' 'an empty command'
 done < <(all_hook_commands)
 # A miscount here means the enumeration silently matched nothing and the loop above asserted
 # nothing — the failure mode of every gate that iterates over a query result.
