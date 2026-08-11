@@ -236,15 +236,6 @@ comm -13 "$workspace/present" "$workspace/declared" >"$workspace/missing" ||
 # children reported as this repository's. A tree that does not survive contributes no
 # entries, so every declared directory reports as missing -- the same
 # no-fault-for-a-missing-tree answer the three trees get.
-# The `! -L` leg is defensive here rather than load-bearing: `find` does not follow a
-# symlink operand, so with `-mindepth 1` a tree replaced by a symlink enumerates empty
-# whether it survives or not. It is kept for symmetry with the filter above, where the
-# leg decides the answer, and no suite row can distinguish it.
-skills_present=0
-if [[ -d "$ROOT/$skills_tree" && ! -L "$ROOT/$skills_tree" ]]; then
-	skills_present=1
-fi
-
 # `-mindepth 1 -maxdepth 1` excludes the root by depth. The two ways of excluding it
 # by pattern both have a case where the match fails, `find` then prints the tree root
 # and descends no further, and this gate reports the tree itself as an unexpected entry
@@ -253,8 +244,14 @@ fi
 # itself. `! -name .` fails on the platform this repository gates: BSD find sets a start
 # point's `fts_name` to the whole operand rather than its basename, so the macos-latest
 # leg would prune at the root. Depth matches no pattern at all.
+# The survival filter is inline because there is one tree here, not a list: `-d` and not
+# `-L`, as above. The `! -L` leg is defensive rather than load-bearing at this
+# granularity -- `find` does not follow a symlink operand, so with `-mindepth 1` a tree
+# replaced by a symlink enumerates empty whether it survives the filter or not. It is
+# kept for symmetry with the filter above, where the leg decides the answer, and no
+# suite row can distinguish it.
 : >"$workspace/skill-absolute" || fault 'could not write to the workspace'
-if ((skills_present == 1)); then
+if [[ -d "$ROOT/$skills_tree" && ! -L "$ROOT/$skills_tree" ]]; then
 	find "$ROOT/$skills_tree" -mindepth 1 -maxdepth 1 -print0 >"$workspace/skill-absolute" ||
 		fault 'could not enumerate the skills tree'
 fi
