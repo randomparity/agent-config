@@ -599,7 +599,7 @@ assert_json_value "$OVERLAY_DEST/claude/settings.json" '.env.AGENT_CONFIG_TEST' 
 # used to stop before. The manifest entry is the only thing standing between a withheld
 # path and deletion, so assert the entry and not just the file (ADR 0049).
 assert_line "$OVERLAY_DEST/claude/.agent-config-manifest" 'settings.json'
-assert_stream_contains "$OVERLAY_ERR" 'carries every protected value' 'refusal over a deployment'
+assert_stream_contains "$OVERLAY_ERR" 'has every array and object' 'refusal over a deployment'
 assert_stream_lacks "$OVERLAY_ERR" 'is missing protected values' 'refusal over a deployment'
 
 # 7. The empty-container exemption's one in-repo instance: `agents/bob/shared/mcp.json`
@@ -716,7 +716,7 @@ run_overlay_case all
 assert_overlay_refused 'empty destination converges'
 assert_same_file "$tmpdir/base-filled.json" "$OVERLAY_DEST/claude/settings.json"
 assert_stream_contains "$OVERLAY_ERR" 'is the base alone' 'empty destination converges'
-assert_stream_lacks "$OVERLAY_ERR" 'carries every protected value' 'empty destination converges'
+assert_stream_lacks "$OVERLAY_ERR" 'has every array and object' 'empty destination converges'
 # The refusal unlinks the merged temp file, so the fill has to allocate a fresh 0600 one
 # rather than re-creating it by redirection, which would take the umask. `payload_differs`
 # compares content and the executable bit only, so a widened mode would never converge
@@ -874,7 +874,7 @@ assert_stream_contains "$OVERLAY_ERR" 'would erase values' 'deployed comparison 
 # context, so an unguarded failure there aborts under `set -e` anyway. Both builds fail
 # the run, and only this message distinguishes the guarded one.
 assert_stream_contains "$OVERLAY_ERR" 'could not compare' 'deployed comparison fails closed'
-assert_stream_lacks "$OVERLAY_ERR" 'carries every protected value' 'deployed comparison fails closed'
+assert_stream_lacks "$OVERLAY_ERR" 'has every array and object' 'deployed comparison fails closed'
 
 # 22. The refusal is no longer the last thing on the screen, so the summary that replaces
 #     it is emitted from the EXIT trap. Refuse Claude, then hard-fail Codex on a missing
@@ -908,7 +908,7 @@ assert_overlay_refused 'unparseable deployment'
 assert_stream_contains "$OVERLAY_ERR" 'could not be read as JSON' 'unparseable deployment'
 # Reported, not repaired, and not guessed at.
 assert_same_file "$tmpdir/unparseable.json" "$OVERLAY_DEST/claude/settings.json"
-assert_stream_lacks "$OVERLAY_ERR" 'carries every protected value' 'unparseable deployment'
+assert_stream_lacks "$OVERLAY_ERR" 'has every array and object' 'unparseable deployment'
 
 # 24. A destination path that is a symlink is occupied, so it is retained and listed as
 #     kept — and its target is not the installer's to vouch for. Saying "nothing is
@@ -955,7 +955,7 @@ run_overlay_case_jq claude normalize 1
 assert_overlay_refused 'normalize guard fails closed'
 assert_stream_contains "$OVERLAY_ERR" 'could not read base settings' \
 	'normalize guard fails closed'
-assert_stream_lacks "$OVERLAY_ERR" 'carries every protected value' 'normalize guard fails closed'
+assert_stream_lacks "$OVERLAY_ERR" 'has every array and object' 'normalize guard fails closed'
 
 # 27. The honest scope of the clean verdict. ADR 0043's check covers non-empty base
 #     arrays and objects, so a deployed file that dropped a scalar or emptied an object
@@ -971,8 +971,12 @@ jq '.env = {} | del(.cleanupPeriodDays)' "$BASE_SETTINGS" \
 write_json "$OVERLAY_FILE/settings.overlay.json" "$CLOBBERING_OVERLAY"
 run_overlay_case claude
 assert_overlay_refused 'unprotected scalar loss'
-assert_stream_contains "$OVERLAY_ERR" 'carries every protected value' \
+assert_stream_contains "$OVERLAY_ERR" 'has every array and object' \
 	'unprotected scalar loss'
 assert_stream_lacks "$OVERLAY_ERR" 'is missing protected values' 'unprotected scalar loss'
+# And says so: the base's telemetry and MCP hardening are scalars, so an unqualified
+# affirmation here would be a clean bill for a file that lost them.
+assert_stream_contains "$OVERLAY_ERR" 'Base scalars are outside this check' \
+	'unprotected scalar loss'
 
 printf 'install-test: ok\n'

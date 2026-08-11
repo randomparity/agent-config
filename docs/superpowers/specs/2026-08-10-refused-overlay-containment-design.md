@@ -245,9 +245,13 @@ handled, no permission grant widens, no dependency changes, and no non-literal i
 command, query, path, or URL. Two properties are worth stating because the change is near a
 guardrail:
 
-- The change cannot cause an unguarded settings file to be *deployed*. The refusal path deploys no
-  settings file at all; only the unchanged success path writes one, and it writes only a merged
-  result that passed the ADR 0043 check.
+- The change cannot cause an unguarded settings file to be *deployed* — but not because the refusal
+  path writes nothing, which rule 1 above makes false. It holds because the only thing that path can
+  write is the normalized base, guarded by construction, and only where every destination in the set
+  is absent; and because `merge_json_settings` unlinks the guard-erased merged document before
+  returning, so no merged result survives for a call site to install. **That is the invariant a
+  later change must preserve**: filling an empty destination from anything other than the bare base
+  — a last-known-good merged result, a copy out of `.agent-config-backups/` — reopens this analysis.
 - The change reads one additional file — the deployed `settings.json` in a destination the
   installer already writes — and only reports on it. `ensure_safe_rel` still governs the path.
 

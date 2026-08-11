@@ -513,12 +513,14 @@ report_deployed_state() { # dest_dir base rel
 		exit 1
 	fi
 	if [[ -z "$missing" ]]; then
-		# "protects", not "defines": `erased_base_paths` covers non-empty base arrays and
-		# objects, so a deployed file that dropped a scalar or emptied an object reaches
-		# here. Claiming it carries everything the base defines would be a definite
-		# statement that is false, which is worse than ADR 0043's hedge — the operator
-		# would have an affirmative reason to stop looking.
-		printf 'install: %s carries every protected value from %s\n' "$path" "$base" >&2
+		# Say what was checked, not "carries every value". `erased_base_paths` is ADR
+		# 0043's protected set — non-empty base arrays and objects — and it was designed
+		# for a merge result, where jq's `*` cannot drop a base key. Pointed at an
+		# arbitrary deployed file it no longer covers the base's scalar hardening, so an
+		# unqualified affirmation would be a definite statement that is false, which is
+		# worse than ADR 0043's hedge: the operator gets a reason to stop looking.
+		printf 'install: %s has every array and object %s protects\n' "$path" "$base" >&2
+		printf 'install:   Base scalars are outside this check and were not compared.\n' >&2
 		return 0
 	fi
 
