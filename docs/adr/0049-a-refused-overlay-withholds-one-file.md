@@ -36,10 +36,14 @@ Three parts.
 
 *The refusal is a return, not an exit.* `merge_json_settings` reports and returns non-zero. Each
 call site installs its destination paths from the merged file on success and **retains** them on
-refusal. Retaining is not merely "skip": the path is recorded in the new manifest, because a
-manifest that omits it is a manifest that instructs `prune_removed` to delete the deployed file.
-Withholding a deploy must never become deleting a deployment, and that manifest entry is the whole
-of the defense — the abort used to stop before pruning, and now it does not.
+refusal. Two invariants of the same class hold this up, and neither is optional. The script runs
+under `set -e`, so a call site must test the status explicitly; a bare call to a function that
+returns non-zero ends the script exactly as the old `exit 1` did, after the refusal text has
+printed and before any withheld-file count, which looks identical to today's behavior while this
+record claims the opposite. And retaining is not merely "skip": the path is recorded in the new
+manifest, because a manifest that omits it is a manifest that instructs `prune_removed` to delete
+the deployed file. Withholding a deploy must never become deleting a deployment, and the abort used
+to stop before pruning where now it does not.
 
 *The report names what is live.* On the refusal path the installer compares the base against the
 **deployed** file and says which protected base paths that file is missing now, or that it carries
@@ -58,8 +62,11 @@ always there; what it lacked was any way to learn it was owed. Making the condit
 whole of the remedy, and the repair itself is left to the managed-path code that has always owned
 that file.
 
-The result is idempotent by construction. A second run with the same overlay retains the same file,
-prints the same report, and exits the same way, because the refusal path performs no writes at all.
+Repeating a refused run changes nothing about the file the refusal is over: nothing on that path
+writes to the settings destination, so the deployed file and the refusal report are the same on the
+second run as on the first. The rest of the run is idempotent for the ordinary reason —
+`install_managed_path` compares before it copies — and its summary counts do differ between the run
+that installs a tree and the run that finds it unchanged.
 
 ## Consequences
 
@@ -79,11 +86,35 @@ prints the same report, and exits the same way, because the refusal path perform
 - The check costs one extra `jq` invocation, on the refusal path only.
 - The report says nothing about whether the *overlay* would have repaired the deployed file, because
   the overlay was refused and no merged result exists to describe.
-- A refused settings overlay no longer implies a stale skills tree, so the two conditions have to be
-  read separately now. That is the point, and it is also one more thing to read.
+- The withheld count is reported when the run reaches its end. `install.sh` still exits directly on
+  a missing command, an unsafe managed path, a symlinked ancestor, an uncomparable payload or a
+  missing source, so an unrelated hard failure while installing a later agent preempts the count and
+  the operator sees only that failure. Accepted rather than engineered around: a summary-on-exit
+  trap would run on every exit path in the script to cover a compound, low-frequency case.
+- **A refused run now deploys a current tree beside a settings file of arbitrary vintage.** Under the
+  abort those two came from the same successful run and were stale together; now the newest
+  `skills/`, `CLAUDE.md`, `statusline.sh` and `content/` land next to a settings file that may
+  predate them by any amount — and they reference each other, since the base's `statusLine.command`
+  names the separately installed `~/.claude/statusline.sh` and the shipped instructions assume the
+  `PreToolUse` guards are present. The withheld file can therefore fall behind a guard the base has
+  since added while the operator keeps receiving every instruction that assumes it.
+- **The freeze was also a forcing function, and this gives it up.** A run that installed nothing was
+  not livable; a run that installs almost everything and exits non-zero is. An operator whose
+  deployed file happens to be correct now reads the report as reassurance and has little pressure to
+  fix the stale overlay — which is the state in which the next base guard never reaches them. That
+  is a real loss, taken deliberately: coercing a fix by withholding unrelated content charges the
+  cost to the wrong files.
 
 ## Considered & rejected
 
+- **Narrow the refusal and stop there** — return instead of exit, install the rest of the tree, and
+  leave #110's message as shipped. The cheapest option that answers the issue comment in full, and
+  it drops the second jq invocation, the second output paragraph, and any chance of naming a
+  deliberate hand edit. Rejected because the message it keeps can only say the deployed file "may
+  already be missing these values": the operator cannot tell an unguarded deployment from a sound
+  one, and so cannot tell whether fixing the overlay is urgent or housekeeping. Once the freeze is
+  gone that judgment is the only thing left driving a repair, so the saving comes out of the
+  requirement rather than out of the decision.
 - **Repair the deployed file from the base.** Rejected: with the overlay refused there is no merged
   result to write, so the only thing available is the bare base — which discards every legitimate
   scalar override the operator has, silently, in their home directory. It answers a broken overlay

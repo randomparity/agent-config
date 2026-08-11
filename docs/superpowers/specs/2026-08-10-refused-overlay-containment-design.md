@@ -36,9 +36,11 @@ ambiguity remains.
 
 Recorded in [ADR 0049](../../adr/0049-a-refused-overlay-withholds-one-file.md): a refused overlay
 withholds the settings file it governs and nothing else. The record carries the rejected
-alternatives — repairing the deployed file from the base, reasserting base values over a merged
-overlay (already rejected by 0043), a `--repair-settings` flag, keeping the abort and improving
-only the message, checking the deployed file on every run, and skipping the deploy while exiting 0.
+alternatives — narrowing the refusal without adding the deployed-file report, repairing the
+deployed file from the base, reasserting base values over a merged overlay (already rejected by
+0043), a `--repair-settings` flag, keeping the abort and improving only the message, checking the
+deployed file on every run, and skipping the deploy while exiting 0 — and the consequences it
+accepts: mixed-vintage deployments, and the loss of the freeze as a forcing function.
 
 ## Behavior
 
@@ -59,7 +61,9 @@ refusal path writes nothing to the destination, so no half-written file can surv
 
 Three call sites, four destination paths (Bob's merged MCP document installs to both `mcp.json`
 and `mcp_settings.json`). Each becomes: merge; on success install every destination path from the
-merged file; on refusal **retain** every destination path.
+merged file; on refusal **retain** every destination path. The status must be tested at the call
+site — `install.sh` runs under `set -euo pipefail`, so a bare call to a function that returns
+non-zero terminates the script and silently restores the abort.
 
 Retaining a path means:
 
