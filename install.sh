@@ -409,8 +409,17 @@ erased_base_paths() { # base merged
 	'
 }
 
+# Carries the same one-object test the merge makes, because this is the other way a base
+# reaches a destination: with no overlay present at all, and on ADR 0049's empty-destination
+# fill. A bare `jq '.'` emits both documents of a two-document base and passes `[]` straight
+# through, so a malformed base would deploy verbatim under a green run and the file the
+# agent loads would be missing every guard the base defines (ADR 0052).
 render_base() { # base output
-	if ! jq '.' "$1" >"$2"; then
+	if ! jq -s --arg base "$1" '
+		if length == 1 and (.[0] | type) == "object" then .[0]
+		else error("base settings \($base) are not exactly one JSON object")
+		end
+	' "$1" >"$2"; then
 		printf 'install: could not read base settings: %s\n' "$1" >&2
 		exit 1
 	fi
@@ -463,10 +472,9 @@ overlay_is_one_object() { # overlay
 	# input: the check would pass the file and the merge would abort the run with the raw
 	# parse error this whole precondition exists to remove. It gets a verdict of its own
 	# rather than folding into the one below, because `jq . <overlay>` — the remedy that
-	# verdict prints — succeeds on it and shows the operator a well-formed object.
-	# stderr discarded like `overlay_shape`'s below: an unreadable overlay would otherwise
-	# print `head: cannot open ...` ahead of the verdict, which is the raw tool message this
-	# precondition exists to replace.
+	# verdict prints — succeeds on it and shows the operator a well-formed object. Its stderr
+	# is discarded like `overlay_shape`'s below, or an unreadable overlay would print
+	# `head: cannot open ...` ahead of the verdict — the raw tool message this replaces.
 	if [[ "$(head -c 3 "$overlay" 2>/dev/null)" == $'\357\273\277' ]]; then
 		report_overlay_shape "$overlay" 'begins with a UTF-8 byte-order mark' \
 			'The mark is invisible in an editor and jq accepts the file on its own, but' \
@@ -531,8 +539,8 @@ merge_json_settings() {
 
 	# `-s` slurps *both* files into one array, so `.[1]` is the overlay only while the base
 	# is one document too: a two-document base would push the overlay to `.[2]` and merge
-	# the base with itself, under a green `applied private overlay`. The length test is what
-	# makes `.[1]` correct rather than accidentally correct, and it is a hard failure rather
+	# the base with itself, under a green `applied private overlay`. This test is what makes
+	# `.[1]` correct rather than accidentally correct, and it is a hard failure rather
 	# than a refusal because the base is this repository's file — a malformed one is a defect
 	# here, not a mistake the operator can fix (ADR 0052).
 	if ! jq -s --arg base "$base" '

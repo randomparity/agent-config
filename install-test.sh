@@ -794,18 +794,16 @@ set -u
 shape=other
 for arg in "$@"; do
 	case $arg in
-	# Matched as a substring: the merge filter carries a base-length test around the
-	# product, so an exact-match pattern would stop selecting it and cases 19 and 20 would
-	# silently start failing a different call.
+	# Matched as substrings, on each filter's distinguishing clause: every one of these
+	# carries a guard now, so an exact-match pattern would stop selecting a call the moment
+	# its filter grew and the case would silently start failing a different one.
 	*'.[0] * .[1]'*) shape=merge ;;
+	*'length == 1 and'*) shape=render ;;
 	*@tsv*) shape=shape ;;
 	-rn) shape=compare ;;
 	-S) shape=normalize ;;
 	esac
 done
-if [[ $shape == other && $# -eq 2 && $1 == '.' ]]; then
-	shape=render
-fi
 if [[ $shape == "${AGENT_CONFIG_TEST_JQ_FAIL:-}" ]]; then
 	count=0
 	if [[ -f $AGENT_CONFIG_TEST_JQ_COUNT ]]; then
@@ -1213,6 +1211,27 @@ run_overlay_case claude "$two_document_repo/install.sh"
 assert_overlay_refused 'non-object base'
 assert_stream_contains "$OVERLAY_ERR" 'are not exactly one JSON object' 'non-object base'
 assert_stream_lacks "$OVERLAY_ERR" 'cannot be multiplied' 'non-object base'
+assert_not_file "$OVERLAY_DEST/claude/settings.json"
+
+# 35d. The other route a base takes to a destination: no overlay at all, so the merge never
+#      runs and `render_base` is the only thing between a malformed base and a deployed
+#      file. A bare `jq .` passes a non-object through and emits both documents of a
+#      two-document file, so without the same test the run deploys it verbatim and reports
+#      success. Both halves of the test are exercised: 35c left this fixture's base as `[]`,
+#      and the second run re-plants it as two documents. No overlay is written for either.
+start_overlay_case claude
+run_overlay_case claude "$two_document_repo/install.sh"
+assert_overlay_refused 'non-object base without an overlay'
+assert_stream_contains "$OVERLAY_ERR" 'could not read base settings' \
+	'non-object base without an overlay'
+assert_not_file "$OVERLAY_DEST/claude/settings.json"
+
+cat "$BASE_SETTINGS" "$BASE_SETTINGS" >"$two_document_base"
+start_overlay_case claude
+run_overlay_case claude "$two_document_repo/install.sh"
+assert_overlay_refused 'two-document base without an overlay'
+assert_stream_contains "$OVERLAY_ERR" 'could not read base settings' \
+	'two-document base without an overlay'
 assert_not_file "$OVERLAY_DEST/claude/settings.json"
 
 # 36. The shape check is a jq call like any other, so it fails closed (ADR 0049 rule 1).
