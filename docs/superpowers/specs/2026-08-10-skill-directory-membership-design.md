@@ -13,8 +13,9 @@ declares the expected set: `check-skill-layout.sh` constrains what a skill must 
 `scripts/reserved-skill-names.txt` is a forbidden list, not an expected one.
 
 Record 0045 gave three sibling trees a membership gate and booked this as a residual in as many
-words. Measured on the branch point: 7 declared files across the three covered trees, 96 tracked
-files across 36 skill directories with no membership check at all.
+words. Measured on the branch point: 7 declared files across the three covered trees, against 88
+installed files across 36 skill directories with no membership check at all — 96 tracked, of
+which `stage_skills` prunes the 8 under `testdata` before delivery.
 
 ## Goal
 
@@ -26,21 +27,26 @@ in both directions.
 
 - Membership *inside* a skill directory. A file added under `content/skills/<name>/` still
   installs unchecked; the skill directory is the unit of delivery, and the churn argument 0045
-  made against a per-file manifest is undisturbed.
+  made against a per-file manifest is undisturbed. Containment inside a declared directory —
+  a committed `content/skills/<name>/link -> /` — likewise stays `check-skill-layout.sh`'s
+  `validate_portable_tree` alone.
 - Anything about `examples/project-review-skills/`, a documented non-installed exception
   (record 0020).
 - Any change to the three-tree file-granularity rule, its messages, or its emission order.
 - Any change to `check-skill-layout.sh`, which keeps sole ownership of skill *shape*.
-- Any change to what `install.sh` delivers. Detection only, as in 0045.
+- Any change to what `install.sh` delivers. Detection only, as in 0045 — its two coupling
+  comments are updated, and `stage_skills` gains the pointer for the skills half, because all
+  three skill call sites go through it.
 
 ## Siting
 
-The rule goes in `scripts/check-deployed-membership.sh`. Record 0054 carries the argument and
-answers 0045's shape objection; the short form is that one comparison rule gains a second
-enumerator rather than the script gaining a second rule, that `check-skill-layout.sh` would mix
-shape with membership and split the deployment answer across two scripts, and that 0045's
-fault-versus-finding exit discipline already lives in the receiving script and does not exist in
-the alternative.
+The rule goes in `scripts/check-deployed-membership.sh`. Record 0054 carries the argument; the
+short form is that 0045's shape objection is largely granted — the skills half brings its own
+enumerator, filter, sorts, comparisons and finding vocabulary, sharing only the workspace, the
+`fault` helper and the collation pin — and the siting rests on two other grounds: that
+`check-skill-layout.sh` would mix shape with membership and split the deployment answer across
+two scripts, and that 0045's fault-versus-finding exit discipline already lives in the receiving
+script and does not exist in the alternative.
 
 No `Justfile` change follows: `membership-check` already runs the script, already sits
 immediately after `commit-check` and ahead of every content gate, and that placement is what
