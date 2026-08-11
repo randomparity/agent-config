@@ -34,8 +34,8 @@ the matrix; it proves the property itself, in a mode where the skip is refused.
 
 Two halves, landing together:
 
-1. **A refusable skip in the suite.** When `POSIX_ASSERTIONS_REQUIRED` is set to a
-   non-empty value and `sh` accepts bashisms, the suite fails instead of skipping. Unset or
+1. **A refusable skip in the suite.** When `POSIX_ASSERTIONS_REQUIRED` is `1` and `sh`
+   accepts bashisms, the suite fails instead of skipping. Unset or
    empty leaves #112's skip as shipped: same condition, same notice, same `posix_verdict`,
    same exit status. Two sentences inside that region — the comment naming the ubuntu leg
    as the sole proving ground, and the notice's "this run did not check" paragraph pointing
@@ -90,7 +90,9 @@ documented where it is read.
 `just ci` never sets it, so `just verify`, `just ci` and the `scripts/verify-push.sh`
 pre-push rehearsal all keep taking #112's skip on a developer host. That is deliberate —
 the alternative reds every local run — and it means the pre-push rehearsal no longer covers
-the whole required check. ADR 0053 records that as a bounded amendment to ADR 0039.
+the whole required check. ADR 0039's own claims survive — the pre-commit hook still names
+only `commit-check`, and CI still runs `just ci` on both legs — but `just ci` is no longer
+the whole of CI, and ADR 0053 records that.
 
 ### The `verify` job
 
@@ -113,7 +115,7 @@ to convert a loud failure into a slightly earlier loud failure buys nothing.
 | `ubuntu-latest` dropped from the matrix | silent green, property untested | green, and honest: the `verify` job still proves it |
 | `ubuntu-latest` image's `/bin/sh` stops being dash | silent green | **red** — the `verify` job's proof step fails |
 | `verify` moved to macOS, or to a container whose `sh` is bash | n/a | **red** — same step |
-| the proof step is deleted | n/a | a visible workflow diff, like any removed gate |
+| the proof step or its `env:` key is deleted or mistyped | n/a | **red** — the guard suite reads the workflow |
 | macOS leg skipping | green | green, unchanged |
 
 The first row is the one place this design does not do what the issue's acceptance sentence
@@ -123,9 +125,10 @@ is closed by removing the route rather than by detecting it. Encoding "the matri
 contain `ubuntu-latest`" would be a different property (OS coverage, ADR 0027's subject)
 guarded in the wrong place.
 
-The fourth row is the bound, and the ADR states it: what the design removes is churn that
-takes the proving ground away as a side effect of an unrelated decision, not deliberate
-removal of the step.
+What stays outside the table is the runner itself: `verify.runs-on` is now load-bearing in
+the way `matrix.os` was. That is fail-closed — pointing it at a host whose `sh` is bash reds
+the step — but it is one line, and the guard suite cannot check it the way it checks the
+`env:` key, because a runner label does not say what its `/bin/sh` will be.
 
 ## Verification
 
