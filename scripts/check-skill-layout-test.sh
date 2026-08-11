@@ -554,6 +554,36 @@ mkdir -p "$root/content/languages/testdata"
 printf '%b\n' 'malformed \0377 fixture' >"$root/content/languages/testdata/bad.md"
 assert_fails "content/languages/testdata/bad.md: $payload_utf8_error" "$root"
 
+# `--hidden` and `--no-ignore` decide *which* files the contract covers, and the contract
+# is only as wide as the traversal that carries it. Both were pinned by nothing: the live
+# tree has no dot-prefixed or ignored file under the three roots, so a fixture is the only
+# place the property exists -- the same argument the `testdata` case above makes for
+# itself. `install_managed_path` copies both roots with `cp -pR`, so a dot-prefixed or
+# gitignored file really is delivered, and dropping either flag would reopen the
+# scanned-narrower-than-delivered hole silently, over the encoding rules as well as the
+# pattern ones. rg reads `.ignore` outside a git repository, so the second fixture needs
+# no git state.
+root="$(new_fixture)"
+printf '%b\n' 'malformed \0377 dotfile' >"$root/content/languages/.notes.md"
+assert_fails "content/languages/.notes.md: $payload_utf8_error" "$root"
+
+root="$(new_fixture)"
+printf '%s\n' 'ignored.md' >"$root/.ignore"
+printf '%b\n' 'malformed \0377 ignored file' >"$root/content/references/ignored.md"
+assert_fails "content/references/ignored.md: $payload_utf8_error" "$root"
+
+# The reachable case, and the reason the NUL message names a remedy: Finder writes
+# `.DS_Store` into any directory a developer opens, `content/languages` and
+# `content/references` are the two roots no path rule covers, and the file is gitignored
+# so `git status` stays clean. `content/skills` already rejected it on the portable-ASCII
+# path rule. macOS is a CI leg and the bash floor, so this is normal use rather than a
+# hypothetical.
+root="$(new_fixture)"
+printf '%b' 'Bud1\0000\0000\0000\0000\0000' >"$root/content/references/.DS_Store"
+assert_fails \
+	"content/references/.DS_Store: $payload_text_error (file contains a NUL byte); delete it or move it out of the delivered tree" \
+	"$root"
+
 # rg exits 2 for any scan it could not complete, and the gate used to read that
 # as "no matches" and report ok. Root reads an unreadable file, so there the case
 # would assert nothing. The UTF-8 rule has the same three-way exit and the same

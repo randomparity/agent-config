@@ -83,6 +83,12 @@ gates have to be able to hold bytes the gates reject. That exclusion stays scope
 `content/references` deploy verbatim, so a `testdata` entry under either really does
 ship and is held to the contract.
 
+`install_common_content` delivers one further path, `docs/licenses/superpowers.LICENSE`,
+and it is outside the contract for the reason ADR 0025 left it outside the deployment
+scan: it is a single vendored file rather than an author-extensible tree, and a gate that
+invites editing a verbatim license is worse than what it would catch. The contract covers
+the trees a contributor adds files to.
+
 ## Consequences
 
 - A content author cannot add a non-UTF-8 or NUL-carrying file under the three roots.
@@ -90,6 +96,20 @@ ship and is held to the contract.
   ship — is a decision to record here, not a flag to flip. The gate names the file and,
   for a malformed sequence, the line, so the message is actionable rather than a
   verdict.
+- **A stray `.DS_Store` under `content/languages` or `content/references` now fails
+  `just verify`, and that is intended.** Those are the two roots `validate_portable_tree`
+  does not cover, so the NUL rule is the first to guard them; under `content/skills` the
+  same file already failed on the portable-ASCII path rule. `install_common_content`
+  copies both roots with `cp -pR`, so the file really would be delivered into every
+  user's tree. It is reachable in normal use — Finder writes one into any directory a
+  developer opens, macOS is a CI leg and this repository's bash floor, and the name is
+  gitignored so `git status` offers the reader no lead. The message therefore names the
+  remedy, not just the contract, and a fixture pins it.
+- The traversal flags that decide *which* files the contract covers — `--hidden` and
+  `--no-ignore` — are pinned by fixtures too, though they predate this change. The
+  contract is only as wide as the traversal carrying it, and the live tree holds no
+  dot-prefixed or ignored file under the three roots, so a fixture is the only place the
+  property can be shown at all.
 - `--encoding none` and `--text` are load-bearing in a way that is now directly pinned.
   Removing either turns `scripts/check-skill-layout-test.sh` red through the encoding
   cases, and removing `--text` does so loudly: ripgrep exits 2 rather than quietly

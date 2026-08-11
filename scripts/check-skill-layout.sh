@@ -479,11 +479,19 @@ fi
 # `(?-u)` for the same reason the acceptor needs it: it is what lets \x00 name a byte
 # rather than a Unicode scalar. Without --text on the scan rg refuses the pattern
 # outright and exits 2, which run_content_scan reports as a failed scan.
+#
+# The message names the remedy because the likeliest way to reach this rule is not an
+# authored file at all. `content/languages` and `content/references` are the two roots
+# `validate_portable_tree` does not cover, so a `.DS_Store` Finder drops into either is
+# caught here first -- and it is gitignored, so `git status` gives the reader no lead.
+# Failing is right (`install_common_content` would copy it into every user's tree), but
+# a verdict without a remedy is where the reader stalls.
 scan_deployed_payload "$workspace/nul-bytes" '(?-u)\x00'
 read_scan_hit "$workspace/nul-bytes"
 nul_byte_file="$scan_hit"
 [[ -z "$nul_byte_file" ]] ||
-	skill_error "$nul_byte_file" 'deployed content must be UTF-8 text (file contains a NUL byte)'
+	skill_error "$nul_byte_file" 'deployed content must be UTF-8 text (file contains a NUL byte);' \
+		'delete it or move it out of the delivered tree'
 
 scan_deployed_payload "$workspace/root-references" "$root_pattern"
 read_scan_hit "$workspace/root-references"
