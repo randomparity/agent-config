@@ -233,8 +233,8 @@ assert_posix_agrees() { # hook-command label command-string expected-status
 }
 
 # The helper-failure branches are the newest shell in these bodies and the least like the
-# rest of them: a function that exits the shell from inside a `&&` chain and from inside a
-# `!` negation. Asserting them only under bash would leave the code this file exists to
+# rest of them: a function that exits the shell from inside an `&&` chain and from inside an
+# `if` condition. Asserting them only under bash would leave the code this file exists to
 # prove POSIX exercised under one shell and claimed for another.
 assert_posix_fails_closed() { # hook-command label stub-dir command-string [expected-substring]
 	local status=0 output payload
@@ -667,10 +667,13 @@ else
 	assert_posix_agrees "$CLEAN_HOOK" 'git clean hook' 'git clean -n' 0
 	assert_posix_agrees "$MASK_HOOK" 'masked exit hook' 'just ci | tail' 2
 	assert_posix_agrees "$MASK_HOOK" 'masked exit hook' 'just ci | tee /tmp/ci.log' 0
-	# The degraded paths, under the same shell. hgrep exits the shell from three call shapes
-	# and each is checked: the `&&` chain in the rm -rf guard, the plain `if` in the git clean
-	# guard, and the `||`-tested call in the masked-exit guard's pipefail branch. A function
-	# that exits from inside a compound command is where a shell difference would show up.
+	# The degraded paths, under the same shell. Two hgrep call shapes exit here and both are
+	# checked: the `&&` chain in the rm -rf guard, and the plain `if` condition in the other
+	# four. The masked-exit guard's third call, `hgrep "$BEFORE" "$PIPEFAIL" || BLOCK=1`, has
+	# no degraded path to assert: a stub grep breaks that guard's first `if hgrep` too, and it
+	# exits before the pipefail branch is reached, so only the healthy-helper case below runs
+	# that call. A function that exits from inside a compound command is where a shell
+	# difference would show up.
 	assert_posix_fails_closed "$RM_HOOK" 'rm -rf hook' broken-grep 'rm -rf /tmp/scratch' 'grep exited'
 	assert_posix_fails_closed "$CLEAN_HOOK" 'git clean hook' broken-grep 'git clean -fd' 'grep exited'
 	assert_posix_fails_closed "$MASK_HOOK" 'masked exit hook' broken-grep 'just ci | tail' 'grep exited'
