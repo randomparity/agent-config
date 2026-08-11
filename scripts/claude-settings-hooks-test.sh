@@ -20,12 +20,18 @@ set -euo pipefail
 #   - the filter list is tail, head, grep and rg, and the short-circuit list is `true`
 #     and `:`, so `| sed`, `| awk`, `| cat`, `| less` and `|| echo failed` mask freely.
 #
-# Both hooks read the command as text, so both miss indirection a text match cannot follow.
-# Recognised as command positions, and so not evasions: `bash -c`, `sh -c`, `zsh -c`,
-# `eval`, `git submodule foreach`, and the wrapper list sudo, doas, xargs, ionice, stdbuf,
-# nice, env, command, exec, setsid, nohup, time and timeout — `xargs -n1 git clean -fd`
-# blocks. The routes below are not covered. Each was run against the shipped hook body and
-# allows a destructive `git clean`:
+# Both hooks read the command as text. A guard fires only where a recognised command
+# position is followed by a literal, unquoted `git ... clean` on one line. Those are two
+# axes that compose, not two buckets: widening one alone changes nothing, and
+# `sudo \git clean -fd` is allowed even though sudo is a recognised position.
+#
+# Recognised positions: `bash -c`, `sh -c`, `zsh -c`, `eval`, `git submodule foreach`, and
+# the wrappers sudo, doas, xargs, ionice, stdbuf, nice, env, command, exec, setsid, nohup,
+# time and timeout — so `xargs -n1 git clean -fd` blocks, correcting an earlier claim here
+# that both mechanisms miss xargs.
+#
+# Text the matcher cannot follow. Each was run against the shipped hook body and allows a
+# destructive `git clean`:
 #   - quoting and escaping a shell strips and a matcher does not — `\git clean -fd`,
 #     `git "clean" -fd`, `git cl""ean -fd`;
 #   - a backslash-newline continuation falling between `git` and `clean`, since the match
@@ -33,15 +39,21 @@ set -euo pipefail
 #   - deferred execution — `trap "git clean -fd" EXIT`;
 #   - execution on another host — `ssh host git clean -fd`;
 #   - exec-style dispatchers — `find . -execdir git clean -fd \;`, and -exec likewise;
-#   - a command assembled elsewhere — `C="git clean -fd"; $C`, backticks, `$(...)`.
-# None is a plausible accident; each is a deliberate route around the guard, and chasing
-# them is a matcher arms race this approach cannot win. They are listed so that a form
-# missing from this comment is not read as covered.
+#   - a command assembled rather than written — `C="git clean -fd"; $C`, backticks, or
+#     `$(echo git clean -fd)`. A literal `$(git clean -fd)` blocks, since `(` is itself a
+#     recognised position.
+# Quoting, continuation, a trap and an assembled command are deliberate routes around the
+# guard rather than accidents. ssh and find are not: they are ordinary usage the guard does
+# not reach, so a clean on a remote host or in a nested checkout is unguarded whether or
+# not anyone meant to evade. Chasing any of them is a matcher arms race this approach
+# cannot win, so they are stated instead — a form missing from this comment is not
+# thereby covered.
 #
 # One route needs no indirection at all: git stops parsing options at `--`, so a preview
 # flag after it is a pathspec. `git clean -fd -- build/ -n` deletes, and the guard reads
-# that trailing -n as a dry run and allows it. The Bash(git clean -f*) deny entries are the
-# only cover left, and this suite does not exercise their glob semantics — see issue #141.
+# that trailing -n as a dry run and allows it. The git clean deny entries are the only
+# cover left, and they reach the simple uncompounded command only (see the note on them
+# below), so `cd sub && git clean -fd -- build/ -n` has no cover at all. Issue #141.
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 SETTINGS="$ROOT/agents/claude/shared/settings.base.json"
