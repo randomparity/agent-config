@@ -151,8 +151,13 @@ done <"$workspace/absolute"
 # missing-member for a file that is plainly there. Bash associative arrays would
 # say this more directly and are unavailable -- declare -A is Bash 4.0+ and the
 # macos-latest leg runs system Bash 3.2.
-sort -u "$workspace/present-unsorted" -o "$workspace/present"
-sort -u "$workspace/non-regular-unsorted" -o "$workspace/non-regular"
+# `-o` ahead of the operand, not after it: an option following a file operand is
+# only reordered by a getopt that permutes argv, so `sort -u FILE -o OUT` reads
+# `-o` and `OUT` as two more input files wherever it does not -- under an exported
+# POSIXLY_CORRECT, and potentially on the BSD userland of the macos leg. The
+# environment must not reach this verdict.
+sort -u -o "$workspace/present" "$workspace/present-unsorted"
+sort -u -o "$workspace/non-regular" "$workspace/non-regular-unsorted"
 printf '%s\n' "$manifest" | sort -u >"$workspace/declared"
 
 comm -23 "$workspace/present" "$workspace/declared" >"$workspace/unexpected"

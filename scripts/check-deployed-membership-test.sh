@@ -123,9 +123,15 @@ assert_passes() { # name [locale]
 	fi
 }
 
+# Exactly 1, not merely non-zero: exit 1 means a difference was found and exit 2
+# means the gate could not run, and ADR 0045 turns on the fault class never
+# swallowing a finding. Without pinning the value, every finding row here would
+# be satisfied by a checker that printed the right lines and exited 2.
 assert_fails() { # name class relative-path
-	if run_checker; then
-		fail "$1" 'should fail'
+	local code=0
+	run_checker || code=$?
+	if ((code != 1)); then
+		fail "$1" "should exit 1, exited $code"
 	fi
 	if ! grep -qxF -- "deployed-membership: $2: $3" "$SCRATCH/err"; then
 		fail "$1" "should report $2: $3"
@@ -139,12 +145,15 @@ assert_fails() { # name class relative-path
 # reports its first disagreement and exits, or one whose sort took the caller's
 # collation.
 assert_findings() { # name locale-or-empty expected-line...
-	local name="$1" locale="$2"
+	local name="$1" locale="$2" code=0
 	shift 2
 	if [[ -n "$locale" ]]; then
-		run_checker "$locale" && fail "$name" 'should fail'
+		run_checker "$locale" || code=$?
 	else
-		run_checker && fail "$name" 'should fail'
+		run_checker || code=$?
+	fi
+	if ((code != 1)); then
+		fail "$name" "should exit 1, exited $code"
 	fi
 	if [[ "$(cat "$SCRATCH/err")" != "$(printf '%s\n' "$@")" ]]; then
 		fail "$name" "stderr should be exactly: $*"
@@ -294,6 +303,18 @@ build_fixture
 mkdir -p "$FIXTURE/content/instructions"
 printf 'not deployed\n' >"$FIXTURE/content/instructions/notes.md"
 assert_passes 'a file outside the declared trees'
+
+# POSIXLY_CORRECT stops getopt permuting argv, which is what would turn an option
+# written after a file operand into another input file. The environment must not
+# reach this verdict any more than the caller's locale does.
+build_fixture
+POSIXLY_CORRECT=1 "$CHECKER" "$FIXTURE" >"$SCRATCH/out" 2>"$SCRATCH/err" || :
+if [[ "$(cat "$SCRATCH/out")" != "deployed-membership: ok ($EXPECTED_MEMBERS declared members across ${#TREES[@]} installed trees)" ]]; then
+	fail 'a POSIXLY_CORRECT caller' 'should pass unchanged'
+fi
+if [[ -s "$SCRATCH/err" ]]; then
+	fail 'a POSIXLY_CORRECT caller' 'stderr should be empty'
+fi
 
 # Git does not track empty directories, so deleting the sole file of a one-file
 # tree removes the directory from every fresh checkout. That must read as the
