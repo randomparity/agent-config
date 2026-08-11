@@ -9,6 +9,11 @@ if [[ ! -x "$CHECKER" ]]; then
 	exit 127
 fi
 
+# The steering cases below set RIPGREP_CONFIG_PATH for one invocation of the
+# gate at a time. Unsetting it here keeps the value this suite inherited out of
+# its own assertions, which are ripgrep calls too (record 0051).
+unset RIPGREP_CONFIG_PATH
+
 SCRATCH="$(mktemp -d "${TMPDIR:-/tmp}/deployed-references-test.XXXXXX")"
 FIXTURE="$SCRATCH/repo"
 
@@ -154,5 +159,31 @@ if ! "$CHECKER" "$FIXTURE" >"$SCRATCH/output" 2>&1; then
 	sed -n '1,20p' "$SCRATCH/output" >&2
 	exit 1
 fi
+
+# ripgrep applies RIPGREP_CONFIG_PATH's contents as arguments ahead of the gate's
+# own, so a developer's personal ripgreprc would otherwise decide what this gate
+# matches. Both directives were reproduced against the unhardened gate: the
+# planted bare reference went unreported and the gate exited 0. --fixed-strings
+# turns the class patterns into literals; --glob=!*.md empties the scan of the
+# only file type the fixture holds. Record 0051.
+while IFS= read -r directive; do
+	reset_fixture
+	printf 'Governed by ADR 0019.\n' >"$FIXTURE/content/languages/bash.md"
+	printf -- '%s\n' "$directive" >"$SCRATCH/rgconfig"
+	if RIPGREP_CONFIG_PATH="$SCRATCH/rgconfig" "$CHECKER" "$FIXTURE" \
+		>"$SCRATCH/output" 2>&1; then
+		printf 'not ok - a ripgrep config of %s hid a bare reference\n' \
+			"$directive" >&2
+		exit 1
+	fi
+	if ! rg -q 'deployed-references: bare-adr:' "$SCRATCH/output"; then
+		printf 'not ok - %s should leave bare-adr reported\n' "$directive" >&2
+		sed -n '1,20p' "$SCRATCH/output" >&2
+		exit 1
+	fi
+done <<'DIRECTIVES'
+--fixed-strings
+--glob=!*.md
+DIRECTIVES
 
 printf 'deployed-references-test: ok\n'
