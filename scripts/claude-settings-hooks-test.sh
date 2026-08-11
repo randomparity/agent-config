@@ -97,24 +97,33 @@ set -euo pipefail
 #     the tail, swallowing a preview git did honour: `git clean -e -e -n`,
 #     `git clean -fde -e -n` and `git clean -e -- -n` all preview and are pinned as allowed;
 #   - a bare `-`, which git reads as an ordinary pathspec — `git clean -fdx - .` deletes;
+#   - a `--e…` token carrying anything but lowercase letters after the `--e`, which covers
+#     every spelling a shell mangles on the way to git: `--end"-of-options"`,
+#     `--end'-of-options'` and `--end$SUF` all reach git as `--end-of-options` and delete.
+#     The matcher sees the pre-expansion text and git sees post-expansion argv, so this
+#     alternative exists to keep the gap between them from turning a valid option into an
+#     unconsumable token. It also matches the unquoted `--end-of-options`, harmlessly: the
+#     tail parse below blocks that one regardless, since a match by any parse is a match;
 #   - any other token that does not begin with `-`, which is a pathspec.
 #
 # Stops the option section, so the command is allowed:
 #   - a single-dash bundle where n or i precedes any e — `-n`, `-i`, `-fdn`, `-nd`, `-id`;
 #   - a `--` option whose first letter is d or i — `--dry-run`, `--interactive`, and the
 #     abbreviations `--d` and `--i`. All four preview;
-#   - an option wanting a value that has none, and a `--e…` spelling that is neither an
-#     `--exclude` prefix nor the exact `--end-of-options` — `git clean -fd -e`,
+#   - an option wanting a value that has none, and a purely alphabetic `--e…` spelling that
+#     is neither an `--exclude` prefix nor `--end-of-options` — `git clean -fd -e`,
 #     `git clean -fd --exclude`, `git clean -fd --e` and `git clean -fd --end`. git rejects
 #     all four for a missing value or an unknown option, so none of them deletes. These are
 #     the tokens the grammar does not account for, and the reason each is safe is git's
 #     rejection rather than anything the guard does. All four blocked before #141, so this
-#     is the one class where the guard got looser, and it is a class rather than four forms
-#     — any `--e…` spelling git does not accept lands in it. The four are pinned below as
-#     allowed so the class stays visible; what stops it widening into forms git does accept
-#     is the blocked set, which pins -e and --exclude carrying a value in every spelling. An
-#     assert_allowed line reddens when its own command starts blocking, so it records the
-#     loosening rather than bounding it.
+#     is the one class where the guard got looser. It is a class rather than four forms, and
+#     the boundary is what the matcher can consume rather than what git accepts — those two
+#     diverge whenever a shell rewrites a token, which is why the mangled `--e…` spellings
+#     above are consumed rather than left here. The four are pinned below as allowed so the
+#     class stays visible; what stops it widening into forms git does accept is the blocked
+#     set, which pins -e and --exclude carrying a value in every spelling. An assert_allowed
+#     line reddens when its own command starts blocking, so it records the loosening rather
+#     than bounding it.
 #
 # Both separator spellings have to arrive unquoted. A `--` or `--end-of-options` carrying a
 # quote or a backslash does not break the `git … clean` token run the way a quoted command
@@ -379,6 +388,15 @@ assert_blocked "$CLEAN_HOOK" 'git clean hook' 'git clean -fd --end-of-options'
 assert_blocked "$CLEAN_HOOK" 'git clean hook' 'cd sub && git clean -fd --end-of-options'
 assert_blocked "$CLEAN_HOOK" 'git clean hook' 'git clean -fd --end-of-options build/ --dry-run'
 assert_blocked "$CLEAN_HOOK" 'git clean hook' 'git clean -fd --end-of-options -n'
+# The shell strips the quotes before git sees the option, so these reach git as
+# --end-of-options and delete. The matcher reads the text as written, which is exactly why
+# a mangled --e... token must be consumed rather than treated as a stop.
+assert_blocked "$CLEAN_HOOK" 'git clean hook' 'git clean -fd --end"-of-options"'
+assert_blocked "$CLEAN_HOOK" 'git clean hook' "git clean -fd --end'-of-options'"
+assert_blocked "$CLEAN_HOOK" 'git clean hook' 'cd sub && git clean -fd --end"-of-options"'
+# shellcheck disable=SC2016 # the unexpanded $SUF is the input: the guard must consume a
+# token the shell would rewrite, and expanding it here would test the wrong string.
+assert_blocked "$CLEAN_HOOK" 'git clean hook' 'git clean -fd --end$SUF'
 # Every --exclude prefix from --e up carries its pattern.
 assert_blocked "$CLEAN_HOOK" 'git clean hook' 'git clean -fd --e pat'
 assert_blocked "$CLEAN_HOOK" 'git clean hook' 'git clean -fd --exc=pat'
