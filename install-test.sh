@@ -438,7 +438,8 @@ fixture_leftover="$(find "$fixture_dest/skills" -name "$fixture_entry" -print)"
 # about, and asserting the message rather than only the exit status is what keeps an
 # unrelated failure (an absent `jq`, a syntax error) from satisfying a refusal case.
 
-# Pinned, not inherited. Two cases below assert that a deployed settings.json is not
+# Pinned from here to the end of the script, not inherited. Two cases below assert that a
+# deployed settings.json is not
 # group- or world-readable, which is a check on where the file came from: a fresh 0600
 # `new_temp_file`, not a redirection that takes the umask. Under a hardened umask a
 # redirection produces 0600 too, so the assertions pass over the very regression they
@@ -1095,6 +1096,36 @@ assert_stream_contains "$OVERLAY_ERR" 'is not valid JSON' 'unparseable overlay'
 # directory may hold a space.
 assert_stream_contains "$OVERLAY_ERR" "jq . '$OVERLAY_FILE/settings.overlay.json'" \
 	'unparseable overlay'
+
+# 32a. The reported defect's harder twin: two objects separated by a NUL. jq's lexer stops
+#      at the NUL, so `jq -s` reports *one* object and the shape check agrees with the merge
+#      — both read the same truncated document, and the second object used to be discarded
+#      under a green `applied private overlay`. It is caught by counting bytes rather than
+#      by asking jq, which is the only kind of test a shared reader cannot agree with.
+start_overlay_case claude
+mkdir -p "$OVERLAY_FILE"
+printf '{"env":{"AGENT_CONFIG_TEST":"first"}}\000{"env":{"AGENT_CONFIG_SECOND":"2"}}' \
+	>"$OVERLAY_FILE/settings.overlay.json"
+# The fixture must really read as one document to jq, or it is just case 28 again.
+[[ "$(jq -s 'length' "$OVERLAY_FILE/settings.overlay.json")" == 1 ]] ||
+	fail 'NUL-separated overlay: fixture must slurp to one document'
+run_overlay_case claude
+assert_overlay_refused 'NUL-separated overlay'
+assert_stream_contains "$OVERLAY_ERR" 'contains a NUL byte' 'NUL-separated overlay'
+assert_stream_lacks "$OVERLAY_OUT" 'applied private overlay' 'NUL-separated overlay'
+# Neither document reaches the destination — not even the one jq was willing to read.
+assert_json_value "$OVERLAY_DEST/claude/settings.json" \
+	'.env.AGENT_CONFIG_TEST // "absent"' absent
+
+# 32a2. UTF-16 is NUL-dense, so the same guard catches it. Without one it slurps to zero
+#       documents and is reported as empty, which contradicts what the operator sees in an
+#       editor — the misdiagnosis the byte-order-mark case below was split out to avoid.
+start_overlay_case claude
+printf '\000{\000"\000a\000"\000:\0001\000}' >"$OVERLAY_FILE/settings.overlay.json"
+run_overlay_case claude
+assert_overlay_refused 'UTF-16 overlay'
+assert_stream_contains "$OVERLAY_ERR" 'contains a NUL byte' 'UTF-16 overlay'
+assert_stream_lacks "$OVERLAY_ERR" 'contains no JSON value' 'UTF-16 overlay'
 
 # 32b. An overlay whose only fault is a UTF-8 byte-order mark. jq strips a BOM at offset 0
 #      of its input stream and nowhere else, so this file parses alone and fails as the

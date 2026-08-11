@@ -465,6 +465,33 @@ overlay_is_one_object() { # overlay
 	local shape
 	local count
 	local kind
+	local bytes
+	local text_bytes
+
+	# The two checks below this one are byte-level on purpose. The shape check reads the
+	# overlay through jq, which is the same reader the merge uses, so it can only ever
+	# confirm that reader's own blind spots — a file jq truncates identically in both places
+	# is reported as sound in both places. Each of these is a thing jq's answer cannot
+	# disagree with, and both are shapes where jq's answer is wrong (ADR 0052).
+	#
+	# jq's lexer stops at a NUL, so `{"a":1}\000{"b":2}` slurps to *one* object: the shape
+	# check passes it, the merge reads the same one document, and the second object is
+	# discarded on a green `applied private overlay` — precisely the defect this precondition
+	# exists to close. It also catches UTF-16 and UTF-32, which are full of NUL bytes and
+	# would otherwise be reported as containing no JSON value at all.
+	#
+	# Redirection failures are discarded like the tool stderr below: an unreadable overlay
+	# would otherwise print bash's own `Permission denied` ahead of the verdict. It then
+	# reads as zero-length and unchanged by `tr`, and falls through to the shape check,
+	# which is the one that reports it.
+	bytes="$({ wc -c <"$overlay"; } 2>/dev/null)"
+	text_bytes="$({ tr -d '\000' <"$overlay" | wc -c; } 2>/dev/null)"
+	if [[ "$bytes" -ne "$text_bytes" ]]; then
+		report_overlay_shape "$overlay" 'contains a NUL byte, so it is not UTF-8 JSON text' \
+			'jq stops reading at the NUL, so anything after it is silently discarded. The' \
+			'file is either corrupt or saved as UTF-16 or UTF-32; re-save it as UTF-8.'
+		return 1
+	fi
 
 	# Ahead of the shape check, because the shape check cannot see it. jq strips a UTF-8
 	# byte-order mark only at offset 0 of its concatenated input stream, so an overlay

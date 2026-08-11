@@ -14,6 +14,11 @@ host fragments joined by hand, a generated file written twice — parse fine, an
 after the first is discarded without a word. The install exits 0 and reports
 `applied private overlay`.
 
+A NUL byte is the same loss with the tail hidden further down. jq's lexer stops at one, so
+`{"a":1}\0{"b":2}` slurps to a *single* object: a check that asks jq how many documents the
+file holds gets the same truncated answer the merge gets, and agrees with it. UTF-16 and
+UTF-32 overlays are NUL-dense for the same reason and read as holding no JSON value at all.
+
 The loss is confined to the operator's own overlay. Verified against the base as it stands:
 a two-document overlay whose *second* document replaces `hooks.PreToolUse` has that
 document dropped, and the deployed file carries the base's hooks intact. So this is not a
@@ -21,7 +26,7 @@ route around [ADR 0043](0043-overlays-may-not-replace-a-base-array.md)'s protect
 is silent data loss against the operator's stated intent, which is why #110 left it here
 rather than absorbing it.
 
-Four neighbouring shapes fail rather than lose, but fail badly. An empty or
+Four further shapes fail rather than lose, but fail badly. An empty or
 whitespace-only overlay, a top-level value that is not an object, a file that is not valid
 JSON at all, and a file whose only fault is a leading UTF-8 byte-order mark each abort the
 run with a raw jq message: `object ({"$schema":...) and null (null) cannot be multiplied`,
@@ -43,12 +48,25 @@ by path, with a remedy, on ADR 0049's refusal terms.**
 
 Four things are normative.
 
-1. **The overlay's shape is a precondition, checked before `.[0] * .[1]` runs.** Five
-   verdicts, each with its own message: a leading UTF-8 byte-order mark; not valid JSON; no
-   JSON value at all (empty or whitespace-only); more than one JSON value; exactly one
-   value that is not an object. Every message names the overlay path — never the base —
-   states which of the five it is, and says what to do about it. The base is not the
-   subject of any of them: the operator's file is what is wrong.
+1. **The overlay's shape is a precondition, checked before `.[0] * .[1]` runs.** Six
+   verdicts, each with its own message: a NUL byte anywhere in the file; a leading UTF-8
+   byte-order mark; not valid JSON; no JSON value at all (empty or whitespace-only); more
+   than one JSON value; exactly one value that is not an object. Every message names the
+   overlay path — never the base — states which of the six it is, and says what to do about
+   it. The base is not the subject of any of them: the operator's file is what is wrong.
+
+   **Two of the six are byte-level, and have to be.** The other four ask jq how many values
+   the file holds, and jq is the merge's reader too — so on any input jq misreads
+   identically in both places, the check confirms the merge's own blind spot and reports a
+   truncated file as sound. A validator sharing a parser with the thing it validates can
+   only ever agree with it. The BOM and the NUL are the two known members of that class,
+   caught by reading bytes rather than by asking jq: the BOM because jq strips it only at
+   offset 0 of its concatenated stream, so the file parses alone and fails as the merge's
+   second input; the NUL because jq's lexer stops there, so check and merge agree on a
+   document that is missing everything after it. Neither earns its own verdict for the
+   diagnosis alone — the BOM's remedy would otherwise be `jq . <overlay>`, which succeeds
+   on the file, and the NUL's would be "your file is empty", which contradicts what the
+   operator sees in an editor.
 
    The BOM is a verdict rather than a spelling of "not valid JSON" because jq strips a mark
    only at offset 0 of its concatenated input stream. Such an overlay parses when jq reads
@@ -119,6 +137,11 @@ before.
   read and so points at the overlay for a fault in the base. Correcting that would mean a
   second bash-side check duplicating one the merge already makes; the sentence carries the
   attribution instead.
+- An overlay containing a NUL byte is refused whatever else is true of it, so a UTF-16 or
+  UTF-32 file is named as the wrong encoding rather than as an empty one. The cost is two
+  more processes per overlay — `wc` and `tr` — and a rule stated over bytes rather than over
+  JSON, which is a layer this record otherwise stays out of. Taken because the alternative
+  is a check that agrees with the reader it is checking.
 - The overlay file format is now a stated contract rather than whatever jq tolerates. A
   future relaxation — JSON with comments, a document array — is an ADR, not a patch.
 - `install.sh` grows a second refusal reporter. The protected-key refusal keeps its own
