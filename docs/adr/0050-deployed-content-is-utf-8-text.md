@@ -121,7 +121,10 @@ the trees a contributor adds files to.
   same document without one fails the NUL rule. It offers conversion first, because the
   other way to reach either rule is an author's own document written in UTF-16, for whom
   "delete it" is the wrong instruction. `SKILL.md` is the one file that gets no remedy
-  clause: it is required, so its bytes are the only thing that can change. The prek hook runs `commit-check`, not
+  clause, from either rule: it is required, so its bytes are the only thing that can
+  change, and "delete it" would send the next run to `required regular file is missing`.
+  The exemption has to be stated twice because a `SKILL.md` reaches whichever rule its
+  bytes decide — U+0000 satisfies the acceptor, so a NUL in one lands on the NUL rule. The prek hook runs `commit-check`, not
   `skills-check` (ADR 0039), so a commit is unaffected; this is the local full run and
   CI.
 - **`agents/*/shared` is delivered and unguarded, and this record does not close it.**

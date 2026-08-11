@@ -362,8 +362,11 @@ run_content_scan() { # results-file rg-argument...
 	# `scan_deployed_payload` is the only caller, and it truncates and proves this same
 	# path immediately before calling, so nothing can make the append fail here without
 	# having failed there first. It stays as the guard for a second caller that does not
-	# truncate. The error-sink proof beneath it is pinned, and so are both of
-	# `scan_deployed_payload`'s and `validate_utf8`'s.
+	# truncate. Every other sink proof in this file is pinned by an `assert_sink_proof`
+	# case -- the error sink beneath it, `scan_deployed_payload`'s, and both of
+	# `validate_utf8`'s. `validate_portable_tree`'s `: >"$workspace/paths"` carries no
+	# proof at all and is left to top-level set -e; that predates this rule and is not
+	# claimed as covered.
 	: >>"$results" ||
 		skill_error 'content' 'content scan failed: cannot create the results file'
 	: >"$workspace/rg-error" ||
@@ -517,9 +520,16 @@ fi
 scan_deployed_payload "$workspace/nul-bytes" '(?-u)\x00'
 read_scan_hit "$workspace/nul-bytes"
 nul_byte_file="$scan_hit"
-[[ -z "$nul_byte_file" ]] ||
-	skill_error "$nul_byte_file" 'deployed content must be UTF-8 text (file contains a NUL byte);' \
-		"$payload_remedy"
+if [[ -n "$nul_byte_file" ]]; then
+	# The same exemption `validate_utf8` makes, and for the same reason: U+0000 satisfies
+	# the acceptor's first alternative, so a `SKILL.md` carrying a NUL reaches this rule
+	# rather than the UTF-8 one, and two of the three remedies are wrong for it -- delete
+	# it and the next run reports the required file missing.
+	nul_message='deployed content must be UTF-8 text (file contains a NUL byte)'
+	[[ "${nul_byte_file##*/}" == 'SKILL.md' ]] ||
+		nul_message="$nul_message; $payload_remedy"
+	skill_error "$nul_byte_file" "$nul_message"
+fi
 
 scan_deployed_payload "$workspace/root-references" "$root_pattern"
 read_scan_hit "$workspace/root-references"

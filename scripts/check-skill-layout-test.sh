@@ -367,6 +367,19 @@ if printf '%s\n' "$output" | rg --no-config -Fq "$payload_remedy"; then
 fi
 case_count=$((case_count + 1))
 
+# The other direction into the same exemption, and the one that is easy to miss: U+0000
+# satisfies the acceptor, so a `SKILL.md` carrying a NUL reaches the NUL rule rather than
+# the UTF-8 one. Same reasoning, separate code path, separate case.
+root="$(new_fixture)"
+printf '%b' 'trailing\0000 nul\n' >>"$root/content/skills/skill-01/SKILL.md"
+assert_fails "content/skills/skill-01/SKILL.md: $payload_text_error (file contains a NUL byte)" \
+	"$root"
+output="$(cd "$root" && bash scripts/check-skill-layout.sh 2>&1 || true)"
+if printf '%s\n' "$output" | rg --no-config -Fq "$payload_remedy"; then
+	fail "a SKILL.md with a NUL must not carry the payload remedy: $output"
+fi
+case_count=$((case_count + 1))
+
 # rg's binary detection triggers on a single NUL byte. For a file named explicitly on
 # the command line it converts rather than quits, so the verdict survives -- but the
 # reported position does not, and the position is the half of the message worth having.
@@ -679,13 +692,21 @@ case_count=$((case_count + 1))
 # having read no bytes. `shopt -s inherit_errexit` is not the fix to lean on: bash 3.2
 # is the macOS system shell this repo targets and does not have it.
 #
-# Every sink in the gate, one case each. `validate_utf8`'s was the only one pinned; the
-# content scan carries three more, and this branch adds two of them. Each is redundant
-# with set -e at today's call sites -- which is exactly why a mutation survives without a
-# case, and why the proofs are written per-sink rather than trusted to the caller.
-# `scan_deployed_payload` truncates the results file before `run_content_scan` appends to
-# it, so occupying `malformed-utf8` reaches the outer proof and `rg-error` the inner one.
-assert_sink_proof 'utf8-bad' 'UTF-8 scan failed: cannot create'
+# Four of the gate's six sink proofs, one case each. Only `utf8-bad` was pinned before;
+# `utf8-error` was not, and its mutant is a live fail-open -- occupy that sink and rg
+# never runs, so its unrun 1 lands in the arm meaning "every line is well-formed" and the
+# gate reports a malformed file valid. Each proof is redundant with set -e at today's call
+# sites, which is exactly why the mutations survive without a case, and why the proofs are
+# written per-sink rather than trusted to the caller.
+#
+# The two not listed are named rather than left to a reader: `run_content_scan`'s
+# appending results sink cannot fail without `scan_deployed_payload`'s truncating one
+# failing first, and `validate_portable_tree`'s `paths` sink carries no proof at all and
+# predates this rule. `scan_deployed_payload` truncates the results file before
+# `run_content_scan` appends, so occupying `malformed-utf8` reaches the outer proof and
+# `rg-error` the inner one.
+assert_sink_proof 'utf8-bad' 'UTF-8 scan failed: cannot create the scan output file'
+assert_sink_proof 'utf8-error' 'UTF-8 scan failed: cannot create the scan error file'
 assert_sink_proof 'malformed-utf8' 'content scan failed: cannot create the results file'
 assert_sink_proof 'rg-error' 'content scan failed: cannot create the scan error file'
 
