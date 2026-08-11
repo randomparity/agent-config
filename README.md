@@ -109,13 +109,13 @@ just setup
 yet. It checks and installs `just`, `jq`, `rg`, `shellcheck`, `shfmt`, `gh`,
 `prek`, `actionlint`, and `zizmor`.
 
-`just verify` additionally needs a `python3` that can `import tomllib` — Python
-3.11 or newer. `install-tools.sh` does not check for it yet (issue #172); the
-installer suite states it as a precondition and stops with that message. The
-same interpreter is what lets `./install.sh` apply a Codex `config.overlay.toml`
-at all, so a host without one is refused its overlay rather than given an
-unverified merge; see [Private Overlays](#private-overlays). Stock macOS ships
-Python 3.9.
+No other tool is required. A `python3` that can `import tomllib` — Python 3.11 or
+newer — is used where it exists, and both `just verify` and `./install.sh` work
+without one: the installer suite skips the Codex overlay cases and says which
+ones went unchecked, and the installer applies no Codex `config.overlay.toml`,
+because verifying that an overlay preserves the base is a TOML parse. Stock
+macOS ships Python 3.9, so this is an ordinary configuration rather than a
+corner; see [Private Overlays](#private-overlays).
 
 If a fallback installer places tools in a directory that was not already on your
 shell `PATH`, start a new shell or add the printed tool directory before running
@@ -297,13 +297,15 @@ Three differences from the JSON contract are worth knowing:
   this does not, because concatenation has no way to express an override — writing
   `[features]` again, or a `features.goals` root key, is a duplicate declaration no TOML
   parser accepts. Changing a base value means changing the public base.
-- **It needs a TOML parser.** The guarantee *is* a parse, so on a host whose `python3`
-  cannot `import tomllib` — Python 3.11 added it, and stock macOS ships 3.9 — the overlay
-  is refused and the run exits non-zero every time until a newer Python is installed. The
-  base alone still installs where nothing is deployed yet; where a `config.toml` already
-  exists it is left untouched and keeps its current contents. This replaces the previous
-  behaviour on such hosts, which was to skip validation and deploy the concatenation
-  unchecked.
+- **It needs a TOML parser, and says so when it has none.** The guarantee *is* a parse, so
+  on a host whose `python3` cannot `import tomllib` — Python 3.11 added it, and stock macOS
+  ships 3.9 — the overlay is refused by name, the message says what could not be checked
+  and how to fix it, and the run exits non-zero. The base alone still installs where
+  nothing is deployed yet; where a `config.toml` already exists it is left untouched and
+  keeps its current contents, so it stays at whatever vintage it had while the rest of the
+  Codex tree keeps updating. This replaces the previous behaviour on such hosts, which was
+  to skip validation silently and deploy the concatenation unchecked — measured replacing a
+  working `config.toml` with an unparseable one at exit 0.
 - **An empty overlay is accepted**, where an empty JSON overlay is refused by ADR 0052. An
   empty TOML file is a valid document that defines nothing, so it erases nothing; an empty
   JSON file holds no value at all and so is not an object.

@@ -75,6 +75,8 @@ jq — with the encoding caveat in R10 below.
 - R11 The JSON overlay path's verdicts are unchanged.
 - R12 `README.md` states both overlay contracts accurately, including what rule 2 costs an
   operator without a parser.
+- R13 No new declared prerequisite. `just verify` and `./install.sh` both run on a host
+  with no TOML parser; what changes is what they can assert and apply, and each says so.
 
 ## Design
 
@@ -288,12 +290,13 @@ that owns it:
 
 ### Two consequences the suite carries
 
-`install-test.sh` writes a Codex overlay fixture and runs `--agent all`, so under R2 the
-suite now needs a `python3` that can `import tomllib` where before it degraded to skipping
-validation. That turns an optional tool into a hard prerequisite of `just verify`. The
-suite states it as a precondition with the version and the reason, rather than failing
-somewhere in the middle with a refusal verdict about a fixture. `install-tools.sh` does not
-check for it; issue #172 tracks that, and `README.md` records the gap meanwhile.
+`install-test.sh` writes a Codex overlay fixture and runs `--agent all`, so under R2 every
+case that applies an overlay needs a `python3` that can `import tomllib`. Making that a
+precondition would raise this repository's toolchain floor — `just verify` would fail on a
+host where it passes today — so it is not one. The suite detects the parser once, writes
+the Codex overlay fixture only where one exists, and **skips the Codex overlay cases out
+loud** otherwise, naming the guarantee that went unverified so a green run on such a host
+cannot be read as coverage. No new declared prerequisite, and no silent pass: R13.
 
 A directory or other non-regular file at the overlay path still reads as "no overlay",
 because the guard is `[[ -f "$overlay" ]]`. That is unchanged and is what the JSON path
