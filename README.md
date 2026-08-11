@@ -209,6 +209,13 @@ If an overlay is absent, the installer uses the public base and reports that no
 private overlay was applied. Secrets should stay in environment variables or in
 private overlay files outside this repo.
 
+Each of the three JSON overlays must hold **exactly one JSON object**. A file that is
+empty or whitespace-only, that holds more than one JSON value — two objects concatenated,
+which parses but silently discards everything after the first — that holds a single value
+of some other type, or that is not valid JSON at all, is refused before the merge, and the
+message names the file and which of the four it is. See
+[ADR 0052](docs/adr/0052-an-overlay-is-exactly-one-json-object.md).
+
 The three JSON overlays — Claude `settings.overlay.json`, Bob `settings.overlay.json`
 and `mcp.overlay.json` — are merged under one rule, stated over the result rather
 than over what the overlay names: an overlay may add new keys and may override

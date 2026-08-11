@@ -786,6 +786,7 @@ shape=other
 for arg in "$@"; do
 	case $arg in
 	'.[0] * .[1]') shape=merge ;;
+	*@tsv*) shape=shape ;;
 	-rn) shape=compare ;;
 	-S) shape=normalize ;;
 	esac
@@ -996,5 +997,143 @@ assert_stream_lacks "$OVERLAY_ERR" 'is missing protected values' 'unprotected sc
 # affirmation here would be a clean bill for a file that lost them.
 assert_stream_contains "$OVERLAY_ERR" 'Base scalars are outside this check' \
 	'unprotected scalar loss'
+
+# --- An overlay is exactly one JSON object (ADR 0052) ---------------------------------
+#
+# Four shapes, one verdict each, all refused before the merge runs. The messages are
+# asserted individually because the whole point of the record is that the operator can
+# tell which of the four they have; a build collapsing them into one message passes an
+# exit-status-only case.
+#
+# Every case also asserts the absence of jq's own wording. `cannot be multiplied` is what
+# three of these four printed before, naming the base's contents and no remedy, and
+# nothing else in the suite would notice its return.
+
+# 28. The reported defect. Two concatenated objects: `jq -s`'s `.[1]` is the first, so the
+#     second used to be discarded on a green run. The destination is empty, so ADR 0049's
+#     rule 4 fills it from the base — and neither document may appear in it. Asserting the
+#     absence of document *one* is what separates a refusal from the old behaviour, which
+#     applied it.
+start_overlay_case claude
+write_text "$OVERLAY_FILE/settings.overlay.json" \
+	'{"env":{"AGENT_CONFIG_TEST":"first"}}{"env":{"AGENT_CONFIG_TEST":"second"}}'
+run_overlay_case claude
+assert_overlay_refused 'multi-document overlay'
+assert_stream_contains "$OVERLAY_ERR" "$OVERLAY_FILE/settings.overlay.json" \
+	'multi-document overlay'
+assert_stream_contains "$OVERLAY_ERR" 'contains 2 JSON values, not one' \
+	'multi-document overlay'
+assert_stream_lacks "$OVERLAY_ERR" 'cannot be multiplied' 'multi-document overlay'
+assert_stream_lacks "$OVERLAY_OUT" 'applied private overlay' 'multi-document overlay'
+# Document *one* must not be applied either. That is what separates a refusal from the
+# old behaviour, which merged it and reported success.
+assert_json_value "$OVERLAY_DEST/claude/settings.json" \
+	'.env.AGENT_CONFIG_TEST // "absent"' absent
+assert_json_equal "$OVERLAY_DEST/claude/settings.json" "$BASE_SETTINGS" '.hooks' \
+	'multi-document overlay'
+assert_stream_contains "$OVERLAY_ERR" 'private overlay(s) were refused' \
+	'multi-document overlay'
+# The base fill reaches this destination through a new refusal path, so it has to allocate
+# its own 0600 temp rather than inherit the umask, exactly as case 15 requires of the other.
+[[ -z "$(find "$OVERLAY_DEST/claude/settings.json" -perm -044 -print)" ]] ||
+	fail 'multi-document overlay: base-filled settings.json must not be group- or world-readable'
+
+# 29. A zero-byte overlay. `write_json` appends a newline, so the file is created bare.
+start_overlay_case claude
+mkdir -p "$OVERLAY_FILE"
+: >"$OVERLAY_FILE/settings.overlay.json"
+run_overlay_case claude
+assert_overlay_refused 'empty overlay'
+assert_stream_contains "$OVERLAY_ERR" "$OVERLAY_FILE/settings.overlay.json" 'empty overlay'
+assert_stream_contains "$OVERLAY_ERR" 'contains no JSON value' 'empty overlay'
+assert_stream_lacks "$OVERLAY_ERR" 'cannot be multiplied' 'empty overlay'
+
+# 30. Whitespace only. A size test would pass this file through to the same jq abort, so
+#     it is a case of its own rather than a variant of 29.
+start_overlay_case claude
+write_text "$OVERLAY_FILE/settings.overlay.json" '   '
+run_overlay_case claude
+assert_overlay_refused 'whitespace-only overlay'
+assert_stream_contains "$OVERLAY_ERR" 'contains no JSON value' 'whitespace-only overlay'
+assert_stream_lacks "$OVERLAY_ERR" 'cannot be multiplied' 'whitespace-only overlay'
+
+# 31. One value, wrong type. The array is what the issue reports; `null` is the shape that
+#     produced the same message as the empty file, so both are pinned.
+start_overlay_case claude
+write_json "$OVERLAY_FILE/settings.overlay.json" '[]'
+run_overlay_case claude
+assert_overlay_refused 'array overlay'
+assert_stream_contains "$OVERLAY_ERR" 'is a JSON array, not an object' 'array overlay'
+assert_stream_lacks "$OVERLAY_ERR" 'cannot be multiplied' 'array overlay'
+
+start_overlay_case claude
+write_json "$OVERLAY_FILE/settings.overlay.json" 'null'
+run_overlay_case claude
+assert_overlay_refused 'null overlay'
+assert_stream_contains "$OVERLAY_ERR" 'is a JSON null, not an object' 'null overlay'
+assert_stream_lacks "$OVERLAY_ERR" 'cannot be multiplied' 'null overlay'
+
+# 32. Not JSON at all. The remedy has to carry the way to find *where* it stops parsing,
+#     because the diagnostic deliberately does not relay jq's own parse error.
+start_overlay_case claude
+write_text "$OVERLAY_FILE/settings.overlay.json" '{"env": '
+run_overlay_case claude
+assert_overlay_refused 'unparseable overlay'
+assert_stream_contains "$OVERLAY_ERR" 'is not valid JSON' 'unparseable overlay'
+assert_stream_contains "$OVERLAY_ERR" "jq . $OVERLAY_FILE/settings.overlay.json" \
+	'unparseable overlay'
+
+# 33. The refusal takes ADR 0049's terms rather than aborting. Built on a destination
+#     produced by a *real* install: `prune_removed` returns early where there is no
+#     `.agent-config-manifest`, so a hand-built destination leaves rule 3 unexercised and
+#     a "the file survived" assertion would pass against a build that retains nothing.
+start_overlay_case claude
+write_json "$OVERLAY_FILE/settings.overlay.json" '{"env":{"AGENT_CONFIG_TEST":"kept"}}'
+run_overlay_case claude
+assert_overlay_installed 'shape refusal over a deployment setup'
+cp "$OVERLAY_DEST/claude/settings.json" "$tmpdir/shape-deployed.json"
+write_text "$OVERLAY_FILE/settings.overlay.json" '{"env":{"A":"1"}}{"env":{"B":"2"}}'
+run_overlay_case claude
+assert_overlay_refused 'shape refusal over a deployment'
+assert_same_file "$tmpdir/shape-deployed.json" "$OVERLAY_DEST/claude/settings.json"
+# The manifest entry is the only thing between a withheld path and `prune_removed`.
+assert_line "$OVERLAY_DEST/claude/.agent-config-manifest" 'settings.json'
+assert_stream_contains "$OVERLAY_ERR" 'has every array and object' \
+	'shape refusal over a deployment'
+assert_stream_contains "$OVERLAY_ERR" 'these paths were left untouched' \
+	'shape refusal over a deployment'
+
+# 34. And is idempotent: a second refused run changes neither the file nor the report.
+cp "$OVERLAY_ERR" "$tmpdir/shape-refusal-first.err"
+run_overlay_case claude
+assert_overlay_refused 'shape refusal is idempotent'
+assert_same_file "$tmpdir/shape-deployed.json" "$OVERLAY_DEST/claude/settings.json"
+assert_same_file "$tmpdir/shape-refusal-first.err" "$OVERLAY_ERR"
+
+# 35. The behaviour change ADR 0052 is really buying: these four shapes used to `exit 1`
+#     inside the merge, which under `--agent all` cost the operator every agent. Claude is
+#     first, so a malformed Claude overlay is the case that used to install nothing at all.
+start_overlay_case claude
+write_text "$OVERLAY_FILE/settings.overlay.json" '{"env":{"A":"1"}}{"env":{"B":"2"}}'
+run_overlay_case all
+assert_overlay_refused 'malformed overlay does not freeze the run'
+assert_file "$OVERLAY_DEST/claude/CLAUDE.md"
+assert_file "$OVERLAY_DEST/claude/skills/preflight/SKILL.md"
+assert_file "$OVERLAY_DEST/codex/config.toml"
+assert_file "$OVERLAY_DEST/bob/settings.json"
+assert_file "$OVERLAY_DEST/bob/mcp_settings.json"
+
+# 36. The shape check is a jq call like any other, so it fails closed (ADR 0049 rule 1).
+#     A build reading its failure as "the overlay is fine" would merge an unvalidated
+#     overlay, which is the defect this section exists to close.
+start_overlay_case claude
+write_json "$OVERLAY_FILE/settings.overlay.json" '{"env":{"AGENT_CONFIG_TEST":"first"}}'
+run_overlay_case_jq claude shape
+assert_overlay_refused 'shape check fails closed'
+assert_stream_contains "$OVERLAY_ERR" 'is not valid JSON' 'shape check fails closed'
+assert_stream_lacks "$OVERLAY_OUT" 'applied private overlay' 'shape check fails closed'
+# An overlay the check could not read must not reach the merge.
+assert_json_value "$OVERLAY_DEST/claude/settings.json" \
+	'.env.AGENT_CONFIG_TEST // "absent"' absent
 
 printf 'install-test: ok\n'
