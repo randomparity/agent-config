@@ -91,7 +91,8 @@ directory count, which edits the expected string in the rows that pin the summar
   - *Membership inside a skill directory.* A file added under an existing
     `content/skills/<name>/` — an asset, a carrier, a second Markdown file — still installs with
     no membership check. This is the residual the issue books deliberately, and it is the larger
-    half by file count: 96 files sit inside the 36 declared directories. `check-skill-layout.sh`
+    half by file count: 88 installed files sit inside the 36 declared directories, plus 8 more
+    under `testdata` that `stage_skills` prunes before delivery. `check-skill-layout.sh`
     constrains what those files may be named, contain and reference; nothing counts them.
   - *The manifest is source, so the gate cannot defend against edits to itself.* Deleting a
     declared name while the directory is there makes the directory undeclared, which is red.
