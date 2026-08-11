@@ -3,6 +3,12 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CHECKER="$ROOT/scripts/check-public-safety.sh"
+
+# The cases below hand the gate a hostile RIPGREP_CONFIG_PATH one invocation at
+# a time. Unsetting it here keeps the value this suite inherited from steering
+# the baseline cases, which assert the gate stays green (record 0051).
+unset RIPGREP_CONFIG_PATH
+
 SCRATCH="$(mktemp -d "${TMPDIR:-/tmp}/public-safety-test.XXXXXX")"
 
 cleanup() {
@@ -111,5 +117,53 @@ if ! "$CHECKER" "$SCRATCH/repo" >"$SCRATCH/output" 2>&1; then
 	exit 1
 fi
 rm -f "$SCRATCH/repo/prose.md"
+
+# A credential shape the scan is meant to catch, assembled at runtime so this
+# suite is not itself a match for the gate that scans it.
+planted="token: $(printf '%s%s' 'ghp' '_abcdefghijklmnopqrstuvwxyz01')"
+
+# ripgrep applies the contents of RIPGREP_CONFIG_PATH as arguments ahead of the
+# ones the gate passes, so whoever sets that variable chooses what the secret
+# scanner matches. Each directive below was reproduced against the unhardened
+# gate: the planted token went unreported and the gate exited 0 -- the same
+# answer it gives for a clean tree, which is the worst shape a security gate can
+# fail in. Record 0051.
+printf '%s\n' "$planted" >"$SCRATCH/repo/planted.md"
+while IFS= read -r directive; do
+	printf -- '%s\n' "$directive" >"$SCRATCH/rgconfig"
+	if RIPGREP_CONFIG_PATH="$SCRATCH/rgconfig" "$CHECKER" "$SCRATCH/repo" \
+		>"$SCRATCH/output" 2>&1; then
+		printf 'public-safety-test: a ripgrep config of %s hid a planted secret\n' \
+			"$directive" >&2
+		exit 1
+	fi
+done <<'DIRECTIVES'
+--fixed-strings
+--glob=!*.md
+--max-count=0
+--encoding=utf-16le
+DIRECTIVES
+rm -f "$SCRATCH/repo/planted.md" "$SCRATCH/rgconfig"
+
+# ripgrep judges a file binary on a single NUL byte and skips it during
+# directory traversal, so a secret in a file carrying one anywhere is not
+# scanned at all. --text is what keeps it in view.
+printf '%s\n\000trailing\n' "$planted" >"$SCRATCH/repo/nul.md"
+if "$CHECKER" "$SCRATCH/repo" >"$SCRATCH/output" 2>&1; then
+	printf 'public-safety-test: a NUL byte hid a planted secret\n' >&2
+	exit 1
+fi
+rm -f "$SCRATCH/repo/nul.md"
+
+# A leading \xFF\xFE makes ripgrep transcode the rest of the file as UTF-16LE,
+# so ASCII content is garbled into something the ASCII patterns cannot match --
+# a five-byte prefix that bypasses the scanner. --encoding none stops the
+# sniffing. The trade is recorded in 0051: no tracked file here is UTF-16.
+printf '\377\376%s\n' "$planted" >"$SCRATCH/repo/bom.md"
+if "$CHECKER" "$SCRATCH/repo" >"$SCRATCH/output" 2>&1; then
+	printf 'public-safety-test: a spoofed UTF-16 mark hid a planted secret\n' >&2
+	exit 1
+fi
+rm -f "$SCRATCH/repo/bom.md"
 
 printf 'public-safety-test: ok\n'

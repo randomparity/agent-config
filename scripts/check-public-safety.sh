@@ -3,6 +3,14 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
+# ripgrep applies the contents of RIPGREP_CONFIG_PATH as arguments ahead of the
+# ones below, so without this every flag this scan does not set is chosen by
+# whoever set that variable -- a personal ripgreprc, a shell profile, a CI
+# environment. --fixed-strings alone turns these patterns into literals that
+# match nothing and this gate exits 0 on a leaking tree. Unsetting once covers
+# every ripgrep this file runs, including one added later (record 0051).
+unset RIPGREP_CONFIG_PATH
+
 if ! command -v rg >/dev/null 2>&1; then
 	echo "public-safety: rg is required" >&2
 	exit 2
@@ -34,8 +42,17 @@ denied_patterns=(
 )
 
 status=0
+# --text: ripgrep judges a file binary on one NUL byte and skips it while
+# walking a directory, so a single NUL anywhere in a file hides every secret in
+# it. --encoding none: a leading \xFF\xFE makes ripgrep transcode the file as
+# UTF-16, garbling ASCII so these ASCII patterns cannot match. Both are one line
+# of file content to trigger, and this gate's subject is content someone may be
+# trying to get past it. The trade in --encoding none -- a file genuinely stored
+# as UTF-16 stops being scanned -- is accepted in record 0051: no tracked file
+# here is one, and a documented five-byte bypass is the worse half.
 for pattern in "${denied_patterns[@]}"; do
-	if rg -n --hidden --glob '!.git' --glob '!.git/**' "$pattern" "${scan_paths[@]}"; then
+	if rg -n --hidden --text --encoding none \
+		--glob '!.git' --glob '!.git/**' "$pattern" "${scan_paths[@]}"; then
 		printf 'public-safety: denied pattern matched: %s\n' "$pattern" >&2
 		status=1
 	fi
