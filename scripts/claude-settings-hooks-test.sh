@@ -173,11 +173,16 @@ set -euo pipefail
 #
 # One consequence of making the `-e` value mandatory: a token run that fails to parse is
 # rescanned from each later start position, so the guard's cost is quadratic in the number
-# of `git clean` occurrences on a single line. Measured on the shipped body, a line of
-# repeated `git clean -e ` costs 8 ms at 400 occurrences, 68 ms at 3200 and 997 ms at 12800
-# (166 KB). Ordinary input is unaffected — one `git clean` with 4000 trailing options is
-# 11 ms — so this is recorded as the cause of a future latency report, not as a reason to
-# restructure the pattern.
+# of `git clean` occurrences on a single line, where the pre-#141 pattern was linear. Left
+# alone that is not a latency problem but an availability one: Claude Code blocks on exit 2
+# alone, so a hook killed at its timeout does not block, and a large enough command would
+# have removed the guard rather than slowed it. Hence the length check ahead of the match —
+# over 32 KB the guard refuses a command mentioning clean instead of starting a scan it
+# might not finish, which is the same fail-closed stance it already takes when jq fails. The
+# bound is what makes the cost safe rather than merely known: the worst case below the
+# threshold is 44 ms, and 666 KB of `git clean -e ` went from 18145 ms to 56 ms. A long
+# command that cannot be a git clean is not affected at any size, and 32 KB is orders of
+# magnitude above any real command — the assertions above pin both directions.
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 SETTINGS="$ROOT/agents/claude/shared/settings.base.json"
@@ -384,6 +389,17 @@ assert_blocked "$CLEAN_HOOK" 'git clean hook' $'git clean -n\ngit clean -fd'
 
 # A destructive guard that cannot read its input must not wave the command through.
 assert_fails_closed "$CLEAN_HOOK" 'git clean hook'
+
+# Nor one that cannot finish scanning it. Claude Code blocks on exit 2 alone, so a hook
+# killed at its timeout fails open — the guard refuses an oversized command mentioning clean
+# rather than starting a scan it might not finish. A long command that cannot be a git clean
+# is untouched, whatever its size.
+OVERSIZED_PAD=$(awk 'BEGIN { s = ""; while (length(s) < 33000) s = s "git clean -e "; print s }')
+assert_blocked "$CLEAN_HOOK" 'git clean hook' "$OVERSIZED_PAD"
+assert_blocked "$CLEAN_HOOK" 'git clean hook' "$OVERSIZED_PAD; git clean -fd"
+assert_allowed "$CLEAN_HOOK" 'git clean hook' \
+	"$(awk 'BEGIN { s = "echo "; while (length(s) < 33000) s = s "x"; print s }')"
+unset OVERSIZED_PAD
 
 # Forms that cannot force-delete stay legal.
 assert_allowed "$CLEAN_HOOK" 'git clean hook' 'git clean -n'
