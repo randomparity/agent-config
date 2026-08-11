@@ -255,8 +255,8 @@ third arriving as a red suite.
 | `content/skills` replaced by a symlink to a directory | all declared names missing; no entry from behind the link |
 | the skills tree made unreadable | exit 2, `could not enumerate the skills tree`, with no `missing-skill-directory` line; skipped as root, announcing the skip |
 | a three-tree finding and a skills finding in one run | the file block, its remedy, then the skills block, then its remedy — the ordering guarantee |
-| a `comm` that fails only on the skills-half comparison | exit 2 and the skills-half comparison message exactly. The existing mock exits 1 unconditionally and so faults inside the three-tree half, leaving the skills-half routing unasserted. The mock discriminates on its **operands** — the skills workspace files are distinctly named — and delegates otherwise, so it lands in exactly one half by construction, with no counter, no cross-process state, and no dependence on which half the script computes first |
-| a `sort` that fails only on the skills-half enumerated names | exit 2 and the skills-half sort message exactly, by the same operand discrimination |
+| a `comm` that fails only on the skills-half comparison | exit 2 and the skills-half comparison message exactly. The existing mock exits 1 unconditionally and so faults inside the three-tree half, leaving the skills-half routing unasserted. The mock discriminates on its **operands** — the skills workspace files are distinctly named — and delegates otherwise, so it lands in exactly one half by construction, with no counter, no cross-process state, and no dependence on which half the script computes first. Delegation is the part with a trap: the mock runs with `$mock_bin` first on `PATH`, so a body ending `exec comm "$@"` re-execs the mock in an unbounded loop. It reaches the real tool by re-invoking with `$mock_bin` removed from `PATH`, which needs no absolute path and so adds no host assumption on the macOS leg |
+| a `sort` that fails only on the skills-half enumerated names | exit 2 and the skills-half sort message exactly, by the same operand discrimination and the same PATH-stripping delegation |
 | `content/skills` replaced by a regular file | all declared names as `missing-skill-directory`, no `unexpected-skill-entry` — the survival filter's third case, and the one a bad merge most plausibly produces |
 | two stray top-level files beside a declared directory removed | `unexpected-skill-entry` twice, `non-directory-skill-entry` twice, then `missing-skill-directory`, then the skills remedy — the skills-half counterpart of the file half's multiplicity-and-inter-block row, and the only place the non-directory class's ordering and multiplicity are pinned |
 | a three-tree finding beside an unreadable `content/skills` | exit 2, no `unexpected-member` line — pins the global ordering consequence above; skipped as root |
@@ -271,11 +271,20 @@ Two of them are re-read rather than merely re-run: the `.ignore` and dot-prefix 
 three trees, and the `missing-member` rows, are the behaviors the issue names as
 must-not-regress, and their expected sequences are unchanged bytes.
 
-Of the six exit-2 conditions, five have a row. The skills-half workspace-write fault does not:
-the existing `mktemp` mock makes the whole workspace read-only, so it faults on the three-tree
-half's first truncation and never reaches the skills half, and discriminating a `: >` redirection
-by operand is not something a PATH mock can do. That string rests on being read, and it is the
-one the shared message makes least consequential.
+Four of the six exit-2 conditions have a row; two do not, and both are unreachable by the
+operand discrimination the rows above rely on. The skills-half **workspace-write** fault: the
+existing `mktemp` mock makes the whole workspace read-only, so it faults on the three-tree half's
+first truncation and never reaches the skills half, and a `: >` redirection has no argv for a
+PATH mock to read. The skills-half **declared-list sort**: both halves sort their declared list
+as `printf '%s\n' "$literal" | sort -u`, identical argv reading stdin in the same cwd and
+environment, so no mock can tell them apart without the invocation counter the comm row
+deliberately avoids. The three-tree half's own `could not sort the manifest` is unasserted today
+for exactly this reason, so this is the existing precedent rather than a new gap. Both strings
+rest on the code being read.
+
+The two delegating rows need a helper of their own: `assert_environment_fault` checks only for a
+`deployed-membership:` prefix, and these rows exist to pin *which* message, so they assert the
+exact string.
 
 The `assert_findings` helper already compares whole stderr sequences in order, so the block
 ordering above is asserted rather than described. `assert_fails` and `assert_absent` cover the
