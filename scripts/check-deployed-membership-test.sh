@@ -81,10 +81,13 @@ run_checker() { # [locale]
 }
 
 fail() { # name detail...
+	# The banners go through %s: bash printf parses a format string beginning
+	# with `--` as its own options and dies with "invalid option", which would
+	# replace every diagnostic here with a shell error about the diagnostic.
 	printf 'not ok - %s: %s\n' "$1" "${*:2}" >&2
-	printf '-- stdout --\n' >&2
+	printf '%s\n' '-- stdout --' >&2
 	cat "$SCRATCH/out" >&2
-	printf '-- stderr --\n' >&2
+	printf '%s\n' '-- stderr --' >&2
 	cat "$SCRATCH/err" >&2
 	exit 1
 }
