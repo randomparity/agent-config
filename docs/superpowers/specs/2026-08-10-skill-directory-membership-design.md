@@ -65,6 +65,11 @@ means nothing apart from the comparison that consumes it:
   than repo-relative, because the prefix is fixed and repeating it 36 times invites a typo the
   comparison would report as a missing directory beside an unexpected one.
 
+Two comment blocks in the same file assert the opposite of the new rule and are edited with it,
+because nothing gates a script comment's accuracy: the `trees` preamble, which says
+`content/skills` "is deliberately absent" and cites 0045 for it, and the file header, which
+scopes the whole script to three trees and to the residual 0041 disclosed.
+
 ### Enumeration
 
 The tree survives the same `-d` **and not** `-L` filter the three trees get, and for the same
@@ -134,6 +139,10 @@ routed to `fault` on failure so that a full disk or a broken tool cannot borrow 
 `export LC_ALL=C` at the top of the script already pins the collation for `sort`, `comm` and the
 emission order, and covers these calls unchanged.
 
+The non-directory list goes through `sort -u` as well. It is built by walking `find -print0`
+output, which returns readdir order, so without its own sort its block would emit in whatever
+order the filesystem gave — the one class whose ordering nothing else pins.
+
 `sort -u` makes a duplicated list line inert, as it does for the file manifest.
 
 ### Verdicts
@@ -145,6 +154,14 @@ emission order, and covers these calls unchanged.
 | 1 | declared, not present | `deployed-membership: missing-skill-directory: content/skills/<name>` |
 | 2 | a skill directory name contains a newline | `deployed-membership: a skill directory name contains a newline and cannot be compared` |
 | 2 | the enumeration fails on a surviving tree | `deployed-membership: could not enumerate the skills tree` |
+| 2 | a skills-half workspace write fails | `deployed-membership: could not write to the workspace` |
+| 2 | a skills-half `sort` fails | `deployed-membership: could not sort the enumerated skill directories` |
+| 2 | a skills-half `comm` fails | `deployed-membership: could not compare the enumerated skill directories against the declared set` |
+
+The last two are deliberately not the three-tree half's strings. `could not sort the enumerated
+members` and `could not compare the enumerated members against the manifest` both name the file
+manifest, and reusing them would leave an operator unable to tell which half faulted — which is
+also what makes the suite row below able to assert the half it landed in.
 
 The vocabulary is deliberately split between `entry` and `directory`. A present child's type is
 not known to be a directory — that is what one of the classes is for — so the two present-side
@@ -231,13 +248,15 @@ third arriving as a red suite.
 | `content/skills` replaced by a symlink to a directory | all declared names missing; no entry from behind the link |
 | the skills tree made unreadable | exit 2, `could not enumerate the skills tree`, with no `missing-skill-directory` line; skipped as root, announcing the skip |
 | a three-tree finding and a skills finding in one run | the file block, its remedy, then the skills block, then its remedy — the ordering guarantee |
-| a `comm` that fails only on the skills-half comparison | exit 2 and a `deployed-membership:` line. The existing mock exits 1 unconditionally and so faults inside the three-tree half, leaving the skills-half routing unasserted; this one counts invocations and fails the third, which the pinned internal sequence above makes well-defined |
+| a `comm` that fails only on the skills-half comparison | exit 2 and the skills-half comparison message exactly. The existing mock exits 1 unconditionally and so faults inside the three-tree half, leaving the skills-half routing unasserted; this one counts invocations and fails the third, which the pinned internal sequence makes well-defined, and asserting the distinct string is what fails the row if it lands in the wrong half |
+| two stray top-level files beside a declared directory removed | `unexpected-skill-entry` twice, `non-directory-skill-entry` twice, then `missing-skill-directory`, then the skills remedy — the skills-half counterpart of the file half's multiplicity-and-inter-block row, and the only place the non-directory class's ordering and multiplicity are pinned |
 | a three-tree finding beside an unreadable `content/skills` | exit 2, no `unexpected-member` line — pins the global ordering consequence above; skipped as root |
 | a fixture root holding a well-formed bracket expression | passes, with the same summary. Reddens under either pattern-matching form: `! -path` fails to self-match a bracket root, so the row is a form-pin and not merely a hostile-path case |
 
-Every existing row is re-run unchanged except the two that pin the summary in full — the pass
-row and the `POSIXLY_CORRECT` row — whose expected string gains the `<k>` clause and stays an
-exact-match comparison rather than being relaxed to a substring. That is the evidence for the
+Every existing row is re-run unchanged except where the summary is pinned in full, which is two
+edit sites covering four rows: the `assert_passes` helper's expected string, which three rows
+call, and the inline `POSIXLY_CORRECT` comparison. Both gain the `<k>` clause and stay
+exact-match rather than being relaxed to a substring. That is the evidence for the
 no-regression criterion.
 Two of them are re-read rather than merely re-run: the `.ignore` and dot-prefix rows for the
 three trees, and the `missing-member` rows, are the behaviors the issue names as
@@ -260,6 +279,12 @@ because this change widens the surface they cover:
   user's machine at read time, so one declared name could otherwise deploy an arbitrary tree,
   including one reached by a `../`-relative path out of the configuration directory. Refusing
   every non-directory entry is the control and it cannot be waived by declaring the name.
+
+## Sequencing
+
+The comment edits in `install.sh` and in the gate script describe a rule, so they land in or
+after the commit that adds it. A commit that documents a gate the branch does not yet carry
+reads as reassurance and is harder to notice than a missing gate.
 
 ## Verification
 
