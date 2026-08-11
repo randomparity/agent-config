@@ -19,12 +19,12 @@ matched.
 ## Steps
 
 1. **Refresh tracking state.** `git remote get-url origin`, then `git fetch --prune`. Both the
-   ancestry test and the `never pushed` row are claims about `refs/remotes/origin`, and a
+   ancestry test and the `not fully pushed` row are claims about `refs/remotes/origin`, and a
    stale one is worthless. Check the remote explicitly: `git fetch --prune` exits **0** in a
    repo with no remotes and in one whose only remote is named something else, and the sweep
-   would then read an empty remote-head set, call every branch `never pushed`, and report that
-   as a fact. Stop and say so if there is no `origin` or the fetch fails (offline, auth) — do
-   not evaluate a single branch against stale or absent state.
+   would then read an empty remote-head set, call every branch `not fully pushed`, and report
+   that as a fact. Stop and say so if there is no `origin` or the fetch fails (offline, auth) —
+   do not evaluate a single branch against stale or absent state.
 2. **Resolve the base branch.** `gh repo view --json defaultBranchRef --jq .defaultBranchRef.name`;
    without `gh`, `git symbolic-ref --short refs/remotes/origin/HEAD` and strip the `origin/`.
    Every ancestry test below runs against `origin/<base>` — the ref you just fetched, not a
@@ -44,15 +44,16 @@ matched.
    branches whose upstream ref had been deleted, which made the `merged` and
    `squash-merged` rows below unreachable for the leftovers this sweep exists to collect: a
    branch created by `git worktree add <path> -b <branch> origin/<base>` tracks the *base*, so
-   its track field reads empty until its first commit and `[ahead N, behind M]` after, and
-   pushing it with `-u` only moves that to `[behind N]` or empty. A repo with
+   its track field reads empty until its first commit and `[ahead N]` after — gaining a
+   `behind` component only once the base moves — and pushing it with `-u` moves that to
+   `[behind N]` or empty. A repo with
    `deleteBranchOnMerge: false` then keeps the remote head after the merge, so a pruned fetch
-   cannot produce `[gone]` either. Both tracking fields are still read — the `never pushed`
+   cannot produce `[gone]` either. Both tracking fields are still read — the `not fully pushed`
    row needs them — but neither decides who gets looked at.
 
    Enumerating more does not delete more. Every branch runs the full classification below, and
    only `merged` and `squash-merged` delete.
-4. **Read the remote heads, once**, for the `never pushed` row:
+4. **Read the remote heads, once**, for the `not fully pushed` row:
 
    ```bash
    git for-each-ref --format='%(refname:strip=3)' refs/remotes/origin
@@ -76,11 +77,12 @@ matched.
    names.
 6. **Map worktrees.** `git worktree list --porcelain` — records separated by blank lines,
    each with a `worktree <path>` and, when a branch is checked out, `branch refs/heads/<name>`.
-   A detached worktree emits `detached` instead and never enters the map. The first record is
-   the main checkout, and nothing marks the *current* one — compare each `worktree <path>`
-   against `git rev-parse --show-toplevel` to find it. Map branch → **set** of paths:
-   `git worktree add --force` allows one branch in two worktrees, and a 1:1 map would let the
-   plan promise one removal and then fail the deletion.
+   A detached worktree emits `detached` instead and never enters the map; a `locked` record is
+   a skip, since `git worktree remove` refuses one and the plan should not promise it. The
+   first record is the main checkout, and nothing marks the *current* one — compare each
+   `worktree <path>` against `git rev-parse --show-toplevel` to find it. Map branch → **set**
+   of paths: `git worktree add --force` allows one branch in two worktrees, and a 1:1 map
+   would let the plan promise one removal and then fail the deletion.
 7. **Classify every candidate** (table below) before touching anything.
 8. **Plan → confirm.** Present one table — `branch → classification → action` — including the
    skips and their reasons, and naming the path of every worktree the plan would remove. Take
@@ -96,9 +98,9 @@ unordered table would classify it `merged` and delete it.
 |---|---|---|---|
 | 1 | base branch | name equals `<base>` | skip, name it |
 | 2 | protected | name is in step 5's protected set | skip, name it |
-| 3 | checked out where the sweep must not reach | branch is the HEAD of the main checkout, of the worktree the sweep is running in, or of more than one worktree | skip, name it |
-| 4 | never pushed | neither push evidence holds: no `refs/remotes/origin/<branch>` in step 4's set, and no `%(upstream:track)` of `[gone]` whose `%(upstream:short)` is `origin/<branch>` | **skip, never delete** |
-| 5 | dirty or unreadable worktree | `git -C <path> status --porcelain` is non-empty, or does not exit 0 | skip, name it |
+| 3 | checked out where the sweep must not reach | branch is the HEAD of the main checkout, of the worktree the sweep is running in, of a locked worktree, or of more than one worktree | skip, name it |
+| 4 | not fully pushed | neither push evidence holds: no `refs/remotes/origin/<branch>` in step 4's set **containing** the tip (`git merge-base --is-ancestor <branch> refs/remotes/origin/<branch>`), and no `%(upstream:track)` of `[gone]` whose `%(upstream:short)` is `origin/<branch>` | **skip, never delete** |
+| 5 | dirty or unreadable worktree | the branch has a worktree and `git -C <path> status --porcelain` is non-empty or does not exit 0 | skip, name it |
 | 6 | merged | `git merge-base --is-ancestor <branch> origin/<base>` succeeds | delete |
 | 7 | squash-merged | not an ancestor, but `gh pr list --head <branch> --state merged --json number,title,headRefOid --limit 1` returns a PR, and `git merge-base --is-ancestor <branch> <headRefOid>` succeeds | delete; the plan line names the PR |
 | 8 | unmerged | neither — no ancestry, and no merged PR containing this tip (or no `gh`/GitHub remote, or the merged head sha could not be obtained) | **report, never delete** |
@@ -122,11 +124,20 @@ an ancestor of the base and the worktree is live. Do not run the sweep while a c
 dispatched worker is in flight. Row 5 catches only the workers that left modified or untracked
 files behind, and a worker that ended cleanly leaves neither.
 
-**Never delete a never-pushed branch.** Row 4 states a rule that used to be an accident of
-enumeration — a branch with no upstream yielded an empty track field and was never a
-candidate. State it positively: a branch is deletable only on *evidence that it was pushed*,
-never on the absence of evidence that it was not. That evidence is a remote head under the
-branch's own name, or a `[gone]` track field naming a head that had the branch's own name.
+**Never delete a branch whose commits are not on the remote.** Row 4 states a rule that used
+to be an accident of enumeration — a branch with no upstream yielded an empty track field and
+was never a candidate. State it positively: a branch is deletable only on *evidence that it
+was pushed*, never on the absence of evidence that it was not. That evidence is a remote head
+under the branch's own name that contains the branch tip, or a `[gone]` track field naming a
+head that had the branch's own name.
+
+The containment half of the first clause is what keeps a *stale* remote head from vouching
+for a branch that reused its name. Push `feat/x`, merge it, delete the local branch, and with
+the head ref kept, `origin/feat/x` outlives the work; start unrelated `feat/x` from
+`origin/<base>` and a name-only test calls it pushed, after which row 6 sees a tip at the base,
+calls it merged, and takes its worktree — and the ignored files under it — with it. Requiring
+the remote head to contain the tip rejects that, and rejects the smaller case of a branch
+carrying commits not yet pushed, which is the same guarantee said the other way round.
 
 Both halves of the `[gone]` clause are load-bearing, because `[gone]` is a fact about
 *whatever the branch tracks*, not about the branch. `git switch -c mine origin/theirs` sets
@@ -145,7 +156,7 @@ forever.** The push sets no upstream, so there is no `[gone]` to read, and the m
 the remote head, so there is nothing left under the branch's own name either. Nothing local
 survives to distinguish it from a branch that was never pushed, and the only remaining witness
 would be a pull request matched by name alone — which row 7 deliberately refuses as deletion
-evidence. The sweep reports it as `never pushed`, which is wrong but safe; push with
+evidence. The sweep reports it as `not fully pushed`, which is wrong but safe; push with
 `-u` (or set `push.autoSetupRemote`) and the sweep collects it.
 
 **Merged but never pushed is a skip, deliberately.** Ancestry proves the commits are in the

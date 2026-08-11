@@ -44,12 +44,20 @@ the absence of evidence that it was not.**
 
 Push evidence is either of two facts, both local and free once step 1's pruned fetch has run:
 
-- a remote-tracking ref under the branch's own name, `refs/remotes/origin/<branch>`; or
+- a remote-tracking ref under the branch's own name, `refs/remotes/origin/<branch>`, that
+  contains the branch tip; or
 - a `[gone]` track field **whose upstream was `origin/<branch>`**, which asserts that a head
   of the branch's own name existed and has been deleted.
 
-A branch with neither is classified `never pushed` and skipped whatever its ancestry, which
-makes the rule the skill previously only implied into a row of its own.
+A branch with neither is classified `not fully pushed` and skipped whatever its ancestry,
+which makes the rule the skill previously only implied into a row of its own.
+
+Containment on the first clause matters for the same reason the name scoping matters on the
+second: a remote head outlives the work that made it. Push a branch, merge it, delete the
+local branch, and with `deleteBranchOnMerge: false` the head remains; reuse the name for
+unrelated work and a name-only test calls the new branch pushed. Requiring the head to contain
+the tip rejects that, and rejects a branch carrying commits not yet pushed — the same
+guarantee stated the other way round.
 
 The two facts cover `deleteBranchOnMerge: false` unconditionally, and `true` only for a branch
 that was pushed with `-u`. Push without it in a repository that deletes head branches on
@@ -122,11 +130,12 @@ setting is the signal that does, so the sweep reads it once per run.
   step 6 describe the old behaviour and are now wrong; 0044 is an accepted record and is not
   rewritten, and the `$campaign` correction is issue #130 rather than a fold-in to a change
   whose scope the filed issue restricted to one file.
-- A never-pushed branch that is an ancestor of the base is never collected automatically.
-  That is a permanent, accepted gap and the direct cost of the decision above: at least one
-  such branch exists on the machine that produced issue #116, and the sweep will report it
-  as a skip forever. The alternative costs a local-only branch with no remote copy, which is
-  the one thing in this sweep that a deletion cannot be undone from.
+- A branch whose commits are not on the remote is never collected automatically, however
+  thoroughly its commits are in the base. That is a permanent, accepted gap and the direct
+  cost of the decision above: at least one such branch exists on the machine that produced
+  issue #116, and the sweep will report it as a skip forever. The alternative costs a
+  local-only branch with no remote copy, which is the one thing in this sweep that a deletion
+  cannot be undone from.
 - Sweep output grows. Every local branch now appears in the plan table with a classification,
   where previously only `[gone]` branches did. That is the honest report of what the sweep
   considered, and the ordered rows make each spared branch say why it was spared.
@@ -192,9 +201,9 @@ setting is the signal that does, so the sweep reads it once per run.
 - **Dropping the `[gone]` clause entirely and testing only for `refs/remotes/origin/<branch>`.**
   Simpler, and rejected: in a repository with `deleteBranchOnMerge: true` the merge prunes
   that ref, so every branch the sweep was originally written to collect would classify
-  `never pushed` and be skipped — before ever reaching the row where its merged pull request
-  could vouch for it, since the never-pushed row has to come first to do its job. The name
-  scoping above is what the clause actually needed.
+  `not fully pushed` and be skipped — before ever reaching the row where its merged pull
+  request could vouch for it, since that row has to come first to do its job. The name scoping
+  above is what the clause actually needed.
 - **Treating `git branch -d` as a second land check and keeping the sweep's old claim that it
   is one.** Rejected on measurement: `-d` tests against the branch's own upstream when it has
   one, so on the squash path it warns and succeeds on a branch that is no ancestor of the
