@@ -105,8 +105,12 @@ set -euo pipefail
 #     all four for a missing value or an unknown option, so none of them deletes. These are
 #     the tokens the grammar does not account for, and the reason each is safe is git's
 #     rejection rather than anything the guard does. All four blocked before #141, so this
-#     is the one class where the guard got looser; the four are pinned below as allowed so
-#     the loosening cannot widen unnoticed.
+#     is the one class where the guard got looser, and it is a class rather than four forms
+#     — any `--e…` spelling git does not accept lands in it. The four are pinned below as
+#     allowed so the class stays visible; what stops it widening into forms git does accept
+#     is the blocked set, which pins -e and --exclude carrying a value in every spelling. An
+#     assert_allowed line reddens when its own command starts blocking, so it records the
+#     loosening rather than bounding it.
 #
 # Both separator spellings have to arrive unquoted. A `--` or `--end-of-options` carrying a
 # quote or a backslash does not break the `git … clean` token run the way a quoted command
@@ -146,7 +150,9 @@ set -euo pipefail
 # only commands git deletes on and the guard allows, and no command git previews on that the
 # guard blocks. Run against the pre-#141 body over the same set, 97 commands that delete
 # move from allowed to blocked and none that preview move the other way; the 112 that stop
-# being blocked are all ones git rejects for a missing `-e`/`--exclude` value. The token
+# being blocked are all ones git rejects: 75 for a missing `-e`/`--exclude` value and 37 as
+# an unknown `--e…` option. That second group is the part whose safety rests on git's option
+# table rather than on a required argument. The token
 # pool is what that bounds: the flag bundles, `--` long options including `--e…` and
 # `--end-of-options`, the two separators, a bare `-` and plain pathspecs, in runs of one to
 # three. It does not bound the position and text axes above, which the corpus does not vary,
