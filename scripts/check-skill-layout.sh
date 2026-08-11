@@ -354,7 +354,7 @@ run_content_scan() { # results-file rg-argument...
 # The delivered file set, as one call per rule. Two scans, because ripgrep's globs
 # filter the whole traversal rather than the path argument they follow, and only
 # `content/skills` is filtered by the installer: `stage_skills` drops `testdata`
-# entries there (ADR 0025), while `content/languages` and `content/references` deploy
+# entries there (ADR 0028, superseding ADR 0025), while `content/languages` and `content/references` deploy
 # verbatim, so a `testdata` entry under either really does ship and must stay visible.
 #
 # The pattern is passed with -e rather than positionally, because the flags a caller
@@ -480,18 +480,20 @@ fi
 # rather than a Unicode scalar. Without --text on the scan rg refuses the pattern
 # outright and exits 2, which run_content_scan reports as a failed scan.
 #
-# The message names the remedy because the likeliest way to reach this rule is not an
-# authored file at all. `content/languages` and `content/references` are the two roots
-# `validate_portable_tree` does not cover, so a `.DS_Store` Finder drops into either is
-# caught here first -- and it is gitignored, so `git status` gives the reader no lead.
-# Failing is right (`install_common_content` would copy it into every user's tree), but
-# a verdict without a remedy is where the reader stalls.
+# The message names three remedies because the rule is reached two quite different ways
+# and each wants a different one. An author's document written in UTF-16 is converted;
+# a tool-dropped artifact is deleted. `content/languages` and `content/references` are
+# the two roots `validate_portable_tree` does not cover, so a `.DS_Store`, a vim `.swp`
+# or patch residue under either is caught here first -- and those names are gitignored,
+# so `git status` gives the reader no lead. Failing is right either way
+# (`install_common_content` would copy the file into every user's tree), but a verdict
+# whose only remedy is "delete it" tells the first reader to throw away their own work.
 scan_deployed_payload "$workspace/nul-bytes" '(?-u)\x00'
 read_scan_hit "$workspace/nul-bytes"
 nul_byte_file="$scan_hit"
 [[ -z "$nul_byte_file" ]] ||
 	skill_error "$nul_byte_file" 'deployed content must be UTF-8 text (file contains a NUL byte);' \
-		'delete it or move it out of the delivered tree'
+		'convert it to UTF-8, delete it, or move it out of the delivered tree'
 
 scan_deployed_payload "$workspace/root-references" "$root_pattern"
 read_scan_hit "$workspace/root-references"

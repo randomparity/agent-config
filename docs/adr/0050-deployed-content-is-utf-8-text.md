@@ -9,9 +9,9 @@ Accepted (2026-08-10)
 `scripts/check-skill-layout.sh` reads the bytes of every file the installer delivers,
 to enforce ADR 0004's deployment rule: deployed content must resolve its own assets
 rather than name an installed client's config root. It scans `content/skills` (minus
-the `testdata` entries `stage_skills` drops, ADR 0025) plus `content/languages` and
-`content/references`, which `install_common_content` copies verbatim to all three
-agents.
+the `testdata` entries `stage_skills` drops, ADR 0028 superseding ADR 0025) plus
+`content/languages` and `content/references`, which `install_common_content` copies
+verbatim to all three agents.
 
 Only one file in that set had a declared encoding. `validate_utf8` checks each
 `SKILL.md`, because a skill's frontmatter is parsed and a malformed byte there is a
@@ -74,17 +74,23 @@ refuses the pattern and exits 2, saying so), and a BOM is transcoded away withou
 flag list serves all four rules, so the encoding rules and the pattern rules see the
 same bytes over the same file set by construction rather than by two lists agreeing.
 
-**The contract is scoped to what the installer delivers.** `agents/*/shared` is not
-covered, for the same reason the config-root rules skip it. `testdata` entries under
-`content/skills` are excluded, exactly as `stage_skills` excludes them (ADR 0025) — a
-file that is never deployed cannot violate a delivery rule, and fixtures for these very
-gates have to be able to hold bytes the gates reject. That exclusion stays scoped to
+**The contract is scoped to issue #127's payload: the three `content/` roots.**
+`agents/*/shared` is not covered, and the config-root rules' reason for skipping it does
+not transfer — that reason is about which *patterns* may legitimately appear in an
+agent's own instructions, and says nothing about which *bytes* a file may be made of.
+`install_managed_path` copies those ten files verbatim into every user's tree, so they
+are delivery by the same argument as the three roots above; the exclusion here is scope,
+not principle, and the Consequences record it as unguarded. `testdata` entries under
+`content/skills` are excluded, exactly as `stage_skills` excludes them (ADR 0028,
+superseding ADR 0025's stale inventory) — a file that is never deployed cannot violate a
+delivery rule, and fixtures for these very gates have to be able to hold bytes the gates
+reject. That exclusion stays scoped to
 `content/skills`, the one root the installer filters: `content/languages` and
 `content/references` deploy verbatim, so a `testdata` entry under either really does
 ship and is held to the contract.
 
 `install_common_content` delivers one further path, `docs/licenses/superpowers.LICENSE`,
-and it is outside the contract for the reason ADR 0025 left it outside the deployment
+and it is outside the contract for the reason ADR 0028 left it outside the deployment
 scan: it is a single vendored file rather than an author-extensible tree, and a gate that
 invites editing a verbatim license is worse than what it would catch. The contract covers
 the trees a contributor adds files to.
@@ -103,8 +109,30 @@ the trees a contributor adds files to.
   copies both roots with `cp -pR`, so the file really would be delivered into every
   user's tree. It is reachable in normal use — Finder writes one into any directory a
   developer opens, macOS is a CI leg and this repository's bash floor, and the name is
-  gitignored so `git status` offers the reader no lead. The message therefore names the
-  remedy, not just the contract, and a fixture pins it.
+  gitignored so `git status` offers the reader no lead. `.DS_Store` is the example, not
+  the class: a vim swap file (`.python.md.swp`, since vim's default `directory` starts
+  with `.`), `.orig`/`.rej` patch residue, and any other tool-dropped artifact under
+  those two roots read the same way, and a swap file makes `just verify` red for the
+  length of an editing session. Narrowing the traversal is not the answer — that
+  reopens the scanned-narrower-than-delivered hole this record exists to close — so the
+  answer is a message that names the remedy. It offers conversion first, because the
+  other way to reach this rule is an author's own document written in UTF-16, for whom
+  "delete it" is the wrong instruction. The prek hook runs `commit-check`, not
+  `skills-check` (ADR 0039), so a commit is unaffected; this is the local full run and
+  CI.
+- **`agents/*/shared` is delivered and unguarded, and this record does not close it.**
+  Ten files install verbatim there, including a shell script and three JSON/TOML
+  configs, and a NUL byte planted in any of them passes every gate today. Widening the
+  rule is outside issue #127, whose subject is the three `content/` roots, and would
+  mean changing the scan roots rather than adding a rule. Named here rather than left
+  for a reader to discover, on the same terms as the portability gap below.
+- ADR 0028's coordination inventory still reads correctly, and this record says so
+  rather than leaving the claim to decay, which is the obligation 0028 exists to impose.
+  Its row for the deployment gates — "skip matches only below `content/skills`" — is
+  unchanged in substance: `scan_deployed_payload` applies the exclusion to four rules
+  instead of two, and applies it in one place rather than at each call site, but the
+  boundary it draws is the same one, and it still stops at `content/skills`. No row
+  moves, and no site is added or removed.
 - The traversal flags that decide *which* files the contract covers — `--hidden` and
   `--no-ignore` — are pinned by fixtures too, though they predate this change. The
   contract is only as wide as the traversal carrying it, and the live tree holds no
@@ -128,7 +156,7 @@ the trees a contributor adds files to.
 - Gate messages naming a scanned file are now repo-relative. They were absolute, so a
   finding printed the checkout path into CI logs of a public repository; the paths this
   gate prints elsewhere were already relative, and one convention is what
-  `first_scan_hit` exists to hold.
+  `read_scan_hit` exists to hold.
 - The payload rule is deliberately *not* folded into `validate_frontmatter`. A skill's
   frontmatter contract is per-file and structural — four lines, a name matching its
   directory, a JSON description — and is checked while walking skill directories. The

@@ -486,10 +486,12 @@ assert_fails "$repo_state_error" "$root"
 # config-root message rather than passing.
 payload_utf8_error='file must be valid UTF-8'
 payload_text_error='deployed content must be UTF-8 text'
+payload_nul_error="$payload_text_error (file contains a NUL byte);"
+payload_nul_error="$payload_nul_error convert it to UTF-8, delete it, or move it out of the delivered tree"
 
 root="$(new_fixture)"
 printf '%b' 'lead\0000\nUse ~/.claude/skills here.\n' >"$root/content/languages/binary.md"
-assert_fails "content/languages/binary.md: $payload_text_error" "$root"
+assert_fails "content/languages/binary.md: $payload_nul_error" "$root"
 
 root="$(new_fixture)"
 printf '%b' '\0377\0376Use ~/.claude/skills here.\n' >"$root/content/languages/bom.md"
@@ -501,10 +503,13 @@ assert_fails "content/languages/bom.md: $payload_utf8_error" "$root"
 # this file has none. It is unscannable rather than misread, which is what the NUL rule
 # is for. The body is a forbidden reference no pattern rule can see through the
 # interleaved NULs.
+# Asserted whole, not by substring: an author's UTF-16 document is the case whose right
+# remedy is conversion, and the `.DS_Store` case below would happily pin a message that
+# offered only "delete it".
 root="$(new_fixture)"
 printf '%b' 'U\0000s\0000e\0000 \0000~\0000.\0000c\0000l\0000a\0000u\0000d\0000e\0000\n' \
 	>"$root/content/references/utf16le.md"
-assert_fails "content/references/utf16le.md: $payload_text_error" "$root"
+assert_fails "content/references/utf16le.md: $payload_nul_error" "$root"
 
 # The contract covers every root the config-root scan walks, not just the two that
 # deploy verbatim: the non-SKILL.md payload under `content/skills` installs too, and had
@@ -537,7 +542,7 @@ output="$(cd "$root" && bash scripts/check-skill-layout.sh)"
 	fail "valid multi-byte UTF-8 in the payload must pass: $output"
 
 # The encoding rule honours the `testdata` exclusion the config-root rules already apply
-# (ADR 0025), and honours its scoping too: `content/skills` is the one root the installer
+# (ADR 0028, superseding ADR 0025), and honours its scoping too: `content/skills` is the one root the installer
 # filters, so a `testdata` entry under `content/languages` really does ship and is held to
 # the contract. Both halves, because a rule that excluded the name everywhere would blind
 # the gate over a deployed path.
@@ -580,9 +585,7 @@ assert_fails "content/references/ignored.md: $payload_utf8_error" "$root"
 # hypothetical.
 root="$(new_fixture)"
 printf '%b' 'Bud1\0000\0000\0000\0000\0000' >"$root/content/references/.DS_Store"
-assert_fails \
-	"content/references/.DS_Store: $payload_text_error (file contains a NUL byte); delete it or move it out of the delivered tree" \
-	"$root"
+assert_fails "content/references/.DS_Store: $payload_nul_error" "$root"
 
 # rg exits 2 for any scan it could not complete, and the gate used to read that
 # as "no matches" and report ok. Root reads an unreadable file, so there the case
