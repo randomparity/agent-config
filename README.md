@@ -109,6 +109,14 @@ just setup
 yet. It checks and installs `just`, `jq`, `rg`, `shellcheck`, `shfmt`, `gh`,
 `prek`, `actionlint`, and `zizmor`.
 
+No other tool is required. A `python3` that can `import tomllib` — Python 3.11 or
+newer — is used where it exists, and both `just verify` and `./install.sh` work
+without one: the installer suite skips the Codex overlay cases and says which
+ones went unchecked, and the installer applies no Codex `config.overlay.toml`,
+because verifying that an overlay preserves the base is a TOML parse. Stock
+macOS ships Python 3.9, so this is an ordinary configuration rather than a
+corner; see [Private Overlays](#private-overlays).
+
 If a fallback installer places tools in a directory that was not already on your
 shell `PATH`, start a new shell or add the printed tool directory before running
 `just`. To install tools and enable hooks in one bootstrap step, run:
@@ -265,9 +273,49 @@ public base file in this repository. That is a real limit for a deny entry namin
 something host-specific, since the base is public; issue #118 tracks giving hosts a
 private route.
 
-The Codex `config.overlay.toml` carries no such guarantee: it is concatenated onto the
-base rather than merged, so what a duplicate key resolves to is the TOML parser's
-business. Issue #123 tracks that gap.
+### The Codex overlay
+
+`config.overlay.toml` is concatenated onto the base rather than merged: the base's root
+settings, then the overlay's, then the base's tables, then the overlay's. It gets a
+preservation guarantee of its own, stated over the *result* rather than over what the
+overlay names — **every value the base defines must survive into the merged document
+unchanged**. The installer parses the merged file, compares it against the parsed base, and
+refuses the overlay by name if any base value is missing or different. See
+[ADR 0057](docs/adr/0057-a-codex-overlay-may-not-erase-a-base-value.md).
+
+The rule is checked over the parse because the split above is `awk` matching a leading
+`[`, which is not a TOML lexer. An overlay whose root section opens a multi-line string or
+array has its tail moved behind the base's tables — *inside* that value — so the base's
+tables are swallowed by a file that named nothing of theirs. Such an overlay is legal TOML
+and used to install at exit 0. Where the refusal is caused that way the message says the
+merge split the file, rather than accusing it of erasing anything; the fix is to put that
+value inside a table of its own.
+
+Three differences from the JSON contract are worth knowing:
+
+- **The Codex overlay is add-only.** ADR 0043 lets a JSON overlay override a base scalar;
+  this does not, because concatenation has no way to express an override — writing
+  `[features]` again, or a `features.goals` root key, is a duplicate declaration no TOML
+  parser accepts. Changing a base value means changing the public base.
+- **It needs a TOML parser, and says so when it has none.** The guarantee *is* a parse, so
+  on a host whose `python3` cannot `import tomllib` — Python 3.11 added it, and stock macOS
+  ships 3.9 — the overlay is refused by name, the message says what could not be checked
+  and how to fix it, and the run exits non-zero. The base alone still installs where
+  nothing is deployed yet; where a `config.toml` already exists it is left untouched and
+  keeps its current contents, so it stays at whatever vintage it had while the rest of the
+  Codex tree keeps updating. This replaces the previous behaviour on such hosts, which was
+  to skip validation silently and deploy the concatenation unchecked — measured replacing a
+  working `config.toml` with an unparseable one at exit 0.
+- **An empty overlay is accepted**, where an empty JSON overlay is refused by ADR 0052. An
+  empty TOML file is a valid document that defines nothing, so it erases nothing; an empty
+  JSON file holds no value at all and so is not an object.
+
+A refused Codex overlay takes the same terms as a refused JSON one: `config.toml` is
+withheld and nothing else, the rest of the Codex tree and the other agents still install,
+and the run exits non-zero naming the withheld path. For that file the installer reports
+whether the deployed `config.toml` is the base alone or differs from it. It does not say
+which base values a differing file still carries — that would need a parse, and the
+refusal may be a refusal *because* there is no parser.
 
 ## IBM Bob Notes
 

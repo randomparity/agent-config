@@ -84,6 +84,26 @@ assert_toml_contains() {
 	assert_contains "$1" "$2"
 }
 
+# Read off the parse rather than the text, because ADR 0057's whole point is that a TOML
+# file's bytes and its meaning came apart: the swallowing overlay's deployed document still
+# *contains* `goals = true`, inside a string.
+assert_toml_value() { # file dotted-path expected label
+	local actual
+
+	actual="$(python3 -c '
+import sys
+import tomllib
+
+with open(sys.argv[1], "rb") as handle:
+    node = tomllib.load(handle)
+for key in sys.argv[2].split("."):
+    node = node[key]
+print(repr(node))
+' "$1" "$2")" || fail "$4: could not read $2 from $1"
+	[[ "$actual" == "$3" ]] ||
+		fail "$4: expected $2 in $1 to be $3, got $actual"
+}
+
 assert_executable() {
 	[[ -x "$1" ]] || fail "expected executable: $1"
 }
@@ -222,6 +242,18 @@ seed_stale_manifest() {
 	write_text "$dest/.agent-config-manifest" "stale-managed.txt"
 }
 
+# Discovered once, and it decides what this suite can assert rather than whether it can
+# run. Under ADR 0057 a Codex overlay is refused on a host that cannot parse TOML, so every
+# case that applies one needs a parser -- but making that a precondition would raise this
+# repository's toolchain floor, failing `just verify` on a host where it passes today.
+# The cases that need a parser are skipped out loud instead. `tomllib` is Python 3.11 and
+# newer; stock macOS ships 3.9, which is exactly the host ADR 0057 is written about.
+if python3 -c 'import tomllib' >/dev/null 2>&1; then
+	HAVE_TOMLLIB=1
+else
+	HAVE_TOMLLIB=0
+fi
+
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 tmpdir="$(mktemp -d "${TMPDIR:-/tmp}/agent-config-test.XXXXXX")"
 trap 'rm -R "$tmpdir"' EXIT
@@ -244,9 +276,14 @@ seed_stale_manifest "$BOB_CONFIG_DIR"
 write_json \
 	"$AGENT_CONFIG_PRIVATE_DIR/hosts/test-host/claude/settings.overlay.json" \
 	'{"env":{"AGENT_CONFIG_TEST":"claude"}}'
-write_text \
-	"$AGENT_CONFIG_PRIVATE_DIR/hosts/test-host/codex/config.overlay.toml" \
-	'agent_config_test = "codex"'
+# Only where a parser exists to verify it. Written on a host without one, this fixture is
+# refused, `--agent all` below exits non-zero, and the suite dies on an installer doing
+# exactly what ADR 0057 says it should.
+if [[ "$HAVE_TOMLLIB" -eq 1 ]]; then
+	write_text \
+		"$AGENT_CONFIG_PRIVATE_DIR/hosts/test-host/codex/config.overlay.toml" \
+		'agent_config_test = "codex"'
+fi
 write_json \
 	"$AGENT_CONFIG_PRIVATE_DIR/hosts/test-host/bob/settings.overlay.json" \
 	'{"agentConfigTest":{"bob":true}}'
@@ -300,7 +337,12 @@ assert_same_file \
 	"docs/licenses/superpowers.LICENSE" \
 	"$CODEX_CONFIG_DIR/licenses/superpowers.LICENSE"
 assert_file "$CODEX_CONFIG_DIR/references/orchestration.md"
-assert_toml_contains "$CODEX_CONFIG_DIR/config.toml" 'agent_config_test = "codex"'
+if [[ "$HAVE_TOMLLIB" -eq 1 ]]; then
+	assert_toml_contains "$CODEX_CONFIG_DIR/config.toml" 'agent_config_test = "codex"'
+else
+	# The base still reaches the destination without a parser; only the overlay does not.
+	assert_same_file "agents/codex/shared/config.base.toml" "$CODEX_CONFIG_DIR/config.toml"
+fi
 
 assert_file "$BOB_CONFIG_DIR/settings.json"
 assert_file "$BOB_CONFIG_DIR/settings/custom_modes.yaml"
@@ -1288,5 +1330,600 @@ assert_stream_lacks "$OVERLAY_OUT" 'applied private overlay' 'shape check fails 
 # An overlay the check could not read must not reach the merge.
 assert_json_value "$OVERLAY_DEST/claude/settings.json" \
 	'.env.AGENT_CONFIG_TEST // "absent"' absent
+
+# --- A Codex overlay may not erase a base value (ADR 0057) ----------------------------
+#
+# The TOML path shares no code with the JSON one, and it failed differently: it does not
+# merge, it concatenates, and the split is `awk` matching `^[[:space:]]*\[`, which is not a
+# TOML lexer. Cases 37 and 38 are the two shapes that used to deploy at exit 0.
+
+# Skipped out loud rather than made a precondition. Every case below applies a Codex
+# overlay, and ADR 0057 refuses one on a host with no TOML parser, so asserting them would
+# make `python3` 3.11+ a requirement of `just verify` — a toolchain floor this repository
+# has declined to raise before. The skip names what went unchecked, so a green run on such
+# a host cannot be read as coverage of the preservation guarantee.
+if [[ "$HAVE_TOMLLIB" -ne 1 ]]; then
+	printf 'install-test: SKIPPED the Codex overlay cases: python3 cannot import tomllib\n'
+	printf 'install-test:   (Python 3.11+); the ADR 0057 preservation guarantee is unverified\n'
+	printf 'install-test:   here. Everything else passed.\n'
+	printf 'install-test: ok\n'
+	exit 0
+fi
+
+CODEX_BASE="$REPO/agents/codex/shared/config.base.toml"
+
+# A python3 that cannot import tomllib, for the no-parser cases. Everything else on PATH is
+# the real thing, so only the capability under test is removed.
+no_tomllib_dir="$tmpdir/no-tomllib"
+mkdir -p "$no_tomllib_dir"
+cat >"$no_tomllib_dir/python3" <<'SHIM'
+#!/usr/bin/env bash
+set -u
+for arg in "$@"; do
+	if [[ $arg == 'import tomllib' ]]; then
+		exit 1
+	fi
+done
+exec "$AGENT_CONFIG_TEST_REAL_PYTHON" "$@"
+SHIM
+chmod +x "$no_tomllib_dir/python3"
+real_python="$(command -v python3)"
+
+run_overlay_case_no_tomllib() { # agent
+	OVERLAY_STATUS=0
+	PATH="$no_tomllib_dir:$PATH" \
+		AGENT_CONFIG_TEST_REAL_PYTHON="$real_python" \
+		AGENT_CONFIG_HOST=test-host \
+		AGENT_CONFIG_PRIVATE_DIR="$OVERLAY_PRIVATE" \
+		CLAUDE_CONFIG_DIR="$OVERLAY_DEST/claude" \
+		CODEX_CONFIG_DIR="$OVERLAY_DEST/codex" \
+		BOB_CONFIG_DIR="$OVERLAY_DEST/bob" \
+		./install.sh --agent "$1" \
+		>"$OVERLAY_OUT" 2>"$OVERLAY_ERR" || OVERLAY_STATUS=$?
+}
+
+# The shim must really hide tomllib, or every case below proves nothing.
+PATH="$no_tomllib_dir:$PATH" AGENT_CONFIG_TEST_REAL_PYTHON="$real_python" \
+	python3 -c 'import tomllib' >/dev/null 2>&1 &&
+	fail 'no-tomllib shim must fail an import tomllib probe'
+PATH="$no_tomllib_dir:$PATH" AGENT_CONFIG_TEST_REAL_PYTHON="$real_python" \
+	python3 -c 'import sys' >/dev/null 2>&1 ||
+	fail 'no-tomllib shim must delegate every other python3 call'
+
+# 37. The reported defect, and the one no check over names can see. This overlay is legal
+#     TOML and names nothing the base defines: `notes = """` is emitted as a root setting,
+#     the rest is emitted after the base's tables, and the string swallows them. Before
+#     ADR 0057 this deployed at exit 0 with the base's `[features]` table living inside a
+#     string value.
+start_overlay_case codex
+write_text "$OVERLAY_FILE/config.overlay.toml" 'notes = """
+[not a table]
+"""
+
+[sandbox]
+mode = "danger-full-access"'
+run_overlay_case codex
+assert_overlay_refused 'swallowed base table'
+assert_stream_contains "$OVERLAY_ERR" "$OVERLAY_FILE/config.overlay.toml" \
+	'swallowed base table'
+assert_stream_contains "$OVERLAY_ERR" 'features' 'swallowed base table'
+# The overlay is valid TOML, so the verdict must name the merge rather than accuse the
+# file. A message blaming a legal overlay sends the operator looking in the wrong file.
+assert_stream_contains "$OVERLAY_ERR" 'valid TOML on its own' 'swallowed base table'
+assert_stream_lacks "$OVERLAY_OUT" 'applied private overlay' 'swallowed base table'
+# ADR 0049 rule 4: the destination was empty, so the base alone lands there.
+assert_toml_value "$OVERLAY_DEST/codex/config.toml" 'features.goals' True \
+	'swallowed base table'
+
+# 38. The same shape used to *override* the base rather than erase it: `features.goals` is
+#     a root key, so it is hoisted above the base's tables and its dotted path reaches into
+#     the table the string swallowed. Valid TOML, exit 0, `goals` silently false.
+start_overlay_case codex
+write_text "$OVERLAY_FILE/config.overlay.toml" 'notes = """
+[hide]
+"""
+features.goals = false'
+run_overlay_case codex
+assert_overlay_refused 'overridden base scalar'
+assert_stream_contains "$OVERLAY_ERR" 'features.goals' 'overridden base scalar'
+assert_toml_value "$OVERLAY_DEST/codex/config.toml" 'features.goals' True \
+	'overridden base scalar'
+
+# 39. Extending the base is what an overlay is for, and stating the rule over whole paths
+#     rather than leaves would refuse this: `features` as a value is unequal once a subtable
+#     is added, while every leaf the base defines survives.
+start_overlay_case codex
+write_text "$OVERLAY_FILE/config.overlay.toml" '[features.sub]
+enabled = true'
+run_overlay_case codex
+assert_overlay_installed 'additive subtable'
+assert_toml_value "$OVERLAY_DEST/codex/config.toml" 'features.goals' True \
+	'additive subtable'
+assert_toml_value "$OVERLAY_DEST/codex/config.toml" 'features.sub.enabled' \
+	True 'additive subtable'
+
+# 40. A base table whose merged counterpart is a *scalar*, in a document that parses: the
+#     root key is hoisted above the base's tables and the multi-line string then swallows
+#     them, so `features` is a string and the base's table is inside it. Reported by its own
+#     path and not by a key beneath it, or a swallowed table would name every leaf it held.
+start_overlay_case codex
+write_text "$OVERLAY_FILE/config.overlay.toml" 'features = "clobbered"
+notes = """
+[x]
+"""'
+run_overlay_case codex
+assert_overlay_refused 'base table replaced by a scalar'
+assert_stream_contains "$OVERLAY_ERR" 'install:   features' 'base table replaced by a scalar'
+assert_stream_lacks "$OVERLAY_ERR" 'features.goals' 'base table replaced by a scalar'
+
+# 40b. Value equality is not enough: TOML's booleans and integers compare equal in Python,
+#      so `goals = 1` would pass a value-only comparison and deploy an integer where the
+#      base defines `true`.
+start_overlay_case codex
+write_text "$OVERLAY_FILE/config.overlay.toml" 'notes = """
+[hide]
+"""
+features.goals = 1'
+run_overlay_case codex
+assert_overlay_refused 'base scalar retyped'
+assert_stream_contains "$OVERLAY_ERR" 'features.goals' 'base scalar retyped'
+
+# 40c. A non-UTF-8 overlay, and one nested past the parser's recursion limit. `tomllib.load`
+#      decodes the file itself, so neither raises TOMLDecodeError; both used to print a
+#      traceback and take the whole run down, which is the abort ADR 0049 removed reached
+#      from a file the operator can fix. Both must be refusals that name the overlay, and
+#      under `--agent all` Bob must still install.
+start_overlay_case codex
+printf '[sandbox]\nmode = "caf\xe9"\n' >"$OVERLAY_FILE/config.overlay.toml"
+run_overlay_case all
+assert_overlay_refused 'non-UTF-8 overlay'
+assert_stream_contains "$OVERLAY_ERR" "$OVERLAY_FILE/config.overlay.toml" 'non-UTF-8 overlay'
+assert_stream_contains "$OVERLAY_ERR" 'not UTF-8 text' 'non-UTF-8 overlay'
+assert_stream_lacks "$OVERLAY_ERR" 'Traceback' 'non-UTF-8 overlay'
+assert_file "$OVERLAY_DEST/bob/settings.json"
+assert_file "$OVERLAY_DEST/codex/AGENTS.md"
+
+start_overlay_case codex
+python3 -c '
+import sys
+depth = 2000
+sys.stdout.write("v = " + "[" * depth + "]" * depth + "\n")
+' >"$OVERLAY_FILE/config.overlay.toml"
+run_overlay_case all
+assert_overlay_refused 'overlay nested past the parser limit'
+assert_stream_contains "$OVERLAY_ERR" 'nests too deeply' 'overlay nested past the parser limit'
+assert_stream_lacks "$OVERLAY_ERR" 'Traceback' 'overlay nested past the parser limit'
+assert_file "$OVERLAY_DEST/bob/settings.json"
+
+# 40d. `tomllib` parses integers with `int(s, 0)`, so a number past Python's 4300-digit
+#      string-conversion limit raises a bare ValueError from inside the parser. This is the
+#      second time enumerating "what operator bytes can raise" was short by one, which is
+#      why the handler now enumerates the machine failure and treats everything else as a
+#      verdict about the file.
+start_overlay_case codex
+python3 -c 'print("n = " + "9" * 5000)' >"$OVERLAY_FILE/config.overlay.toml"
+run_overlay_case all
+assert_overlay_refused 'overlay integer past the conversion limit'
+assert_stream_contains "$OVERLAY_ERR" "$OVERLAY_FILE/config.overlay.toml" \
+	'overlay integer past the conversion limit'
+assert_stream_lacks "$OVERLAY_ERR" 'Traceback' 'overlay integer past the conversion limit'
+assert_file "$OVERLAY_DEST/bob/settings.json"
+
+# 41. The two duplicate-declaration routes. Both are invalid TOML once concatenated, and
+#     the verdict must name the operator's overlay rather than the temporary file the
+#     merge was built into — the raw parser message this replaces named neither the
+#     overlay nor a remedy.
+start_overlay_case codex
+write_text "$OVERLAY_FILE/config.overlay.toml" '[features]
+goals = false'
+run_overlay_case codex
+assert_overlay_refused 'duplicate table declaration'
+assert_stream_contains "$OVERLAY_ERR" "$OVERLAY_FILE/config.overlay.toml" \
+	'duplicate table declaration'
+assert_stream_contains "$OVERLAY_ERR" 'does not survive the merge' \
+	'duplicate table declaration'
+assert_stream_lacks "$OVERLAY_ERR" 'agent-config.' 'duplicate table declaration'
+assert_stream_lacks "$OVERLAY_ERR" 'Traceback' 'duplicate table declaration'
+assert_stream_lacks "$OVERLAY_OUT" 'applied private overlay' 'duplicate table declaration'
+
+# 42. A malformed overlay, and a bare value where TOML expects a table. TOML has no
+#     multi-document concept, so ADR 0052's "more than one value" verdict has no analogue
+#     here; both of these are simply not TOML.
+start_overlay_case codex
+write_text "$OVERLAY_FILE/config.overlay.toml" 'this is not = = toml'
+run_overlay_case codex
+assert_overlay_refused 'malformed overlay'
+assert_stream_contains "$OVERLAY_ERR" "$OVERLAY_FILE/config.overlay.toml" 'malformed overlay'
+assert_stream_contains "$OVERLAY_ERR" 'is not valid TOML' 'malformed overlay'
+assert_stream_lacks "$OVERLAY_ERR" 'agent-config.' 'malformed overlay'
+
+start_overlay_case codex
+write_text "$OVERLAY_FILE/config.overlay.toml" '"just a string"'
+run_overlay_case codex
+assert_overlay_refused 'non-table overlay'
+assert_stream_contains "$OVERLAY_ERR" "$OVERLAY_FILE/config.overlay.toml" 'non-table overlay'
+
+# 43. With no overlay the base is copied rather than split, so the deployed file is the
+#     base byte for byte. That is what makes "the base alone" one byte sequence, which the
+#     ADR 0049 fill reuses and the refusal report recognises with `cmp`; splitting it added
+#     a leading blank line and gave the same meaning two spellings.
+start_overlay_case codex
+run_overlay_case codex
+assert_overlay_installed 'no overlay copies the base'
+assert_same_file "$CODEX_BASE" "$OVERLAY_DEST/codex/config.toml"
+# And converges: a second run finds it unchanged rather than replacing it.
+run_overlay_case codex
+assert_overlay_installed 'no overlay converges'
+assert_same_file "$CODEX_BASE" "$OVERLAY_DEST/codex/config.toml"
+assert_stream_contains "$OVERLAY_OUT" '0 added, 0 updated' 'no overlay converges'
+
+# 44. An empty overlay is a valid, empty TOML document — unlike an empty JSON overlay,
+#     which ADR 0052 refuses because a JSON file holding no value is not an object. It
+#     preserves everything, so it installs, and it converges on a second run.
+start_overlay_case codex
+write_text "$OVERLAY_FILE/config.overlay.toml" ''
+run_overlay_case codex
+assert_overlay_installed 'empty overlay'
+assert_toml_value "$OVERLAY_DEST/codex/config.toml" 'features.goals' True \
+	'empty overlay'
+run_overlay_case codex
+assert_overlay_installed 'empty overlay converges'
+assert_stream_contains "$OVERLAY_OUT" '0 added, 0 updated' 'empty overlay converges'
+
+# 45. No parser, over a real deployment. This is the measured defect ADR 0057 rule 2 exists
+#     for: `validate_toml` used to skip silently, and the concatenated, unparseable document
+#     was deployed over the operator's live config at exit 0 under `1 updated`. The file
+#     must be exactly as it was, and the verdict must name the interpreter rather than
+#     blame the overlay.
+start_overlay_case codex
+run_overlay_case codex
+assert_overlay_installed 'no parser over a deployment setup'
+cp "$OVERLAY_DEST/codex/config.toml" "$tmpdir/codex-deployed.toml"
+write_text "$OVERLAY_FILE/config.overlay.toml" '[features]
+goals = false'
+run_overlay_case_no_tomllib codex
+assert_overlay_refused 'no parser over a deployment'
+assert_same_file "$tmpdir/codex-deployed.toml" "$OVERLAY_DEST/codex/config.toml"
+assert_stream_contains "$OVERLAY_ERR" 'import tomllib' 'no parser over a deployment'
+assert_stream_contains "$OVERLAY_ERR" 'these paths were left untouched' \
+	'no parser over a deployment'
+assert_stream_lacks "$OVERLAY_OUT" 'applied private overlay' 'no parser over a deployment'
+# ADR 0049 rule 3: the withheld path stays in the manifest, or `prune_removed` deletes the
+# operator's deployed file on the next run.
+assert_line "$OVERLAY_DEST/codex/.agent-config-manifest" 'config.toml'
+# ADR 0049 rule 5: the refusal says what is live. The deployed file here is the base, and
+# saying so is what tells the operator no overlay of theirs has ever applied.
+assert_stream_contains "$OVERLAY_ERR" 'is the base alone' 'no parser over a deployment'
+
+# 46. The same refusal against an empty destination fills it from the base — a guarded
+#     default beside an instruction tree that assumes one, never a repair of a live file.
+start_overlay_case codex
+write_text "$OVERLAY_FILE/config.overlay.toml" '[features]
+goals = false'
+run_overlay_case_no_tomllib codex
+assert_overlay_refused 'no parser into an empty destination'
+assert_same_file "$CODEX_BASE" "$OVERLAY_DEST/codex/config.toml"
+# From a fresh 0600 temp file, not a redirection that would take the umask.
+# `-perm -0NN` tests that every named bit is set, so a single `-044` would let a
+# group-readable-only file through; the disjunction is the form this file settled on.
+[[ -z "$(find "$OVERLAY_DEST/codex/config.toml" \
+	\( -perm -040 -o -perm -004 \) -print)" ]] ||
+	fail 'no parser into an empty destination: the fill must not be group- or world-readable'
+
+# 47. And with no overlay a parser-less host is unaffected: the base is a copy, so nothing
+#     about it needs parsing.
+start_overlay_case codex
+run_overlay_case_no_tomllib codex
+assert_overlay_installed 'no parser without an overlay'
+assert_same_file "$CODEX_BASE" "$OVERLAY_DEST/codex/config.toml"
+
+# 47b. The other three things the refusal report can say about a live path. A file that
+#      differs from the base is named as left alone and never inspected further — without a
+#      parser the installer cannot say what it holds, and the refusal may be a refusal
+#      *because* there is no parser. A symlink and a directory are occupied rather than
+#      empty, so each is retained and listed, and neither is followed or read.
+start_overlay_case codex
+write_text "$OVERLAY_DEST/codex/config.toml" '[features]
+goals = true
+
+[hand_edited]
+by = "the operator"'
+write_text "$OVERLAY_FILE/config.overlay.toml" '[features]
+goals = false'
+run_overlay_case codex
+assert_overlay_refused 'differing deployment reported'
+assert_stream_contains "$OVERLAY_ERR" 'differs from the base' 'differing deployment reported'
+assert_contains "$OVERLAY_DEST/codex/config.toml" 'hand_edited'
+
+start_overlay_case codex
+mkdir -p "$OVERLAY_DEST/codex"
+ln -s /nonexistent-target "$OVERLAY_DEST/codex/config.toml"
+write_text "$OVERLAY_FILE/config.overlay.toml" '[features]
+goals = false'
+run_overlay_case codex
+assert_overlay_refused 'symlinked deployment reported'
+assert_stream_contains "$OVERLAY_ERR" 'is a symlink' 'symlinked deployment reported'
+[[ -L "$OVERLAY_DEST/codex/config.toml" ]] ||
+	fail 'symlinked deployment reported: the link must be left in place'
+
+start_overlay_case codex
+mkdir -p "$OVERLAY_DEST/codex/config.toml"
+write_text "$OVERLAY_FILE/config.overlay.toml" '[features]
+goals = false'
+run_overlay_case codex
+assert_overlay_refused 'directory at the destination'
+assert_stream_contains "$OVERLAY_ERR" 'a directory occupies' 'directory at the destination'
+
+# 47c. A malformed base is this repository's defect, not the operator's, so it is a hard
+#      failure that names the base — on every route the base takes to a destination. The
+#      default route is the dangerous one: with no overlay the base used to be copied
+#      unread, so a bad merge here would ship an unparseable config.toml under a green run.
+bad_base_repo="$tmpdir/bad-base-repo"
+mkdir -p "$bad_base_repo/docs"
+cp -pR "$REPO/install.sh" "$REPO/content" "$REPO/agents" "$bad_base_repo/"
+cp -pR "$REPO/docs/licenses" "$bad_base_repo/docs/"
+write_text "$bad_base_repo/agents/codex/shared/config.base.toml" 'this is [not = = toml'
+start_overlay_case codex
+run_overlay_case codex "$bad_base_repo/install.sh"
+assert_overlay_refused 'malformed base without an overlay'
+assert_stream_contains "$OVERLAY_ERR" 'base config' 'malformed base without an overlay'
+assert_not_file "$OVERLAY_DEST/codex/config.toml"
+# And with an overlay present the base is still what gets named, not the operator's file.
+start_overlay_case codex
+write_text "$OVERLAY_FILE/config.overlay.toml" '[sandbox]
+mode = "workspace-write"'
+run_overlay_case codex "$bad_base_repo/install.sh"
+assert_overlay_refused 'malformed base with an overlay'
+assert_stream_contains "$OVERLAY_ERR" 'base config' 'malformed base with an overlay'
+assert_stream_lacks "$OVERLAY_ERR" 'does not survive the merge' \
+	'malformed base with an overlay'
+
+# 48. Fails closed (ADR 0049 rule 1). `awk` exits non-zero on an unreadable overlay, and
+#     the whole body of `merge_toml_config` runs with `set -e` suppressed because the call
+#     site tests its status — so an unguarded emit would contribute nothing and read as a
+#     merge that preserved everything, deploying the base under `applied private overlay`
+#     while the operator's overlay was never read at all.
+# Skipped for a root runner, where chmod 000 does not deny anything and the case would
+# report ok having proved nothing.
+if [[ "$(id -u)" -eq 0 ]]; then
+	printf 'install-test: skipping the unreadable-overlay case as root\n'
+else
+	start_overlay_case codex
+	write_text "$OVERLAY_FILE/config.overlay.toml" '[sandbox]
+mode = "workspace-write"'
+	chmod 000 "$OVERLAY_FILE/config.overlay.toml"
+	run_overlay_case codex
+	chmod 644 "$OVERLAY_FILE/config.overlay.toml"
+	assert_overlay_refused 'unreadable overlay fails closed'
+	assert_stream_contains "$OVERLAY_ERR" 'could not read private overlay' \
+		'unreadable overlay fails closed'
+	# A message rather than a traceback: the file cannot be read, which is worth saying
+	# plainly, and the operator's terminal is not the place for a Python stack.
+	assert_stream_lacks "$OVERLAY_ERR" 'Traceback' 'unreadable overlay fails closed'
+	assert_stream_lacks "$OVERLAY_OUT" 'applied private overlay' \
+		'unreadable overlay fails closed'
+	assert_not_file "$OVERLAY_DEST/codex/config.toml"
+fi
+
+# 48a. The hoist's own status guard (ADR 0049 rule 1). Since the overlay is parsed before
+#      the hoist reads it, an unreadable overlay no longer reaches `emit_merged_toml`, so
+#      case 48 stopped covering the guard — but it stays reachable, by an `awk` that fails
+#      for any other reason. Unguarded, a partial emit produces a document that parses,
+#      preserves `features`, and deploys under `applied private overlay` with the operator's
+#      overlay silently missing.
+awk_shim_dir="$tmpdir/awk-shim"
+mkdir -p "$awk_shim_dir"
+cat >"$awk_shim_dir/awk" <<'SHIM'
+#!/usr/bin/env bash
+printf 'awk-shim: forced failure\n' >&2
+exit 2
+SHIM
+chmod +x "$awk_shim_dir/awk"
+
+start_overlay_case codex
+write_text "$OVERLAY_FILE/config.overlay.toml" '[sandbox]
+mode = "workspace-write"'
+OVERLAY_STATUS=0
+PATH="$awk_shim_dir:$PATH" \
+	AGENT_CONFIG_HOST=test-host \
+	AGENT_CONFIG_PRIVATE_DIR="$OVERLAY_PRIVATE" \
+	CLAUDE_CONFIG_DIR="$OVERLAY_DEST/claude" \
+	CODEX_CONFIG_DIR="$OVERLAY_DEST/codex" \
+	BOB_CONFIG_DIR="$OVERLAY_DEST/bob" \
+	./install.sh --agent codex \
+	>"$OVERLAY_OUT" 2>"$OVERLAY_ERR" || OVERLAY_STATUS=$?
+assert_overlay_refused 'failing awk fails closed'
+assert_stream_contains "$OVERLAY_ERR" 'could not merge private overlay' \
+	'failing awk fails closed'
+assert_stream_lacks "$OVERLAY_OUT" 'applied private overlay' 'failing awk fails closed'
+assert_not_file "$OVERLAY_DEST/codex/config.toml"
+
+# 48c. The other two fallible calls in the merge, each failing on its own (ADR 0049 rule 1).
+#      One globally failing python3 proves neither: `supports_tomllib` catches it first and
+#      the run never reaches the parse, let alone the comparison. This shim fails one
+#      selected call, chosen by argument shape, and delegates the rest — the pattern
+#      `run_overlay_case_jq` uses for the same reason.
+#
+#      The comparison is the one that matters most: `erased_base_toml_paths` reports
+#      "nothing erased" and "I could not tell" with the same empty stdout, so a build
+#      reading its failure as a clean result would deploy a merged document that erases the
+#      base under `applied private overlay`.
+python_shim_dir="$tmpdir/python-shim"
+mkdir -p "$python_shim_dir"
+cat >"$python_shim_dir/python3" <<'SHIM'
+#!/usr/bin/env bash
+set -u
+# `probe` is the supports_tomllib check, `validate` a one-path parse, `compare` the
+# two-path base/merged walk. Counting positional paths is what separates the last two.
+shape=probe
+paths=0
+for arg in "$@"; do
+	case $arg in
+	-* | 'import tomllib') ;;
+	*) paths=$((paths + 1)) ;;
+	esac
+done
+case $paths in
+1) shape=validate ;;
+2) shape=compare ;;
+esac
+if [[ $shape == "${AGENT_CONFIG_TEST_PY_FAIL:-}" ]]; then
+	count=0
+	if [[ -f $AGENT_CONFIG_TEST_PY_COUNT ]]; then
+		count=$(cat "$AGENT_CONFIG_TEST_PY_COUNT")
+	fi
+	count=$((count + 1))
+	printf '%s\n' "$count" >"$AGENT_CONFIG_TEST_PY_COUNT"
+	if [[ $count -eq ${AGENT_CONFIG_TEST_PY_NTH:-1} ]]; then
+		printf 'python-shim: forced failure (%s #%s)\n' "$shape" "$count" >&2
+		exit 3
+	fi
+fi
+exec "$AGENT_CONFIG_TEST_REAL_PYTHON" "$@"
+SHIM
+chmod +x "$python_shim_dir/python3"
+
+run_overlay_case_python() { # agent fail-shape [nth]
+	OVERLAY_STATUS=0
+	rm -f "$OVERLAY_ROOT/python-count"
+	PATH="$python_shim_dir:$PATH" \
+		AGENT_CONFIG_TEST_REAL_PYTHON="$real_python" \
+		AGENT_CONFIG_TEST_PY_FAIL="$2" \
+		AGENT_CONFIG_TEST_PY_NTH="${3:-1}" \
+		AGENT_CONFIG_TEST_PY_COUNT="$OVERLAY_ROOT/python-count" \
+		AGENT_CONFIG_HOST=test-host \
+		AGENT_CONFIG_PRIVATE_DIR="$OVERLAY_PRIVATE" \
+		CLAUDE_CONFIG_DIR="$OVERLAY_DEST/claude" \
+		CODEX_CONFIG_DIR="$OVERLAY_DEST/codex" \
+		BOB_CONFIG_DIR="$OVERLAY_DEST/bob" \
+		./install.sh --agent "$1" \
+		>"$OVERLAY_OUT" 2>"$OVERLAY_ERR" || OVERLAY_STATUS=$?
+}
+
+start_overlay_case codex
+write_text "$OVERLAY_FILE/config.overlay.toml" '[sandbox]
+mode = "workspace-write"'
+# The first validate call is the base's, so failing it pins `require_valid_base_toml`.
+run_overlay_case_python codex validate 1
+assert_overlay_refused 'failing base validator fails closed'
+assert_stream_contains "$OVERLAY_ERR" 'could not validate base config' \
+	'failing base validator fails closed'
+assert_stream_lacks "$OVERLAY_OUT" 'applied private overlay' \
+	'failing base validator fails closed'
+assert_not_file "$OVERLAY_DEST/codex/config.toml"
+
+# The third is the merged document's -- base, then overlay, then merged. Read as accepted,
+# an unverified concatenation deploys.
+start_overlay_case codex
+write_text "$OVERLAY_FILE/config.overlay.toml" '[sandbox]
+mode = "workspace-write"'
+run_overlay_case_python codex validate 3
+assert_overlay_refused 'failing merged validator fails closed'
+assert_stream_contains "$OVERLAY_ERR" 'could not validate the merged TOML' \
+	'failing merged validator fails closed'
+assert_stream_lacks "$OVERLAY_OUT" 'applied private overlay' \
+	'failing merged validator fails closed'
+assert_not_file "$OVERLAY_DEST/codex/config.toml"
+
+start_overlay_case codex
+write_text "$OVERLAY_FILE/config.overlay.toml" '[sandbox]
+mode = "workspace-write"'
+run_overlay_case_python codex compare
+assert_overlay_refused 'failing comparison fails closed'
+assert_stream_contains "$OVERLAY_ERR" 'could not compare the merged result' \
+	'failing comparison fails closed'
+assert_stream_lacks "$OVERLAY_OUT" 'applied private overlay' \
+	'failing comparison fails closed'
+assert_not_file "$OVERLAY_DEST/codex/config.toml"
+
+# 48b. An overlay path awk would read as a variable assignment. POSIX awk treats an operand
+#      matching `name=value` as an assignment rather than a file, so a *relative*
+#      AGENT_CONFIG_PRIVATE_DIR of that shape made awk read stdin, print nothing and exit
+#      0 — the overlay silently dropped under a green `applied private overlay`, which is
+#      the one shape the status guard above cannot see, because awk succeeded. Reading on
+#      stdin removes operand parsing entirely.
+awk_operand_root="$tmpdir/awk-operand"
+mkdir -p "$awk_operand_root"
+(
+	cd "$awk_operand_root" || exit 1
+	mkdir -p 'x=y/hosts/test-host/codex' dest
+	printf '[sandbox]\nmode = "workspace-write"\n' \
+		>'x=y/hosts/test-host/codex/config.overlay.toml'
+	AGENT_CONFIG_HOST=test-host \
+		AGENT_CONFIG_PRIVATE_DIR='x=y' \
+		CLAUDE_CONFIG_DIR="$awk_operand_root/dest/claude" \
+		CODEX_CONFIG_DIR="$awk_operand_root/dest/codex" \
+		BOB_CONFIG_DIR="$awk_operand_root/dest/bob" \
+		"$REPO/install.sh" --agent codex >/dev/null 2>&1 </dev/null
+) || fail 'awk operand overlay: install must succeed'
+assert_contains "$awk_operand_root/dest/codex/config.toml" 'workspace-write'
+
+# 49. A refusal leaves no merged artifact behind (ADR 0049 rule 2). The merged file is
+#     written before it is checked, so on refusal a document that erases a base value
+#     exists on disk; a call site that installed it anyway must fail on a missing source
+#     rather than deploy it under a green summary.
+start_overlay_case codex
+write_text "$OVERLAY_FILE/config.overlay.toml" 'features = "clobbered"
+notes = """
+[x]
+"""'
+TMPDIR="$OVERLAY_ROOT" run_overlay_case codex
+assert_overlay_refused 'refusal leaves no artifact'
+# Identified by content rather than by counting files: `install.sh` leaves other temporary
+# files behind for unrelated reasons (issue filed separately), and what rule 2 promises is
+# that the *refused merge* is not among them.
+leftover="$(grep -rl 'clobbered' "$OVERLAY_ROOT" --include='agent-config.*' || true)"
+[[ -z "$leftover" ]] ||
+	fail "refusal leaves no artifact: merged file survived: $leftover"
+
+# 50. Under `--agent all` a refused Codex overlay costs the Codex `config.toml` and nothing
+#     else. Before ADR 0057 the raw parser message was an `exit 1` inside the merge, so Bob
+#     never installed.
+start_overlay_case codex
+write_text "$OVERLAY_FILE/config.overlay.toml" '[features]
+goals = false'
+run_overlay_case all
+assert_overlay_refused 'codex refusal does not freeze the run'
+assert_file "$OVERLAY_DEST/claude/settings.json"
+assert_file "$OVERLAY_DEST/claude/CLAUDE.md"
+assert_file "$OVERLAY_DEST/bob/settings.json"
+assert_file "$OVERLAY_DEST/bob/mcp_settings.json"
+assert_file "$OVERLAY_DEST/codex/AGENTS.md"
+
+# 51. A base table the overlay drops, where the base table is empty. A comparison that only
+#     walked leaves would find nothing to compare and pass this silently, because an empty
+#     table has none.
+empty_table_repo="$tmpdir/empty-table-repo"
+mkdir -p "$empty_table_repo/docs"
+cp -pR "$REPO/install.sh" "$REPO/content" "$REPO/agents" "$empty_table_repo/"
+cp -pR "$REPO/docs/licenses" "$empty_table_repo/docs/"
+write_text "$empty_table_repo/agents/codex/shared/config.base.toml" '[features]
+goals = true
+
+[reserved]'
+start_overlay_case codex
+write_text "$OVERLAY_FILE/config.overlay.toml" 'notes = """
+[swallowed]
+"""'
+run_overlay_case codex "$empty_table_repo/install.sh"
+assert_overlay_refused 'empty base table'
+assert_stream_contains "$OVERLAY_ERR" 'reserved' 'empty base table'
+
+# 52. A base root key an overlay collides with. The shipped base defines none, so this is
+#     the case that shows the rule is derived from the base on each call rather than
+#     written around the base this repository happens to carry today.
+root_key_repo="$tmpdir/root-key-repo"
+mkdir -p "$root_key_repo/docs"
+cp -pR "$REPO/install.sh" "$REPO/content" "$REPO/agents" "$root_key_repo/"
+cp -pR "$REPO/docs/licenses" "$root_key_repo/docs/"
+write_text "$root_key_repo/agents/codex/shared/config.base.toml" 'model = "shared"
+
+[features]
+goals = true'
+start_overlay_case codex
+write_text "$OVERLAY_FILE/config.overlay.toml" 'model = "private"'
+run_overlay_case codex "$root_key_repo/install.sh"
+assert_overlay_refused 'base root key'
+assert_stream_contains "$OVERLAY_ERR" "$OVERLAY_FILE/config.overlay.toml" 'base root key'
 
 printf 'install-test: ok\n'
