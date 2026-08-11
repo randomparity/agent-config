@@ -46,6 +46,23 @@ jobs:
     if: always()
     runs-on: ubuntu-latest
     steps:
+      # The hook bodies are proven POSIX by re-running them under sh, which establishes
+      # nothing where sh is an extended shell -- so every environment but a dash one skips,
+      # and the property used to be proven by the ubuntu matrix leg alone. Proving it here
+      # instead takes the guarantee out of the matrix: dropping a leg or re-homing one cannot
+      # remove this job, and an image whose /bin/sh stops being dash reds it rather than
+      # skipping quietly. POSIX_ASSERTIONS_REQUIRED is what refuses the skip (ADR 0053), and
+      # scripts/claude-settings-posix-guard-test.sh fails if these two lines stop agreeing.
+      # It runs before the matrix assertion because a leg's result is legible from its own
+      # check entry and this verdict is reported nowhere else.
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Prove the hook bodies are POSIX
+        env:
+          POSIX_ASSERTIONS_REQUIRED: '1'
+        run: ./scripts/claude-settings-hooks-test.sh
       - name: Check matrix result
         env:
           SUITE_RESULT: ${{ needs.suite.result }}
