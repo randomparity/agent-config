@@ -131,6 +131,9 @@ carrier-check:
 shared-standards-check:
   ./scripts/check-shared-standards.sh
 
+membership-check:
+  ./scripts/check-deployed-membership.sh
+
 public-safety:
   ./scripts/check-public-safety.sh
 
@@ -149,8 +152,12 @@ actions-check:
   actionlint
   zizmor --offline .github/workflows/
 
-verify: tools-check records commit-check skills-check carrier-check \
-        shared-standards-check test references-check actions-check
+# membership-check runs ahead of every content gate on purpose: deleting the sole
+# file of a one-file installed tree removes the directory, and skills-check and
+# references-check both fault on a missing content root. Placed later, this gate's
+# answer -- that the declared file is gone -- would never be printed.
+verify: tools-check records commit-check membership-check skills-check \
+        carrier-check shared-standards-check test references-check actions-check
   prek run --all-files --stage pre-commit --dry-run
 
 ci:

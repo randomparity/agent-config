@@ -434,6 +434,10 @@ validate_yaml_if_possible() {
 install_common_content() {
 	local dest_dir="$1"
 
+	# Both sources are directories, so install_managed_path's cp -pR ships them
+	# whole to all three agents. Their membership is declared in the manifest in
+	# scripts/check-deployed-membership.sh; a file added here without a manifest
+	# line fails that gate, and a fourth wholesale tree needs adding to it.
 	install_managed_path "$dest_dir" "$REPO/content/languages" "languages"
 	install_managed_path "$dest_dir" "$REPO/content/references" "references"
 	install_managed_path \
@@ -541,6 +545,9 @@ install_bob() {
 	install_managed_path "$dest_dir" "$REPO/agents/bob/shared/AGENTS.md" "AGENTS.md"
 	install_managed_path "$dest_dir" "$bob_modes" "settings/custom_modes.yaml"
 	install_managed_path "$dest_dir" "$bob_modes" "custom_modes.yaml"
+	# A directory source, so cp -pR ships the tree whole into Bob's rules
+	# directory. Its membership is declared in the manifest in
+	# scripts/check-deployed-membership.sh.
 	install_managed_path "$dest_dir" "$REPO/agents/bob/shared/rules" "rules"
 	install_managed_path "$dest_dir" "$SKILLS_STAGING/skills" "skills"
 	install_common_content "$dest_dir"
