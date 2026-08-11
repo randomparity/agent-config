@@ -20,9 +20,28 @@ set -euo pipefail
 #   - the filter list is tail, head, grep and rg, and the short-circuit list is `true`
 #     and `:`, so `| sed`, `| awk`, `| cat`, `| less` and `|| echo failed` mask freely.
 #
-# Both hooks read the command as text, so both miss the indirection a text match cannot
-# follow: backticks, `xargs`, and a command assembled from a variable. `bash -c`, `sh -c`
-# and `eval` are recognised; the rest are accepted false negatives.
+# Both hooks read the command as text, so both miss indirection a text match cannot follow.
+# Recognised as command positions, and so not evasions: `bash -c`, `sh -c`, `zsh -c`,
+# `eval`, `git submodule foreach`, and the wrapper list sudo, doas, xargs, ionice, stdbuf,
+# nice, env, command, exec, setsid, nohup, time and timeout — `xargs -n1 git clean -fd`
+# blocks. The routes below are not covered. Each was run against the shipped hook body and
+# allows a destructive `git clean`:
+#   - quoting and escaping a shell strips and a matcher does not — `\git clean -fd`,
+#     `git "clean" -fd`, `git cl""ean -fd`;
+#   - a backslash-newline continuation falling between `git` and `clean`, since the match
+#     is per line; one falling after `clean`, or inside `-fd`, is still caught;
+#   - deferred execution — `trap "git clean -fd" EXIT`;
+#   - execution on another host — `ssh host git clean -fd`;
+#   - exec-style dispatchers — `find . -execdir git clean -fd \;`, and -exec likewise;
+#   - a command assembled elsewhere — `C="git clean -fd"; $C`, backticks, `$(...)`.
+# None is a plausible accident; each is a deliberate route around the guard, and chasing
+# them is a matcher arms race this approach cannot win. They are listed so that a form
+# missing from this comment is not read as covered.
+#
+# One route needs no indirection at all: git stops parsing options at `--`, so a preview
+# flag after it is a pathspec. `git clean -fd -- build/ -n` deletes, and the guard reads
+# that trailing -n as a dry run and allows it. The Bash(git clean -f*) deny entries are the
+# only cover left, and this suite does not exercise their glob semantics — see issue #141.
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 SETTINGS="$ROOT/agents/claude/shared/settings.base.json"
@@ -313,7 +332,21 @@ assert_blocked "$MASK_HOOK" 'masked exit hook' $'cat >note.md <<EOF\njust ci | t
 
 # The destructive guard fails closed without jq; the advisory one fails open, because a
 # missing jq would otherwise block every Bash call over a masking pattern that may not
-# even be present.
+# even be present. Fail-open is also the shape of the three hooks that predate these two —
+# the rm -rf, push-to-main and rg guards each read the command without checking jq's exit
+# status — so the destructive guard is the exception, deliberately. jq is not assumed
+# either way: it is a declared prerequisite that `just tools-check` verifies (Justfile:33),
+# reached from `just verify` (Justfile:152), so a missing jq is a red gate before it is a
+# quiet hook.
+#
+# Only jq is guarded. Any other helper a guard calls can fail the same way unchecked: with
+# a grep that exits 2 on PATH, the destructive guard exits 0 on a real `git clean -fd`,
+# because Claude Code blocks on exit 2 alone. That is issue #139.
+#
+# The masked-exit guard also depends on awk, but the consequence is the opposite of the jq
+# one. awk extracts only the text preceding `just ci`, which the `set -o pipefail`
+# exemption is tested against; a broken awk empties it, losing the exemption, so
+# `set -o pipefail; just ci | tail` is blocked. A false positive, not a hole.
 assert_fails_open "$MASK_HOOK" 'masked exit hook'
 
 # The shell Claude Code runs a hook body in is not this suite's to choose, so both hook
