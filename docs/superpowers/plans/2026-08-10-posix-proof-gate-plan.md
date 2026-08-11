@@ -113,13 +113,14 @@ requirement branch from task 1 each turn it red.
 ## Rollback
 
 Files touched: `scripts/claude-settings-hooks-test.sh`,
-`scripts/claude-settings-posix-guard-test.sh`, `.github/workflows/verify.yml`, plus
-`docs/adr/0053-*.md`, the spec and this plan.
+`scripts/claude-settings-posix-guard-test.sh`, `.github/workflows/verify.yml`, one clause in
+`README.md`, plus `docs/adr/0053-*.md`, the spec and this plan.
 
-Pre-merge, abandoning the branch is enough. Post-merge, revert **only the three code files**:
+Pre-merge, abandoning the branch is enough. Post-merge, revert **the three code files and
+the README clause** — leaving the clause behind documents a gate that no longer exists:
 reverting the whole branch deletes ADR 0053, and `.github/scripts/check-records.sh` raises
 `E-GONE` for a record that stops being a record at its path, so the reverting pull request
 would fail `just records`. A merged record is resolved in place — a banner, or a new record
-superseding it — never by deletion. Reverting those three files restores #112's behaviour
+superseding it — never by deletion. Reverting those four restores #112's behaviour
 exactly; nothing else reads `POSIX_ASSERTIONS_REQUIRED`, and no state outside the repository
 is written.

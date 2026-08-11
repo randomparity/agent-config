@@ -94,9 +94,16 @@ operator to rediscover this record.
   dash, the requirement is still met, and the suite still reports the assertions as having
   run. That is the ordinary exposure of deleting a test, not a route this gate is shaped to
   close, and buying a source-text assertion over the suite's own body would trade it for
-  false reds on every refactor.
-- The step depends on the runner image providing `jq`. Its absence fails loudly on the first
-  call rather than skipping, so the dependency cannot rot into a silent pass.
+  false reds on every refactor. One level up is the same: deleting
+  `scripts/claude-settings-posix-guard-test.sh` removes the wiring check with no signal,
+  because suite discovery is from the index and only an empty set fails. Named here so the
+  enumeration above is not mistaken for closure.
+- The step depends on the runner image providing `jq` — newly load-bearing, since this job
+  installed nothing before. Its absence fails loudly on the first call rather than skipping,
+  so the dependency cannot rot into a silent pass, but it fails with the wrong cause:
+  `assert_deny_entry` cannot tell `jq` exiting 127 from `jq` exiting 1, so the run reports a
+  missing `permissions.deny` entry. Sharpening that belongs to whoever next touches
+  `assert_deny_entry`.
 
 ## Considered & rejected
 
