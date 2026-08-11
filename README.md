@@ -109,6 +109,14 @@ just setup
 yet. It checks and installs `just`, `jq`, `rg`, `shellcheck`, `shfmt`, `gh`,
 `prek`, `actionlint`, and `zizmor`.
 
+`just verify` additionally needs a `python3` that can `import tomllib` — Python
+3.11 or newer. `install-tools.sh` does not check for it yet (issue #172); the
+installer suite states it as a precondition and stops with that message. The
+same interpreter is what lets `./install.sh` apply a Codex `config.overlay.toml`
+at all, so a host without one is refused its overlay rather than given an
+unverified merge; see [Private Overlays](#private-overlays). Stock macOS ships
+Python 3.9.
+
 If a fallback installer places tools in a directory that was not already on your
 shell `PATH`, start a new shell or add the printed tool directory before running
 `just`. To install tools and enable hooks in one bootstrap step, run:

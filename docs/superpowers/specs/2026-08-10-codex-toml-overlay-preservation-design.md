@@ -80,33 +80,51 @@ jq — with the encoding caveat in R10 below.
 
 ### `render_base_toml <base> <output>`
 
-`cp` the base to the output. Used by the no-overlay branch and by the ADR 0049 fill, so
-one byte sequence is "the base alone" (R3). Replaces the `emit_root_settings` +
-`emit_table_settings` pair on the no-overlay branch; the splitter stays for the
-overlay branch, where the hoist is what it is for.
+`cp` the base to the output, guarded. Used by the no-overlay branch and by the ADR 0049
+fill, so one byte sequence is "the base alone" (R3). Replaces the `emit_root_settings` +
+`emit_table_settings` pair on the no-overlay branch; the splitter stays for the overlay
+branch, where the hoist is what it is for.
+
+### `require_valid_base_toml <base>`
+
+Called once at the top of `merge_toml_config`, so every route the base takes to a
+destination is covered by one check. Without it the base is parsed only as part of a merged
+document, which leaves the default route — no overlay, a straight copy — shipping an
+unparseable `config.toml` under a green run, and makes an overlay-present run blame the
+operator's file for this repository's. A malformed base is a hard exit naming the base, the
+same split `render_base` makes for JSON: it is a defect here, not a mistake the operator can
+fix. Where no parser exists the base is trusted unread, which is what rule 2 already says
+about it.
 
 ### `validate_toml <path>`
 
-Returns 0 accepted, 1 rejected, 2 no parser. Prints the parser's diagnostic on rejection
+Returns 0 accepted, 1 rejected, 2 no parser, 3 the validator itself failed. Prints the
+parser's diagnostic on rejection
 **without** the file path, so the caller supplies the operator's path (R10). Today it
 exits on rejection and prints a skip line; both go, because `merge_toml_config` now
 decides what each answer means. The skip line is deleted rather than kept — under R2 it
 would print on a branch that then refuses, saying "skipped" and "refused" in one run.
 
 Reads bytes, not text: `tomllib.load(open(path, 'rb'))` rather than
-`tomllib.loads(path.read_text())`. `read_text()` decodes with the locale encoding, so a
-legal UTF-8 overlay raises `UnicodeDecodeError` under a non-UTF-8 `LC_ALL` — uncaught
-today, and under R2 it would become a permanent false refusal reported with a traceback.
-TOML 1.0 mandates UTF-8; the parser decodes it. Any exception that is not
-`TOMLDecodeError` is a machine failure and exits (R8).
+`tomllib.loads(path.read_text())`, so the decode follows TOML 1.0's mandated UTF-8 rather
+than the locale's encoding.
+
+Every way operator bytes can defeat the parser is a rejection, not a machine failure, and
+`TOMLDecodeError` is only the well-formed half of that set. Because `load` decodes the file
+itself, a file saved as latin-1 raises `UnicodeDecodeError`, and a pathologically nested one
+raises `RecursionError` or `MemoryError`. Each gets a verdict: the encoding one names UTF-8
+and the offending byte, the nesting one says the document nests too deeply. Left uncaught,
+all three printed a traceback and exited the run — R10 broken, and the whole-run abort R4
+forbids, reached from a file the operator can fix. Anything else — an `OSError` on the
+temporary file — stays a machine failure and exits (R8).
 
 ### `erased_base_toml_paths <base> <merged>`
 
 Prints one dotted path per line for every path the base defines that the merged document
-does not carry with an equal value; prints nothing when everything survived. The base's
-own parse failure is a hard exit naming the base — it is this repository's file, so a
-malformed one is a defect here, not a mistake the operator can fix, exactly as
-`render_base` treats a malformed base JSON.
+does not carry with an equal value; prints nothing when everything survived. Reached only
+after `require_valid_base_toml` and `validate_toml` have both accepted their inputs, so
+neither parse here is expected to fail; the call is still status-guarded, because empty
+stdout means both "nothing erased" and "I could not tell".
 
 Comparison walks the base's tree, and the walk is what makes "outermost" fall out rather
 than needing a separate ancestor-trimming pass:
@@ -199,8 +217,14 @@ config is data Codex parses and the installer's job is to deliver it intact. Wha
 controlled is its *effect on the base*: R1 over the merged parse, R2 over what may be
 deployed at all. Path handling is unchanged (`ensure_safe_rel`); the merged file stays a
 0600 `new_temp_file` and is unlinked on refusal (R7). Messages carry the overlay's path
-and the parser's diagnostic, both already the operator's own strings on the operator's own
-terminal, and no message echoes overlay content beyond a base path name that comes from
+and the parser's diagnostic. The diagnostic does echo overlay content, narrowly: `tomllib`
+interpolates *key names* into some messages — `Cannot declare ('svc', 'TOKEN') twice`,
+`Duplicate inline table key 'X'` — and never values, which was checked against its message
+catalogue. Since the README tells operators to keep secrets in private overlays, that is
+worth stating rather than denying: a key name from the operator's own file can reach their
+own terminal, and any log that captures it. It is accepted because the diagnostic is what
+makes the verdict actionable, and because the JSON path already prints jq's diagnostics on
+the same terms. `erased_base_toml_paths` prints only names walked from the base, which is
 this repository's file.
 
 **Out of scope.** An operator who hand-edits `~/.codex/config.toml` — reported, never
@@ -211,34 +235,46 @@ is already invoked for validation today.
 
 ## Test plan
 
-All cases live in `install-test.sh`, using the existing overlay harness. Two mechanisms it
-already carries do the awkward work: the fixture-repo pattern used by cases 6, 16/17 and
-22 (`cp -pR install.sh content agents docs/licenses` into a temp tree, then mutate the
-copy) reaches a base the suite may not change, and the PATH-shim pattern of
-`run_overlay_case_jq` shadows a tool for one run. Every case asserts a message on the
-stream that carries it, not only an exit status.
+All cases live in `install-test.sh` as section 37 onward, using the existing overlay
+harness. Two mechanisms it already carries do the awkward work: the fixture-repo pattern
+used by cases 6, 16/17 and 22 (`cp -pR install.sh content agents docs/licenses` into a temp
+tree, then mutate the copy) reaches a base the suite may not change, and a PATH shim in the
+style of `run_overlay_case_jq` hides `tomllib` from one run. Every case asserts a message on
+the stream that carries it, not only an exit status, so a refusal for an unrelated reason
+cannot satisfy it.
 
-| # | Case | Asserts | Reddens on revert |
-|---|---|---|---|
-| T1 | row 9's swallowing overlay | refused; names the overlay and `features`; says the merge split it rather than blaming the file | yes — the reported defect |
-| T2 | row 10's `features.goals` override | refused; names `features.goals` | yes |
-| T2b | overlay adding `[features.sub]` | installs; base's `features.goals` still true | yes — guards against refusing a legal extension |
-| T2c | base table replaced by a scalar in the merged result | refused; names `features`, not a key beneath it | yes |
-| T3 | overlay redefines `[features]` | refused; names the overlay, not a temp path; no traceback | yes (R10) |
-| T4 | overlay is invalid TOML | refused; names the overlay; carries the parser's diagnostic | yes (R10) |
-| T5 | empty overlay | installs; deployed document parses equal to the base; a second run reports it unchanged | partly — convergence clause |
-| T5b | overlay is unreadable (`chmod 000`) | run exits; `applied private overlay` absent; nothing deployed | yes (R8) |
-| T5c | refusal leaves no merged artifact behind | the temp file the refusal built is gone | yes (R7) |
-| T6 | bare non-table overlay | refused; names the overlay | yes (R10) |
-| T7 | no parser, overlay present, file already deployed | refused; live file byte-identical afterwards; message names the interpreter requirement | yes — row 11 |
-| T8 | no parser, no overlay | base installs, exit 0 | regression guard |
-| T9 | no parser, overlay present, empty destination | base alone deployed, 0600, exit non-zero | yes |
-| T10 | empty base table, overlay that drops it | refused; names the table | yes — a leaf walk alone would not see it |
-| T11 | refusal over a real prior install, with a stale entry seeded into the destination and its manifest | stale entry pruned **and** `config.toml` retained byte-for-byte | yes (R6 — proves `finish_agent` ran) |
-| T12 | refusal under `--agent all` | claude and bob install; Codex's `AGENTS.md`/`skills` install; `config.toml` withheld; `applied private overlay` absent from stdout | yes (R4, R9) |
-| T13 | no-overlay run, then a second run | deployed file byte-identical to the base both times; second run reports it unchanged | yes (R3 convergence) |
-| T14 | valid additive overlay (new root key + new table) | installs; both present; base's `features` present | regression guard |
-| T15 | the JSON nine-case protected-key battery, unchanged | existing assertions pass | R11 |
+The suite covers, in order: the swallowing overlay and the `features.goals` override that
+motivated the record; an additive `[features.sub]` that must still install; a base table
+replaced by a scalar in a document that parses; a retyped scalar (`goals = 1`); a non-UTF-8
+overlay and one nested past the parser's recursion limit, both under `--agent all` so the
+later agents are shown installing; the two duplicate-declaration routes; a malformed and a
+bare-value overlay; the verbatim base copy and its convergence on a second run; an empty
+overlay; the no-parser refusal over a live deployment, into an empty destination, and with
+no overlay at all; the three remaining deployed-state verdicts (differs, symlink,
+directory); a malformed base on both routes it reaches a destination by; an unreadable
+overlay; an overlay path `awk` would read as an assignment; the absence of a merged
+artifact after a refusal; a refusal under `--agent all`; an empty base table; and a base
+root key.
+
+The JSON nine-case protected-key battery is unchanged and still runs over a destination
+built by a real install.
+
+### Evidence the tests bite
+
+Each guarantee was reverted in turn and the suite re-run. Every mutation reddened the case
+that owns it:
+
+| Mutation | Case that reddened |
+|---|---|
+| drop the preservation comparison | swallowed base table — installed at exit 0 |
+| no-parser returns "accepted" instead of refusing | no parser over a deployment |
+| move `report_deployed_state` out of `install_merged_json` | the JSON battery's refusal-over-a-deployment case |
+| drop the `UnicodeDecodeError` verdict | non-UTF-8 overlay — traceback |
+| drop the recursion/memory verdict | overlay nested past the parser limit — traceback |
+| drop `require_valid_base_toml` | malformed base without an overlay — installed at exit 0 |
+| drop the type comparison | base scalar retyped — installed at exit 0 |
+| `awk` reads its operand instead of stdin | overlay path `awk` reads as an assignment |
+| stub out `report_deployed_toml_state` | no parser over a deployment |
 
 ### Two consequences the suite carries
 
@@ -246,19 +282,23 @@ stream that carries it, not only an exit status.
 suite now needs a `python3` that can `import tomllib` where before it degraded to skipping
 validation. That turns an optional tool into a hard prerequisite of `just verify`. The
 suite states it as a precondition with the version and the reason, rather than failing
-somewhere in the middle with a refusal verdict about a fixture.
+somewhere in the middle with a refusal verdict about a fixture. `install-tools.sh` does not
+check for it; issue #172 tracks that, and `README.md` records the gap meanwhile.
 
 A directory or other non-regular file at the overlay path still reads as "no overlay",
 because the guard is `[[ -f "$overlay" ]]`. That is unchanged and is what the JSON path
 does at the same point, so it stays consistent rather than becoming a second contract; it
 is recorded here as known rather than addressed.
 
-T11 is what proves R6: today's abort happens before `finish_agent`, so the earlier
-install's manifest survives untouched and a bare "the manifest still lists `config.toml`"
-assertion passes against the unfixed code. Seeding a stale managed path and asserting it
-was pruned in the same run is what shows the manifest was rewritten with the withheld path
-still in it.
+### Two verdicts that read oddly, and are left alone
 
-T5, T8, T13 and T14 pass against the unfixed code in part or whole and are kept as
-regression guards; T13's byte-identity clause and T5's do redden, because today's
-no-overlay and empty-overlay renderings both differ from the base file.
+After an ADR 0049 rule-4 fill, a second refused run reports the deployed `config.toml` as
+"the base alone; no overlay of yours has ever been applied there" about a file this
+installer just wrote. That is true as stated — no overlay was applied to it — and ADR 0049
+already records the same shape for JSON.
+
+Upgrading from a pre-0057 installer, a `config.toml` written by the old no-overlay path
+differs from the base by one leading newline, so the first refused run after the upgrade
+says it "differs from the base". One successful run converges it, after which the verdict
+is accurate. Both are reporting artefacts of a byte comparison chosen because the refusal
+may be a refusal for want of a parser.

@@ -758,18 +758,23 @@ install_merged_json() { # dest_dir base overlay rel...
 	done
 }
 
+# Read on stdin rather than as an operand. POSIX awk treats an operand matching
+# `name=value` as a variable assignment, so an overlay whose path contains an `=` made awk
+# read *stdin*, print nothing and exit 0 — the overlay silently dropped under a green
+# `applied private overlay`, which is the one thing the status guard below exists to catch
+# and the one shape it could not see. A redirection also fails loudly on an unreadable file.
 emit_root_settings() {
 	awk '
     /^[[:space:]]*\[/ { in_table = 1 }
     !in_table { print }
-  ' "$1"
+  ' <"$1"
 }
 
 emit_table_settings() {
 	awk '
     /^[[:space:]]*\[/ { in_table = 1 }
     in_table { print }
-  ' "$1"
+  ' <"$1"
 }
 
 supports_tomllib() {
@@ -787,6 +792,32 @@ render_base_toml() { # base output
 		printf 'install: could not read base config: %s\n' "$1" >&2
 		exit 1
 	fi
+}
+
+# The base reaches a destination on three routes — no overlay at all, the ADR 0049 fill, and
+# concatenated with an overlay — and only the third one used to be parsed, as part of the
+# merged document. So a malformed base deployed verbatim on the default route under a green
+# run, and blamed the operator's overlay on the third. A hard failure rather than a refusal,
+# because this is the repository's file: a malformed one is a defect here, not a mistake the
+# operator can fix (the same split `render_base` makes for JSON). Where no parser exists the
+# base is trusted unread, which is what ADR 0057 rule 2 already says about it.
+require_valid_base_toml() { # base
+	local diagnostic
+	local status=0
+
+	diagnostic="$(validate_toml "$1")" || status=$?
+	case "$status" in
+	0 | 2) return 0 ;;
+	1)
+		printf 'install: base config %s is not valid TOML:\n' "$1" >&2
+		printf 'install:   %s\n' "$diagnostic" >&2
+		exit 1
+		;;
+	*)
+		printf 'install: could not validate base config: %s\n' "$1" >&2
+		exit 1
+		;;
+	esac
 }
 
 # `0` accepted, `1` rejected, `2` no parser here, `3` the validator itself failed. The
@@ -809,12 +840,29 @@ validate_toml() { # path
 import sys
 import tomllib
 
+# Every way operator-supplied bytes can defeat the parser is a rejection, not a machine
+# failure. `TOMLDecodeError` is only the well-formed half: `tomllib.load` decodes the file
+# itself, so a file saved as latin-1 raises `UnicodeDecodeError`, and a pathologically
+# nested document raises `RecursionError` or `MemoryError`. Left uncaught, each of those
+# printed a traceback and took the whole run down with it — the abort ADR 0049 removed,
+# reached from a file the operator can fix.
 try:
     with open(sys.argv[1], "rb") as handle:
         tomllib.load(handle)
 except tomllib.TOMLDecodeError as exc:
     sys.stdout.write(f"{exc}\n")
     raise SystemExit(2) from exc
+except UnicodeDecodeError as exc:
+    sys.stdout.write(
+        f"it is not UTF-8 text ({exc.reason}, at byte {exc.start}). TOML 1.0 requires"
+        " UTF-8; re-save the file in that encoding.\n"
+    )
+    raise SystemExit(2) from exc
+except (RecursionError, MemoryError):
+    sys.stdout.write(
+        "it nests too deeply for the TOML parser to read.\n"
+    )
+    raise SystemExit(2)
 PY
 	case "$status" in
 	0) return 0 ;;
@@ -917,6 +965,8 @@ merge_toml_config() { # base overlay output
 	local erased
 	local erased_path
 	local status=0
+
+	require_valid_base_toml "$base"
 
 	if [[ ! -f "$overlay" ]]; then
 		render_base_toml "$base" "$output"
