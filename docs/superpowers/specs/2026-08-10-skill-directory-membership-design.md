@@ -75,16 +75,23 @@ is 0045's no-fault-for-a-missing-tree decision applied unchanged, and it is why 
 is guarded by the filter rather than by a fault.
 
 Surviving, the top-level children are enumerated with
-`find "$ROOT/content/skills/." ! -name . -prune -print0`. This deviates deliberately from
-`validate_inventory`'s `! -path "$root"` form: `-path` matches by fnmatch rather than literally,
-so a repository root holding `[`, `*` or `?` fails to match itself, `find` then prints the tree
-root as an entry and descends no further, and the gate emits one `unexpected-skill-entry` for
-`content/skills` beside all 36 declared names as missing — a total false red decided by the
-checkout path. The three-tree half is immune because it passes its operands to `find` directly
-and never pattern-matches them, and this script's own rule is that the environment must not
-reach the verdict. The `/.` form compares only the last component, which cannot carry a
-glob-bearing prefix; entries come back as `content/skills/./<name>`, and since only the basename
-is used the interior `/.` never reaches a message.
+`find "$ROOT/content/skills" -mindepth 1 -maxdepth 1 -print0`. The root is excluded by depth,
+which deviates deliberately from `validate_inventory`'s `! -path "$root"` form and from the
+`! -name .` variant of it. Both of those exclude the root by matching a pattern against it, and
+both have a case where the match fails and the root is printed as an entry with none of its
+children — the gate then emits `unexpected-skill-entry` for the tree itself beside all 36
+declared names as missing, a total false red. `-path` matches by fnmatch, so a repository root
+holding a well-formed bracket expression or a backslash does not match itself (verified: a root
+`br[ab]d/content/skills` enumerates the root and no children; an *unterminated* `[`, or a `*` or
+`?`, does self-match, since each also matches its own literal character). `! -name .` fails the
+other way and on a platform this repository actually gates: BSD `find` sets a start point's
+`fts_name` to the whole operand string rather than its basename, so `-name .` is false at the
+root, `-prune` fires there, and the macOS leg gets the same false red. Depth compares no
+patterns at all. `-mindepth`/`-maxdepth` are not POSIX but are carried by GNU find, BSD find and
+bfs alike, and `check-skill-layout-test.sh:288` already runs `-maxdepth 1` on the `macos-latest`
+leg. This is the one place the script's rule that the environment must not reach the verdict has
+a path-shaped input; the three-tree half is immune because it passes its operands to `find`
+directly and never pattern-matches them.
 
 `find` is used rather than the repository's usual `rg` for 0045's reason, which is stronger here
 than there: `cp -pR` ships dot-prefixed and gitignored entries, ripgrep applies `.gitignore` to
@@ -155,6 +162,10 @@ the other block has to work out which it addresses.
 
 Unchanged for the three trees, then the skills block:
 
+The internal sequence is pinned too, and not only the emission: the three trees' enumeration,
+sorts and comparisons run first, then the skills half's, then all emission. Without that, a
+suite row keyed to a mocked tool's invocation index cannot say which half it lands in.
+
 1. `unexpected-member`, `non-regular-member`, `missing-member` — each in `LC_ALL=C` order;
 2. the existing remedy line, when `unexpected-member` fired;
 3. `unexpected-skill-entry`, `non-directory-skill-entry`, `missing-skill-directory` — each in
@@ -220,11 +231,14 @@ third arriving as a red suite.
 | `content/skills` replaced by a symlink to a directory | all declared names missing; no entry from behind the link |
 | the skills tree made unreadable | exit 2, `could not enumerate the skills tree`, with no `missing-skill-directory` line; skipped as root, announcing the skip |
 | a three-tree finding and a skills finding in one run | the file block, its remedy, then the skills block, then its remedy — the ordering guarantee |
-| a `comm` that fails only on the skills-half comparison | exit 2 and a `deployed-membership:` line — the existing `comm` mock exits 1 unconditionally and so faults inside the three-tree half, leaving the skills-half routing unasserted |
+| a `comm` that fails only on the skills-half comparison | exit 2 and a `deployed-membership:` line. The existing mock exits 1 unconditionally and so faults inside the three-tree half, leaving the skills-half routing unasserted; this one counts invocations and fails the third, which the pinned internal sequence above makes well-defined |
 | a three-tree finding beside an unreadable `content/skills` | exit 2, no `unexpected-member` line — pins the global ordering consequence above; skipped as root |
-| a fixture root whose path contains `[` | passes, with the same summary — pins the enumerator against the fnmatch form |
+| a fixture root holding a well-formed bracket expression | passes, with the same summary. Reddens under either pattern-matching form: `! -path` fails to self-match a bracket root, so the row is a form-pin and not merely a hostile-path case |
 
-The existing rows are re-run unchanged, which is the evidence for the no-regression criterion.
+Every existing row is re-run unchanged except the two that pin the summary in full — the pass
+row and the `POSIXLY_CORRECT` row — whose expected string gains the `<k>` clause and stays an
+exact-match comparison rather than being relaxed to a substring. That is the evidence for the
+no-regression criterion.
 Two of them are re-read rather than merely re-run: the `.ignore` and dot-prefix rows for the
 three trees, and the `missing-member` rows, are the behaviors the issue names as
 must-not-regress, and their expected sequences are unchanged bytes.
