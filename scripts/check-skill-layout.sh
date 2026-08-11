@@ -63,6 +63,15 @@ utf8_scalar+='|\xF4[\x80-\x8F][\x80-\xBF]{2}'
 utf8_line="(?-u)^(?:$utf8_scalar)*\$"
 readonly utf8_scalar utf8_line
 
+# One remedy for both encoding rules (ADR 0050), because the two land on the same reader
+# from the same two directions and the right answer does not depend on which fired.
+# Conversion comes first: an author's document written in UTF-16 reaches whichever rule
+# its BOM decides, and "delete it" is the wrong instruction for their own work. Deletion
+# is second, for the tool-dropped artifact -- a `.DS_Store`, a vim `.swp`, `.orig` residue
+# -- which is the likelier trigger under the two roots no path rule covers.
+payload_remedy='convert it to UTF-8, delete it, or move it out of the delivered tree'
+readonly payload_remedy
+
 skill_error() {
 	local path="$1"
 	shift
@@ -192,11 +201,17 @@ validate_portable_tree() {
 # under LC_ALL=C, because the line it is trimming is by definition not decodable in a
 # UTF-8 locale, and there `.*` stops at the first bad byte and drags it into the
 # message (ADR 0023's defect in a new place).
+# The third argument is the remedy clause, and it is optional because the two callers
+# want different text. The payload rule passes `$payload_remedy`. `validate_frontmatter`
+# passes nothing: a `SKILL.md` is a required file, so "delete it or move it out of the
+# delivered tree" is not a remedy there -- fixing the bytes is the only way out.
 validate_utf8() {
 	local file="$1"
 	local relative="$2"
+	local remedy="${3:-}"
 	local status=0
 	local bad_line
+	local message
 
 	# Prove the sinks before trusting the status. A redirection bash cannot open makes
 	# the command fail without running it, and it fails with 1 -- the same 1 that means
@@ -220,7 +235,9 @@ validate_utf8() {
 	case "$status" in
 	0)
 		bad_line="$(LC_ALL=C sed -n '1s/:.*//p' "$workspace/utf8-bad")"
-		skill_error "$relative" "file must be valid UTF-8 (first malformed line $bad_line)"
+		message="file must be valid UTF-8 (first malformed line $bad_line)"
+		[[ -z "$remedy" ]] || message="$message; $remedy"
+		skill_error "$relative" "$message"
 		;;
 	1) ;;
 	*) skill_error "$relative" "UTF-8 scan failed: $(<"$workspace/utf8-error")" ;;
@@ -336,10 +353,17 @@ run_content_scan() { # results-file rg-argument...
 	# The results sink is appended rather than truncated -- two calls share one file --
 	# so the function proves both its own sinks instead of trusting its callers to.
 	#
-	# Stated explicitly here too. These calls are at top level today, where set -e would
+	# Stated explicitly here too. These calls reach top level today, where set -e would
 	# catch a bare `: >`, but that is a property of the call site rather than of this
 	# function: moving one inside a command substitution would silently restore the
 	# fail-open, which is exactly how it survived in validate_utf8.
+	#
+	# The results proof below is the one sink no case can pin, and deliberately so:
+	# `scan_deployed_payload` is the only caller, and it truncates and proves this same
+	# path immediately before calling, so nothing can make the append fail here without
+	# having failed there first. It stays as the guard for a second caller that does not
+	# truncate. The error-sink proof beneath it is pinned, and so are both of
+	# `scan_deployed_payload`'s and `validate_utf8`'s.
 	: >>"$results" ||
 		skill_error 'content' 'content scan failed: cannot create the results file'
 	: >"$workspace/rg-error" ||
@@ -354,8 +378,9 @@ run_content_scan() { # results-file rg-argument...
 # The delivered file set, as one call per rule. Two scans, because ripgrep's globs
 # filter the whole traversal rather than the path argument they follow, and only
 # `content/skills` is filtered by the installer: `stage_skills` drops `testdata`
-# entries there (ADR 0028, superseding ADR 0025), while `content/languages` and `content/references` deploy
-# verbatim, so a `testdata` entry under either really does ship and must stay visible.
+# entries there (ADR 0028, superseding ADR 0025), while `content/languages` and
+# `content/references` deploy verbatim, so a `testdata` entry under either really does
+# ship and must stay visible.
 #
 # The pattern is passed with -e rather than positionally, because the flags a caller
 # adds sit in front of it: without -e, a pattern that began with a dash would be read
@@ -416,7 +441,8 @@ project_review_count="$(validate_inventory "$project_review_root" \
 # root the installer copies: `content/skills`, plus the `content/languages` and
 # `content/references` that `install_common_content` delivers to all three agents
 # as the same bytes. `testdata` entries are excluded exactly as `stage_skills`
-# excludes them (ADR 0025); the portability checks above still cover them, because
+# excludes them (ADR 0028, superseding ADR 0025); the portability checks above still
+# cover them, because
 # those are repository hygiene rather than delivery.
 #
 # `agents/*/shared` is deliberately not scanned: an agent's own instructions may
@@ -472,8 +498,8 @@ if [[ -n "$malformed_utf8" ]]; then
 	# names only the file costs a reader. The scan already decided the verdict, so the
 	# error below is not dead code -- it is what keeps a disagreement between the two
 	# readings (a file rewritten between them) from falling through as a pass.
-	validate_utf8 "$repo_root/$malformed_utf8" "$malformed_utf8"
-	skill_error "$malformed_utf8" 'file must be valid UTF-8'
+	validate_utf8 "$repo_root/$malformed_utf8" "$malformed_utf8" "$payload_remedy"
+	skill_error "$malformed_utf8" "file must be valid UTF-8; $payload_remedy"
 fi
 
 # `(?-u)` for the same reason the acceptor needs it: it is what lets \x00 name a byte
@@ -493,7 +519,7 @@ read_scan_hit "$workspace/nul-bytes"
 nul_byte_file="$scan_hit"
 [[ -z "$nul_byte_file" ]] ||
 	skill_error "$nul_byte_file" 'deployed content must be UTF-8 text (file contains a NUL byte);' \
-		'convert it to UTF-8, delete it, or move it out of the delivered tree'
+		"$payload_remedy"
 
 scan_deployed_payload "$workspace/root-references" "$root_pattern"
 read_scan_hit "$workspace/root-references"

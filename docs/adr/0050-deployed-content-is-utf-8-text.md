@@ -115,9 +115,13 @@ the trees a contributor adds files to.
   those two roots read the same way, and a swap file makes `just verify` red for the
   length of an editing session. Narrowing the traversal is not the answer — that
   reopens the scanned-narrower-than-delivered hole this record exists to close — so the
-  answer is a message that names the remedy. It offers conversion first, because the
-  other way to reach this rule is an author's own document written in UTF-16, for whom
-  "delete it" is the wrong instruction. The prek hook runs `commit-check`, not
+  answer is a message that names the remedy. Both encoding rules carry the same one, and
+  they have to: which rule fires is decided by whether the file happens to hold a byte
+  outside the acceptor, so a UTF-16 document with a BOM fails the UTF-8 rule and the
+  same document without one fails the NUL rule. It offers conversion first, because the
+  other way to reach either rule is an author's own document written in UTF-16, for whom
+  "delete it" is the wrong instruction. `SKILL.md` is the one file that gets no remedy
+  clause: it is required, so its bytes are the only thing that can change. The prek hook runs `commit-check`, not
   `skills-check` (ADR 0039), so a commit is unaffected; this is the local full run and
   CI.
 - **`agents/*/shared` is delivered and unguarded, and this record does not close it.**
